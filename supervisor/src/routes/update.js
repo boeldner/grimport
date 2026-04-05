@@ -7,7 +7,7 @@ const Dockerode = require('dockerode');
 const router = Router();
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
-const CURRENT_VERSION = '0.7.1';
+const CURRENT_VERSION = '0.7.2';
 const REPO = 'boeldner/grimport';
 const IMAGE = process.env.GRIMPORT_IMAGE || 'ghcr.io/boeldner/grimport:latest';
 const CONTAINER_NAME = 'webhost-supervisor';

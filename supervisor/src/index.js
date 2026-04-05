@@ -33,7 +33,7 @@ app.get('/api/config', (req, res) => {
   const siteBaseDomain = db.prepare("SELECT value FROM settings WHERE key = 'site_base_domain'").get()?.value || '';
   const acmeEmail = db.prepare("SELECT value FROM settings WHERE key = 'acme_email'").get()?.value || process.env.ACME_EMAIL || '';
   res.json({
-    version: '0.7.1',
+    version: '0.7.2',
     siteBaseDomain,
     supervisorDomain: process.env.SUPERVISOR_DOMAIN || 'localhost',
     acmeEmail,
@@ -41,7 +41,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.7.1' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.7.2' }));
 
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
