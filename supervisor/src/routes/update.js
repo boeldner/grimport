@@ -3,11 +3,19 @@ const https = require('https');
 const path = require('path');
 const { requireRole } = require('../auth');
 const Dockerode = require('dockerode');
+const db = require('../db');
+
+function logActivity(event, detail) {
+  try {
+    db.prepare('INSERT INTO activity (site_id, site_name, event, detail) VALUES (?, ?, ?, ?)')
+      .run(null, 'grimport', event, detail);
+  } catch {}
+}
 
 const router = Router();
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
-const CURRENT_VERSION = '0.7.3';
+const CURRENT_VERSION = '0.7.2';
 const REPO = 'boeldner/grimport';
 const IMAGE = process.env.GRIMPORT_IMAGE || 'ghcr.io/boeldner/grimport:latest';
 const CONTAINER_NAME = 'webhost-supervisor';
@@ -91,6 +99,7 @@ router.post('/apply', requireRole('admin'), (req, res) => {
 async function performUpdate() {
   try {
     // 1. Pull new image — container keeps running, sites unaffected
+    logActivity('update_started', `Pulling ${IMAGE}`);
     updateState = { status: 'pulling', message: 'Pulling new image from GHCR…' };
     await new Promise((resolve, reject) => {
       docker.pull(IMAGE, (err, stream) => {
@@ -157,11 +166,13 @@ async function performUpdate() {
     await self.update({ RestartPolicy: { Name: 'no' } });
 
     // 5. Exit — the helper container takes over
+    logActivity('update_applying', `Restarting with ${IMAGE}`);
     updateState = { status: 'restarting', message: 'Restarting with new version…' };
     setTimeout(() => process.exit(0), 600);
 
   } catch (err) {
     console.error('[update] Failed:', err.message);
+    logActivity('update_failed', err.message);
     updateState = { status: 'error', message: err.message };
     try {
       await docker.getContainer(CONTAINER_NAME).update({ RestartPolicy: { Name: 'unless-stopped' } });

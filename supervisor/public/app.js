@@ -841,6 +841,9 @@ const EVENT_ICONS = {
   settings_changed: '⚙',
   up:               '✓',
   down:             '✕',
+  update_started:   '↓',
+  update_applying:  '↻',
+  update_failed:    '✕',
 };
 const EVENT_LABELS = {
   deployed:         'Deployed',
@@ -852,6 +855,9 @@ const EVENT_LABELS = {
   settings_changed: 'Settings changed',
   up:               'Back online',
   down:             'Went down',
+  update_started:   'Update started',
+  update_applying:  'Update applying',
+  update_failed:    'Update failed',
 };
 
 let activitySiteFilter = null;
@@ -889,7 +895,7 @@ async function loadActivity() {
         <div class="activity-item ${isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : ''}">
           <span class="activity-icon">${EVENT_ICONS[e.event] || '·'}</span>
           <div class="activity-body">
-            <span class="activity-site">${esc(e.site_name || 'Panel')}</span>
+            <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
             <span class="activity-event">${EVENT_LABELS[e.event] || e.event}</span>
             ${e.detail ? `<span class="activity-detail">${esc(e.detail)}</span>` : ''}
           </div>
@@ -1751,8 +1757,33 @@ async function pollUpdateStatus() {
     setUpdateStep('done');
     const doneIcon = document.getElementById('ustep-done-icon');
     if (doneIcon) doneIcon.textContent = '✓';
-    document.getElementById('update-status-msg').textContent = `Updated to v${health?.version || '?'}! Reloading…`;
-    setTimeout(() => window.location.reload(), 1500);
+    document.getElementById('update-status-msg').textContent = `Updated to v${health?.version || '?'}!`;
+
+    // Show countdown reload box
+    const box = document.getElementById('update-reload-box');
+    const countdownEl = document.getElementById('update-reload-countdown');
+    const bar = document.getElementById('update-countdown-bar');
+    const btnReload = document.getElementById('btn-reload-now');
+    if (!box) { window.location.reload(); return; }
+
+    box.classList.remove('hidden');
+    const TOTAL = 30;
+    let remaining = TOTAL;
+
+    const tick = () => {
+      remaining--;
+      if (countdownEl) countdownEl.textContent = remaining;
+      if (bar) bar.style.width = `${(remaining / TOTAL) * 100}%`;
+      if (remaining <= 0) { window.location.reload(); }
+    };
+
+    if (bar) bar.style.width = '100%';
+    const timer = setInterval(tick, 1000);
+
+    if (btnReload) btnReload.addEventListener('click', () => {
+      clearInterval(timer);
+      window.location.reload();
+    });
   };
 
   const check = async () => {

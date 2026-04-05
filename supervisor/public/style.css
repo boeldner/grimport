@@ -1463,6 +1463,29 @@ code {
   to { transform: rotate(360deg); }
 }
 
+.update-reload-box {
+  margin-top: 16px;
+  padding: 14px;
+  background: #1a2f1a;
+  border: 1px solid #2d5a2d;
+  border-radius: 8px;
+}
+.update-reload-msg { font-size: 13px; color: #86efac; margin-bottom: 8px; }
+.update-reload-msg strong { font-variant-numeric: tabular-nums; }
+.update-countdown-wrap {
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.update-countdown-bar {
+  height: 100%;
+  width: 100%;
+  background: #4ade80;
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
   .sidebar { width: 200px; min-width: 160px; }

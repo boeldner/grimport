@@ -843,10 +843,20 @@ systemctl start cloudflared</pre>
           </div>
           <div class="update-step" id="ustep-done">
             <span class="update-step-icon" id="ustep-done-icon">○</span>
-            <span>Done — reloading panel</span>
+            <span>Done</span>
           </div>
         </div>
         <p class="settings-desc" id="update-status-msg" style="margin-top:12px">Starting update…</p>
+
+        <!-- Shown only after update completes -->
+        <div id="update-reload-box" class="update-reload-box hidden">
+          <p class="update-reload-msg">Update complete! Reloading in <strong id="update-reload-countdown">30</strong>s</p>
+          <div class="update-countdown-wrap">
+            <div class="update-countdown-bar" id="update-countdown-bar"></div>
+          </div>
+          <button class="btn btn-primary" id="btn-reload-now" style="margin-top:12px;width:100%">Reload now</button>
+        </div>
+
         <p class="settings-desc" style="margin-top:8px;color:var(--text-subtle)">Everything happens inside the running container. Your sites stay online — only the panel restarts for a few seconds.</p>
       </div>
     </div>
