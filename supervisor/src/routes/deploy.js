@@ -5,7 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { siteDir, applySiteSettings } = require('../docker');
+const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
+const { requireSiteAccess, requireRole } = require('../auth');
+const { fireWebhooks } = require('../webhooks');
 
 const HISTORY_KEEP = 5; // zips to retain per site
 
@@ -54,7 +56,7 @@ const upload = multer({
 });
 
 // POST /api/deploy/:id — upload a zip and deploy it to a site
-router.post('/:id', upload.single('file'), async (req, res) => {
+router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
@@ -63,8 +65,15 @@ router.post('/:id', upload.single('file'), async (req, res) => {
     return res.status(404).json({ error: 'Site not found' });
   }
 
+  const runtime = row.runtime || 'static';
+  // php and static both use html/; node and python use app/
+  const isAppRuntime = runtime === 'node' || runtime === 'python';
+
   try {
-    const htmlDir = path.resolve(path.join(siteDir(req.params.id), 'html'));
+    const targetDir = path.resolve(isAppRuntime
+      ? path.join(appDir(req.params.id))
+      : path.join(siteDir(req.params.id), 'html'));
+    const htmlDir = targetDir; // alias for rest of code
 
     // Clear existing files
     fs.rmSync(htmlDir, { recursive: true, force: true });
@@ -115,6 +124,7 @@ router.post('/:id', upload.single('file'), async (req, res) => {
 
     saveDeployment(req.params.id, historyFilename, req.file.size);
     logActivity(req.params.id, row.name, 'deployed', req.file.originalname);
+    fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
 
     const site = {
       ...row,
@@ -125,9 +135,15 @@ router.post('/:id', upload.single('file'), async (req, res) => {
       custom_headers: row.custom_headers || '[]',
       redirects: row.redirects || '[]',
     };
+
+    // Run build step for app runtimes (node/python) if build_cmd is set
+    if (isAppRuntime && row.build_cmd) {
+      await runBuildStep(site);
+    }
+
     await applySiteSettings(site);
 
-    res.json({ ok: true, files: fs.readdirSync(htmlDir).length });
+    res.json({ ok: true, files: fs.readdirSync(targetDir).length });
   } catch (err) {
     try { fs.unlinkSync(req.file.path); } catch {}
     console.error('Deploy error:', err);
@@ -136,7 +152,7 @@ router.post('/:id', upload.single('file'), async (req, res) => {
 });
 
 // GET /api/deploy/:id/history
-router.get('/:id/history', (req, res) => {
+router.get('/:id/history', requireSiteAccess(), (req, res) => {
   const rows = db.prepare(
     'SELECT id, filename, size, deployed_at FROM deployments WHERE site_id = ? ORDER BY deployed_at DESC'
   ).all(req.params.id);
@@ -144,7 +160,7 @@ router.get('/:id/history', (req, res) => {
 });
 
 // POST /api/deploy/:id/rollback/:deploymentId
-router.post('/:id/rollback/:deploymentId', async (req, res) => {
+router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -196,6 +212,7 @@ router.post('/:id/rollback/:deploymentId', async (req, res) => {
     await applySiteSettings(site);
 
     logActivity(req.params.id, row.name, 'rolled_back', dep.filename);
+    fireWebhooks('rollback', req.params.id, row.name, dep.filename);
     res.json({ ok: true });
   } catch (err) {
     console.error('Rollback error:', err);

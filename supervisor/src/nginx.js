@@ -56,6 +56,15 @@ function generateNginxConfig(site) {
     ? '/usr/share/nginx/maintenance'
     : '/usr/share/nginx/html';
 
+  // Analytics snippet injection (Plausible, Umami, custom)
+  const snippetRaw = site.analytics_snippet || '';
+  const snippetBlock = snippetRaw
+    ? `
+  sub_filter '</body>' '${snippetRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'")} </body>';
+  sub_filter_once on;
+  sub_filter_types text/html;`
+    : '';
+
   return `server {
   listen 80;
   server_name ${site.domain};
@@ -64,6 +73,7 @@ function generateNginxConfig(site) {
 ${authBlock}
 ${customHeaders}
 ${redirects}
+${snippetBlock}
 
   location / {
     ${spaFallback}
