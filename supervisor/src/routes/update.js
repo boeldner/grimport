@@ -104,92 +104,69 @@ async function performUpdate() {
     const self = docker.getContainer(CONTAINER_NAME);
     const info = await self.inspect();
 
-    // 3. Disable own restart policy so Docker won't auto-restart the old image on exit
+    const cfg = {
+      name:   CONTAINER_NAME,
+      Image:  IMAGE,
+      Env:    info.Config.Env    || [],
+      Labels: info.Config.Labels || {},
+      HostConfig: {
+        Binds:         info.HostConfig.Binds       || [],
+        NetworkMode:   info.HostConfig.NetworkMode || 'bridge',
+        RestartPolicy: { Name: 'unless-stopped' },
+      },
+      NetworkingConfig: {
+        EndpointsConfig: info.NetworkSettings.Networks || {},
+      },
+    };
+
+    // 3. Spawn a helper container using the NEW image.
+    //    It has Docker socket access and runs independently — it will outlive us.
+    //    It waits for the old container to stop, removes it, then starts the new one.
+    const HELPER = 'grimport-updater';
+    const helperScript = `
+      const Dockerode = require('/app/node_modules/dockerode');
+      const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
+      const NAME = ${JSON.stringify(CONTAINER_NAME)};
+      const cfg  = ${JSON.stringify(cfg)};
+      async function run() {
+        await new Promise(r => setTimeout(r, 4000));
+        try { await docker.getContainer(NAME).remove({ force: true }); } catch {}
+        const nc = await docker.createContainer(cfg);
+        await nc.start();
+        console.log('[grimport-updater] done');
+      }
+      run().catch(e => { console.error('[grimport-updater] failed:', e.message); process.exit(1); });
+    `;
+
+    // Clean up any leftover helper from a previous attempt
+    try { await docker.getContainer(HELPER).remove({ force: true }); } catch {}
+
+    const helper = await docker.createContainer({
+      name: HELPER,
+      Image: IMAGE,
+      Cmd: ['node', '-e', helperScript],
+      HostConfig: {
+        Binds: ['/var/run/docker.sock:/var/run/docker.sock'],
+        AutoRemove: true,
+        NetworkMode: info.HostConfig.NetworkMode || 'bridge',
+      },
+    });
+    await helper.start();
+
+    // 4. Disable own restart policy so Docker won't auto-restart the old image on exit
     await self.update({ RestartPolicy: { Name: 'no' } });
 
-    // 4. Spawn a detached Node.js script that outlives us.
-    //    It waits for us to stop, then recreates the container with the new image.
-    const { spawn } = require('child_process');
-    const child = spawn(process.execPath, ['-e', buildRecreatorScript(info)], {
-      detached: true,
-      stdio: 'ignore',
-      env: process.env,
-    });
-    child.unref();
-
-    // 5. Exit — Docker won't restart (policy is now 'no').
-    //    The detached script takes over and creates a fresh container with the new image.
+    // 5. Exit — the helper container takes over
     updateState = { status: 'restarting', message: 'Restarting with new version…' };
     setTimeout(() => process.exit(0), 600);
 
   } catch (err) {
     console.error('[update] Failed:', err.message);
     updateState = { status: 'error', message: err.message };
-    // Restore restart policy so the container keeps running normally
     try {
       await docker.getContainer(CONTAINER_NAME).update({ RestartPolicy: { Name: 'unless-stopped' } });
     } catch {}
   }
-}
-
-function buildRecreatorScript(info) {
-  // Serialise only what createContainer needs — skip read-only inspection fields
-  const cfg = {
-    name:  CONTAINER_NAME,
-    Image: IMAGE,
-    Env:   info.Config.Env   || [],
-    Labels: info.Config.Labels || {},
-    HostConfig: {
-      Binds:         info.HostConfig.Binds         || [],
-      NetworkMode:   info.HostConfig.NetworkMode   || 'bridge',
-      RestartPolicy: { Name: 'unless-stopped' },   // restore policy on the new container
-    },
-    NetworkingConfig: {
-      EndpointsConfig: info.NetworkSettings.Networks || {},
-    },
-  };
-
-  return `
-    const Dockerode = require(${JSON.stringify(require.resolve('dockerode'))});
-    const fs = require('fs');
-    const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
-    const cfg = ${JSON.stringify(cfg)};
-    const LOG = '/tmp/grimport-recreator.log';
-
-    function log(msg) {
-      const line = new Date().toISOString() + ' ' + msg + '\\n';
-      try { fs.appendFileSync(LOG, line); } catch {}
-      console.log(msg);
-    }
-
-    async function run() {
-      log('[recreator] Starting — waiting for old container to stop...');
-      // Give the old container time to fully stop before we remove it
-      await new Promise(r => setTimeout(r, 5000));
-
-      try {
-        await docker.getContainer(${JSON.stringify(CONTAINER_NAME)}).remove({ force: true });
-        log('[recreator] Old container removed');
-      } catch (e) {
-        log('[recreator] remove old container: ' + e.message);
-      }
-
-      try {
-        const nc = await docker.createContainer(cfg);
-        await nc.start();
-        log('[recreator] New container started — update complete');
-      } catch (e) {
-        log('[recreator] FAILED to start new container: ' + e.message);
-        // Fallback: restore restart policy on whatever container exists so Docker recovers it
-        try {
-          await docker.getContainer(${JSON.stringify(CONTAINER_NAME)}).update({ RestartPolicy: { Name: 'unless-stopped' } });
-          log('[recreator] Restored restart policy on existing container');
-        } catch {}
-      }
-    }
-
-    run();
-  `;
 }
 
 module.exports = router;
