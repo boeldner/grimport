@@ -72,7 +72,12 @@ router.get('/check', async (req, res) => {
 });
 
 // GET /api/update/status
-router.get('/status', (req, res) => res.json(updateState));
+router.get('/status', (req, res) => {
+  const fs = require('fs');
+  let recreatorLog = null;
+  try { recreatorLog = fs.readFileSync('/tmp/grimport-recreator.log', 'utf8').trim().split('\n').slice(-5).join('\n'); } catch {}
+  res.json({ ...updateState, recreatorLog });
+});
 
 // POST /api/update/apply — admin only
 router.post('/apply', requireRole('admin'), (req, res) => {
@@ -146,25 +151,40 @@ function buildRecreatorScript(info) {
 
   return `
     const Dockerode = require(${JSON.stringify(require.resolve('dockerode'))});
+    const fs = require('fs');
     const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
     const cfg = ${JSON.stringify(cfg)};
+    const LOG = '/tmp/grimport-recreator.log';
+
+    function log(msg) {
+      const line = new Date().toISOString() + ' ' + msg + '\\n';
+      try { fs.appendFileSync(LOG, line); } catch {}
+      console.log(msg);
+    }
 
     async function run() {
+      log('[recreator] Starting — waiting for old container to stop...');
       // Give the old container time to fully stop before we remove it
       await new Promise(r => setTimeout(r, 5000));
 
       try {
         await docker.getContainer(${JSON.stringify(CONTAINER_NAME)}).remove({ force: true });
+        log('[recreator] Old container removed');
       } catch (e) {
-        console.error('[recreator] remove old container:', e.message);
+        log('[recreator] remove old container: ' + e.message);
       }
 
       try {
         const nc = await docker.createContainer(cfg);
         await nc.start();
-        console.log('[recreator] New container started — update complete');
+        log('[recreator] New container started — update complete');
       } catch (e) {
-        console.error('[recreator] Failed to start new container:', e.message);
+        log('[recreator] FAILED to start new container: ' + e.message);
+        // Fallback: restore restart policy on whatever container exists so Docker recovers it
+        try {
+          await docker.getContainer(${JSON.stringify(CONTAINER_NAME)}).update({ RestartPolicy: { Name: 'unless-stopped' } });
+          log('[recreator] Restored restart policy on existing container');
+        } catch {}
       }
     }
 
