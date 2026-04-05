@@ -1681,7 +1681,7 @@ document.getElementById('btn-settings-check-update').addEventListener('click', a
   btn.textContent = 'Checking…';
   try {
     // Bust the server-side cache by fetching directly (cache is 1h, this is a manual action)
-    const data = await api('GET', '/update/check');
+    const data = await api('GET', '/update/check?force=1');
     renderSettingsUpdateInfo(data);
   } catch { document.getElementById('settings-update-msg').textContent = 'Could not reach GitHub.'; }
   btn.disabled = false;

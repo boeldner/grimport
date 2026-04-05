@@ -54,7 +54,8 @@ function fetchLatestRelease() {
 // GET /api/update/check
 router.get('/check', async (req, res) => {
   const now = Date.now();
-  if (versionCache && now - versionCacheAt < CACHE_TTL) return res.json(versionCache);
+  const force = req.query.force === '1';
+  if (!force && versionCache && now - versionCacheAt < CACHE_TTL) return res.json(versionCache);
   try {
     const { version: latest, notes } = await fetchLatestRelease();
     versionCache = {
