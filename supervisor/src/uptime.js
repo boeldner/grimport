@@ -1,5 +1,6 @@
 const Dockerode = require('dockerode');
 const db = require('./db');
+const { fireWebhooks } = require('./webhooks');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 const NETWORK = process.env.DOCKER_NETWORK || 'webhost-net';
@@ -9,6 +10,13 @@ function logActivity(siteId, siteName, event, detail) {
   try {
     db.prepare('INSERT INTO activity (site_id, site_name, event, detail) VALUES (?, ?, ?, ?)')
       .run(siteId, siteName, event, detail || null);
+  } catch {}
+}
+
+function addNotification(type, title, detail, data) {
+  try {
+    db.prepare(`INSERT INTO notifications (type, title, detail, data) VALUES (?, ?, ?, ?)`)
+      .run(type, title, detail || null, data ? JSON.stringify(data) : null);
   } catch {}
 }
 
@@ -56,8 +64,16 @@ async function checkSite(site) {
 
   if (prev != null) {
     const wasUp = !!prev.up;
-    if (wasUp && !up) logActivity(site.id, site.name, 'down', `No response from ${site.domain}`);
-    if (!wasUp && up) logActivity(site.id, site.name, 'up', `${site.domain} is back online`);
+    if (wasUp && !up) {
+      logActivity(site.id, site.name, 'down', `No response from ${site.domain}`);
+      addNotification('site_down', `${site.name} is down`, `No response from ${site.domain}`, { siteId: site.id, domain: site.domain });
+      fireWebhooks('site_down', site.id, site.name, site.domain);
+    }
+    if (!wasUp && up) {
+      logActivity(site.id, site.name, 'up', `${site.domain} is back online`);
+      addNotification('site_up', `${site.name} is back online`, site.domain, { siteId: site.id, domain: site.domain });
+      fireWebhooks('site_up', site.id, site.name, site.domain);
+    }
   }
 }
 
