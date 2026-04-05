@@ -1626,16 +1626,21 @@ document.getElementById('btn-notif-clear-all').addEventListener('click', async (
 });
 
 // ── Update checker ────────────────────────────────────────
+let _updateCheckInFlight = null;
 async function checkForUpdate() {
-  try {
-    const data = await api('GET', '/update/check');
-    if (data.updateAvailable && currentUser.role === 'admin') {
-      document.getElementById('update-version').textContent = `v${data.latest} available`;
-      document.getElementById('update-banner').classList.remove('hidden');
-    }
-    renderSettingsUpdateInfo(data);
-    return data;
-  } catch {}
+  if (_updateCheckInFlight) return _updateCheckInFlight;
+  _updateCheckInFlight = api('GET', '/update/check')
+    .then(data => {
+      if (data.updateAvailable && currentUser.role === 'admin') {
+        document.getElementById('update-version').textContent = `v${data.latest} available`;
+        document.getElementById('update-banner').classList.remove('hidden');
+      }
+      renderSettingsUpdateInfo(data);
+      return data;
+    })
+    .catch(() => null)
+    .finally(() => { _updateCheckInFlight = null; });
+  return _updateCheckInFlight;
 }
 
 function renderSettingsUpdateInfo(data) {
