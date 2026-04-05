@@ -22,16 +22,18 @@ router.get('/', (req, res) => {
     default_spa_mode: getSetting('default_spa_mode') === '1',
     default_cache_enabled: getSetting('default_cache_enabled') !== '0',
     acme_email: getSetting('acme_email') || process.env.ACME_EMAIL || '',
+    analytics_snippet: getSetting('analytics_snippet') || '',
   });
 });
 
 // PUT /api/settings
 router.put('/', (req, res) => {
-  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email } = req.body;
+  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet } = req.body;
   if (site_base_domain !== undefined) setSetting('site_base_domain', site_base_domain.trim().toLowerCase());
   if (default_spa_mode !== undefined) setSetting('default_spa_mode', default_spa_mode ? '1' : '0');
   if (default_cache_enabled !== undefined) setSetting('default_cache_enabled', default_cache_enabled ? '1' : '0');
   if (acme_email !== undefined) setSetting('acme_email', acme_email.trim().toLowerCase());
+  if (analytics_snippet !== undefined) setSetting('analytics_snippet', analytics_snippet.trim());
   res.json({ ok: true, restart_required: acme_email !== undefined });
 });
 

@@ -63,6 +63,11 @@ services:
       # ── Also uncomment these 2 to redirect HTTP→HTTPS in production ──
       # - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
       # - "traefik.http.routers.supervisor-http.middlewares=https-redirect"
+      # ── Catch-all router — routes unknown hostnames to supervisor for detection ──
+      - "traefik.http.routers.supervisor-catchall.rule=HostRegexp(`.+`)"
+      - "traefik.http.routers.supervisor-catchall.priority=1"
+      - "traefik.http.routers.supervisor-catchall.entrypoints=web"
+      - "traefik.http.routers.supervisor-catchall.service=supervisor"
     depends_on:
       traefik:
         condition: service_healthy

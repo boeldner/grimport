@@ -21,6 +21,10 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 
+// ── Unknown domain catch-all (runs before auth, after session) ─
+const { catchallMiddleware } = require('./catchall');
+app.use(catchallMiddleware);
+
 // ── Public routes (no auth) ────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 
@@ -29,7 +33,7 @@ app.get('/api/config', (req, res) => {
   const siteBaseDomain = db.prepare("SELECT value FROM settings WHERE key = 'site_base_domain'").get()?.value || '';
   const acmeEmail = db.prepare("SELECT value FROM settings WHERE key = 'acme_email'").get()?.value || process.env.ACME_EMAIL || '';
   res.json({
-    version: '0.5.1',
+    version: '0.7.1',
     siteBaseDomain,
     supervisorDomain: process.env.SUPERVISOR_DOMAIN || 'localhost',
     acmeEmail,
@@ -37,7 +41,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.5.1' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.7.1' }));
 
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
@@ -45,8 +49,12 @@ app.use('/api/deploy',   requireAuth, require('./routes/deploy'));
 app.use('/api/settings', requireAuth, require('./routes/settings'));
 app.use('/api/dns',       requireAuth, require('./routes/dns'));
 app.use('/api/analytics', requireAuth, require('./routes/analytics'));
-app.use('/api/uptime',   requireAuth, require('./routes/uptime'));
-app.use('/api/activity', requireAuth, require('./routes/activity'));
+app.use('/api/uptime',          requireAuth, require('./routes/uptime'));
+app.use('/api/activity',        requireAuth, require('./routes/activity'));
+app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
+app.use('/api/settings/webhooks', requireAuth, require('./routes/webhooks'));
+app.use('/api/users',           requireAuth, require('./routes/users'));
+app.use('/api/update',          requireAuth, require('./routes/update'));
 
 // ── Static files ───────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));
