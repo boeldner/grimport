@@ -87,22 +87,78 @@ db.exec(`
     detail     TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
+
+  -- Notifications: bell feed (unknown domains, site down alerts)
+  CREATE TABLE IF NOT EXISTS notifications (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    type       TEXT NOT NULL,              -- unknown_domain | site_down | site_up
+    title      TEXT NOT NULL,
+    detail     TEXT,
+    data       TEXT,                       -- JSON payload (e.g. {domain:'foo.com'})
+    read       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Webhooks: fire POST on events to external URLs
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    events     TEXT NOT NULL DEFAULT '["deploy","rollback","site_down","site_up"]',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Users: multi-user accounts with roles
+  CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'editor',  -- admin | editor | viewer
+    created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Site permissions: which sites an editor/viewer can access (admin sees all)
+  CREATE TABLE IF NOT EXISTS site_permissions (
+    user_id  TEXT NOT NULL,
+    site_id  TEXT NOT NULL,
+    PRIMARY KEY (user_id, site_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+  );
 `);
 
-// Add ssl_enabled column to existing installs (safe no-op if already present)
+// Safe migrations for existing installs
 try { db.exec('ALTER TABLE sites ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE sites ADD COLUMN preview_container_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE sites ADD COLUMN preview_domain TEXT'); } catch {}
+try { db.exec("ALTER TABLE sites ADD COLUMN runtime TEXT NOT NULL DEFAULT 'static'"); } catch {}
+try { db.exec('ALTER TABLE sites ADD COLUMN build_cmd TEXT'); } catch {}
+try { db.exec('ALTER TABLE sites ADD COLUMN start_cmd TEXT'); } catch {}
+try { db.exec('ALTER TABLE sites ADD COLUMN app_port INTEGER DEFAULT 3000'); } catch {}
+try { db.exec("ALTER TABLE sites ADD COLUMN env_vars TEXT DEFAULT '{}'"); } catch {}
 
-// Seed password from env if not yet set
-const existing = db.prepare("SELECT value FROM settings WHERE key = 'password_hash'").get();
-if (!existing) {
-  const secret = process.env.SUPERVISOR_SECRET || 'changeme';
-  const hash = bcrypt.hashSync(secret, 12);
-  db.prepare("INSERT INTO settings (key, value) VALUES ('password_hash', ?)").run(hash);
-  if (secret === 'changeme') {
-    console.warn('[security] SUPERVISOR_SECRET is "changeme" — change it in .env before going public!');
+// Seed first admin user from existing password_hash setting (one-time migration)
+const { nanoid } = require('nanoid');
+const adminExists = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
+if (!adminExists) {
+  const existingHash = db.prepare("SELECT value FROM settings WHERE key = 'password_hash'").get();
+  let hash;
+  if (existingHash) {
+    hash = existingHash.value;
+  } else {
+    const secret = process.env.SUPERVISOR_SECRET || 'changeme';
+    hash = bcrypt.hashSync(secret, 12);
+    if (secret === 'changeme') {
+      console.warn('[security] SUPERVISOR_SECRET is "changeme" — change it in .env before going public!');
+    }
   }
+  db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)')
+    .run(nanoid(10), 'admin', hash, 'admin');
+  console.log('[auth] Created initial admin user (username: admin)');
 }
 
+// Keep password_hash setting in sync for backward compat (unused by new auth, but harmless)
 // Seed site_base_domain from env if not yet set
 if (!db.prepare("SELECT value FROM settings WHERE key = 'site_base_domain'").get()) {
   db.prepare("INSERT INTO settings (key, value) VALUES ('site_base_domain', ?)").run(
