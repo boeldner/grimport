@@ -1738,11 +1738,20 @@ function setUpdateStep(activeStatus) {
 
 async function pollUpdateStatus() {
   let panelWasDown = false;
+  let seenNonIdle = false;  // true once we've seen pulling/applying/restarting
   let pollInterval;
+
+  const finish = (health) => {
+    clearInterval(pollInterval);
+    setUpdateStep('done');
+    const doneIcon = document.getElementById('ustep-done-icon');
+    if (doneIcon) doneIcon.textContent = '✓';
+    document.getElementById('update-status-msg').textContent = `Updated to v${health?.version || '?'}! Reloading…`;
+    setTimeout(() => window.location.reload(), 1500);
+  };
 
   const check = async () => {
     try {
-      // Try to reach the health endpoint (might fail during restart)
       const health = await fetch('/api/health').then(r => r.json()).catch(() => null);
 
       if (!health) {
@@ -1754,13 +1763,8 @@ async function pollUpdateStatus() {
       }
 
       if (panelWasDown) {
-        // Panel is back up!
-        clearInterval(pollInterval);
-        setUpdateStep('done');
-        const doneIcon = document.getElementById('ustep-done-icon');
-        if (doneIcon) doneIcon.textContent = '✓';
-        document.getElementById('update-status-msg').textContent = `Updated to v${health.version || '?'}! Reloading…`;
-        setTimeout(() => window.location.reload(), 1500);
+        // Panel came back after being down — definitely done
+        finish(health);
         return;
       }
 
@@ -1771,17 +1775,20 @@ async function pollUpdateStatus() {
       if (status.status === 'error') {
         clearInterval(pollInterval);
         document.getElementById('update-status-msg').textContent = `Error: ${status.message}`;
-        setUpdateStep('pulling'); // reset to start
+        setUpdateStep('pulling');
         return;
       }
 
       if (status.status !== 'idle') {
+        seenNonIdle = true;
         setUpdateStep(status.status);
         document.getElementById('update-status-msg').textContent = status.message;
+      } else if (seenNonIdle) {
+        // Was busy, now idle on a fresh process — container swapped without detectable downtime
+        finish(health);
       }
 
     } catch {
-      // Network error — panel is probably down/restarting
       panelWasDown = true;
       setUpdateStep('restarting');
       document.getElementById('update-status-msg').textContent = 'Panel restarting… sites are still online.';
