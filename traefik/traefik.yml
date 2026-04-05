@@ -1,0 +1,33 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+api:
+  dashboard: false
+
+ping: {}
+
+log:
+  level: INFO
+
+accessLog: {}
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+# certificatesResolvers are configured via the dynamic file provider
+# so they can be enabled/disabled without restarting Traefik.
+# See traefik/dynamic/tls.yml (created by setup when ACME_EMAIL is set).
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    network: webhost-net
+    exposedByDefault: false
+    watch: true
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true

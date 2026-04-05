@@ -1,0 +1,32 @@
+# Environment — never commit secrets
+.env
+
+# Runtime data — generated at runtime, not source
+data/sites/
+data/certs/
+data/supervisor.db
+data/supervisor.db-shm
+data/supervisor.db-wal
+
+# Keep data directory structure
+!data/.gitkeep
+!data/default-page/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local scripts
+push.sh
+
+# Claude Code project config
+.claude/
+
+# Editor
+.idea/
+.vscode/
+*.swp

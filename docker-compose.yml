@@ -1,0 +1,73 @@
+services:
+  traefik:
+    image: traefik:v3.2
+    container_name: webhost-traefik
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./data/certs:/certs
+    command:
+      - sh
+      - -c
+      - "touch /certs/acme.json && chmod 600 /certs/acme.json && traefik"
+    networks:
+      - webhost-net
+
+  supervisor:
+    image: ${GRIMPORT_IMAGE:-ghcr.io/boeldner/grimport:latest}
+    build:
+      context: ./supervisor
+      dockerfile: Dockerfile
+    container_name: webhost-supervisor
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - SUPERVISOR_SECRET=${SUPERVISOR_SECRET:-changeme}
+      - DATA_PATH=/data/sites
+      - HOST_DATA_PATH=${PWD}/data/sites
+      - DOCKER_NETWORK=webhost-net
+      - SUPERVISOR_DOMAIN=${SUPERVISOR_DOMAIN:-localhost}
+      - SITE_BASE_DOMAIN=${SITE_BASE_DOMAIN:-}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+      - PUBLIC_IP=${PUBLIC_IP:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    networks:
+      - webhost-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.supervisor.loadbalancer.server.port=3000"
+      # HTTP router — always active (local dev + ACME challenge)
+      - "traefik.http.routers.supervisor-http.rule=Host(`${SUPERVISOR_DOMAIN:-localhost}`)"
+      - "traefik.http.routers.supervisor-http.entrypoints=web"
+      - "traefik.http.routers.supervisor-http.service=supervisor"
+      # ── Production HTTPS — uncomment all 4 lines below when deploying to a real domain ──
+      # - "traefik.http.routers.supervisor.rule=Host(`${SUPERVISOR_DOMAIN:-localhost}`)"
+      # - "traefik.http.routers.supervisor.entrypoints=websecure"
+      # - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
+      # - "traefik.http.routers.supervisor.service=supervisor"
+      # ── Also uncomment these 2 to redirect HTTP→HTTPS in production ──
+      # - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      # - "traefik.http.routers.supervisor-http.middlewares=https-redirect"
+    depends_on:
+      traefik:
+        condition: service_healthy
+
+networks:
+  webhost-net:
+    name: webhost-net
+    driver: bridge

@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grimport</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='2' y='2' width='4' height='12' rx='1.5' fill='%23b91c1c'/%3E%3Crect x='10' y='4' width='4' height='10' rx='1.5' fill='%23b91c1c'/%3E%3Crect x='2' y='2' width='12' height='3' rx='1.5' fill='%23b91c1c'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="22" height="22" fill="none" aria-hidden="true">
+        <rect x="3" y="3" width="4" height="14" rx="1.5" fill="#b91c1c"/>
+        <rect x="13" y="5" width="4" height="12" rx="1.5" fill="#b91c1c"/>
+        <rect x="3" y="3" width="14" height="3" rx="1.5" fill="#b91c1c"/>
+      </svg>
+      <span class="logo-text">Grimport</span>
+    </div>
+    <nav>
+      <a href="#" class="nav-item active" data-view="sites">Sites</a>
+      <a href="#" class="nav-item" data-view="activity">Activity <span class="nav-badge hidden" id="activity-badge"></span></a>
+      <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-sm" id="btn-signout">Sign out</button>
+      <span class="version">Grimport v0.5.1</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- Sites view -->
+    <div id="view-sites" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Sites</h1>
+          <p class="subtitle" id="site-count">Loading…</p>
+        </div>
+        <div class="view-header-end">
+          <input class="search-input" id="site-search" type="search" placeholder="Search sites…" autocomplete="off" />
+          <button class="btn btn-primary" id="btn-new-site">+ New site</button>
+        </div>
+      </header>
+      <div id="sites-list" class="sites-grid"></div>
+    </div>
+
+    <!-- Activity view -->
+    <div id="view-activity" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Activity</h1>
+          <p class="subtitle">Recent events across all sites</p>
+        </div>
+      </header>
+      <div class="activity-filters" id="activity-filters"></div>
+      <div id="activity-feed" class="activity-feed"></div>
+    </div>
+
+    <!-- Panel settings view -->
+    <div id="view-panel-settings" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Settings</h1>
+          <p class="subtitle">Panel configuration</p>
+        </div>
+      </header>
+      <div class="settings-page">
+        <div class="settings-ptabs">
+          <button class="settings-ptab active" data-stab="general">General</button>
+          <button class="settings-ptab" data-stab="server">Server &amp; DNS</button>
+          <button class="settings-ptab" data-stab="tokens">API Tokens</button>
+          <button class="settings-ptab" data-stab="security">Security</button>
+        </div>
+
+        <!-- General -->
+        <div id="spanel-general" class="settings-ppanel">
+          <section class="settings-section">
+            <h3>Site defaults</h3>
+            <form id="form-panel-settings">
+              <label>Base domain for auto-generated URLs
+                <input type="text" name="site_base_domain" placeholder="site.yourdomain.com" />
+                <small>New sites get a random subdomain, e.g. <code>a8f3k2p9xq.site.yourdomain.com</code></small>
+              </label>
+              <label class="row">
+                <input type="checkbox" name="default_spa_mode" />
+                <span>Default SPA mode for new sites</span>
+              </label>
+              <label class="row">
+                <input type="checkbox" name="default_cache_enabled" />
+                <span>Default cache enabled for new sites</span>
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+              </div>
+            </form>
+          </section>
+        </div>
+
+        <!-- Server & DNS -->
+        <div id="spanel-server" class="settings-ppanel hidden">
+          <section class="settings-section">
+            <h3>Server</h3>
+            <div class="server-info-grid" id="server-info-grid">
+              <div class="server-info-item">
+                <span class="server-info-label">Public IP</span>
+                <span class="server-info-value" id="srv-ip">detecting…</span>
+              </div>
+              <div class="server-info-item">
+                <span class="server-info-label">Panel URL</span>
+                <span class="server-info-value" id="srv-domain">—</span>
+              </div>
+              <div class="server-info-item">
+                <span class="server-info-label">Version</span>
+                <span class="server-info-value" id="srv-version">—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>DNS setup</h3>
+            <p class="settings-desc">Point your domains to this server by adding A records in your DNS provider (Hetzner, Namecheap, Porkbun, Cloudflare, etc.).</p>
+
+            <div class="dns-setup-block">
+              <div class="dns-setup-label">Panel domain</div>
+              <div class="dns-record-table">
+                <div class="dns-record-row dns-record-header"><span>Type</span><span>Name</span><span>Value</span><span>TTL</span></div>
+                <div class="dns-record-row">
+                  <span class="dns-tag">A</span>
+                  <span class="dns-mono" id="srv-dns-panel-name">—</span>
+                  <span class="dns-mono dns-ip" id="srv-dns-panel-ip">detecting…</span>
+                  <span class="dns-muted">3600</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="dns-setup-block" id="srv-dns-wildcard-block">
+              <div class="dns-setup-label">Wildcard for sites <span class="settings-subsection-hint">(requires base domain in General)</span></div>
+              <div class="dns-record-table">
+                <div class="dns-record-row dns-record-header"><span>Type</span><span>Name</span><span>Value</span><span>TTL</span></div>
+                <div class="dns-record-row">
+                  <span class="dns-tag">A</span>
+                  <span class="dns-mono" id="srv-dns-wildcard-name">—</span>
+                  <span class="dns-mono dns-ip" id="srv-dns-wildcard-ip">detecting…</span>
+                  <span class="dns-muted">3600</span>
+                </div>
+              </div>
+            </div>
+
+            <p class="dns-note">DNS propagation usually takes 1–5 minutes with low TTL. Use the DNS status button on each site card to verify.</p>
+          </section>
+
+          <section class="settings-section">
+            <h3>HTTPS / SSL</h3>
+            <div id="ssl-status-banner" class="ssl-status-banner ssl-status-unconfigured">
+              <span id="ssl-status-icon">✕</span>
+              <div>
+                <strong id="ssl-status-title">SSL not configured</strong>
+                <div id="ssl-status-detail" class="settings-desc" style="margin-top:4px"></div>
+              </div>
+            </div>
+
+            <form id="form-acme" style="margin-top:12px">
+              <label>Let's Encrypt email
+                <input type="email" name="acme_email" placeholder="you@yourdomain.com" />
+                <small>Used by Let's Encrypt for certificate expiry notifications.</small>
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+              </div>
+            </form>
+
+            <div id="ssl-restart-notice" class="restart-notice hidden">
+              <strong>Restart required to apply.</strong> Run this on your server:
+              <pre class="dns-code">docker compose down &amp;&amp; docker compose up -d</pre>
+            </div>
+
+            <p class="dns-note" style="margin-top:12px">Using Cloudflare proxy? No Let's Encrypt needed — Cloudflare handles SSL at the edge. Set SSL/TLS mode to "Full" in your Cloudflare dashboard.</p>
+          </section>
+
+          <section class="settings-section">
+            <h3>Cloudflare Tunnel</h3>
+            <p class="settings-desc">Expose your server without opening any ports using <strong>cloudflared</strong>. Ideal for servers behind NAT or firewalls.</p>
+            <div class="dns-steps">
+              <div class="dns-step">
+                <span class="dns-step-num">1</span>
+                <div>
+                  <strong>Install cloudflared</strong> on your server:
+                  <pre class="dns-code">curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt update &amp;&amp; sudo apt install cloudflared</pre>
+                </div>
+              </div>
+              <div class="dns-step">
+                <span class="dns-step-num">2</span>
+                <div>
+                  <strong>Authenticate and create a tunnel:</strong>
+                  <pre class="dns-code">cloudflared tunnel login
+cloudflared tunnel create grimport</pre>
+                </div>
+              </div>
+              <div class="dns-step">
+                <span class="dns-step-num">3</span>
+                <div>
+                  <strong>Create a config file</strong> at <code>~/.cloudflared/config.yml</code>:
+                  <pre class="dns-code">tunnel: &lt;your-tunnel-id&gt;
+credentials-file: /root/.cloudflared/&lt;tunnel-id&gt;.json
+
+ingress:
+  - hostname: panel.yourdomain.com
+    service: http://localhost:80
+  - hostname: "*.yourdomain.com"
+    service: http://localhost:80
+  - service: http_status:404</pre>
+                </div>
+              </div>
+              <div class="dns-step">
+                <span class="dns-step-num">4</span>
+                <div>
+                  <strong>Route DNS through the tunnel</strong> (Cloudflare adds CNAMEs automatically):
+                  <pre class="dns-code">cloudflared tunnel route dns grimport panel.yourdomain.com
+cloudflared tunnel route dns grimport "*.yourdomain.com"</pre>
+                </div>
+              </div>
+              <div class="dns-step">
+                <span class="dns-step-num">5</span>
+                <div>
+                  <strong>Run as a service:</strong>
+                  <pre class="dns-code">cloudflared service install
+systemctl start cloudflared</pre>
+                </div>
+              </div>
+            </div>
+            <p class="dns-note">With a tunnel, ports 80/443 don't need to be open. Cloudflare handles all SSL — no Let's Encrypt needed. Set <code>SITE_BASE_DOMAIN</code> in your <code>.env</code> to your wildcard base domain.</p>
+          </section>
+        </div>
+
+        <!-- API Tokens -->
+        <div id="spanel-tokens" class="settings-ppanel hidden">
+          <section class="settings-section">
+            <h3>API Tokens</h3>
+            <p class="settings-desc">Use tokens to deploy sites from CI/CD pipelines or scripts without a browser session. Tokens have full API access — treat them like passwords.</p>
+            <p class="settings-desc">Example: <code>curl -H "Authorization: Bearer grim_…" https://panel.yourdomain.com/api/deploy/SITE_ID -F file=@build.zip</code></p>
+
+            <div id="token-reveal" class="token-reveal hidden">
+              <div class="token-reveal-label">Token created — copy it now, it won't be shown again:</div>
+              <div class="token-reveal-row">
+                <code id="token-reveal-value" class="token-value"></code>
+                <button class="btn btn-sm" id="btn-copy-token">Copy</button>
+              </div>
+            </div>
+
+            <div id="tokens-list"></div>
+
+            <form id="form-create-token" class="token-create-form">
+              <input type="text" name="token_name" placeholder="Token name, e.g. GitHub Actions" />
+              <button type="submit" class="btn btn-primary">Create token</button>
+            </form>
+          </section>
+        </div>
+
+        <!-- Security -->
+        <div id="spanel-security" class="settings-ppanel hidden">
+          <section class="settings-section">
+            <h3>Change password</h3>
+            <form id="form-change-password">
+              <label>Current password
+                <input type="password" name="old_password" autocomplete="current-password" required />
+              </label>
+              <label>New password
+                <input type="password" name="new_password" autocomplete="new-password" required />
+                <small>Minimum 8 characters</small>
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Change password</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── Modal: New Site ─────────────────────────────── -->
+  <div id="modal-new-site" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>New site</h2>
+        <button class="modal-close" data-close="modal-new-site">✕</button>
+      </div>
+      <form id="form-new-site">
+        <label>Site name
+          <input type="text" name="name" placeholder="My Portfolio" required />
+        </label>
+        <label>Domain / hostname
+          <input type="text" name="domain" placeholder="portfolio.localhost" required />
+          <small>Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</small>
+        </label>
+        <label class="row">
+          <input type="checkbox" name="spa_mode" />
+          <span>SPA mode <small>(serve index.html for all 404s — for React / Vue Router)</small></span>
+        </label>
+        <label class="row">
+          <input type="checkbox" name="cache_enabled" checked />
+          <span>Cache static assets</span>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close="modal-new-site">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create &amp; launch</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Modal: Deploy ──────────────────────────────── -->
+  <div id="modal-deploy" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Deploy to <span id="deploy-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-deploy">✕</button>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-inner">
+          <span class="dropzone-icon">↑</span>
+          <p>Drop your <strong>.zip</strong> here, or click to browse</p>
+          <small>Supports Webflow exports, React / Vue build output, any static site</small>
+          <input type="file" id="deploy-file-input" accept=".zip" hidden />
+        </div>
+      </div>
+      <div id="deploy-progress" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <p id="deploy-status-text">Uploading…</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-deploy">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-deploy-confirm" disabled>Deploy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Site Settings ───────────────────────── -->
+  <div id="modal-settings" class="modal-backdrop hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Settings — <span id="settings-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-settings">✕</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-stab="general">General</button>
+        <button class="modal-tab" data-stab="behaviour">Behaviour</button>
+        <button class="modal-tab" data-stab="access">Access</button>
+      </div>
+
+      <form id="form-settings">
+        <input type="hidden" name="id" />
+
+        <!-- Tab: General -->
+        <div class="modal-tab-panel" id="stab-general">
+          <label>Site name
+            <input type="text" name="name" required />
+          </label>
+          <label>Domain
+            <input type="text" name="domain" required />
+            <small>Changing the domain requires a container restart — existing traffic will briefly drop.</small>
+          </label>
+        </div>
+
+        <!-- Tab: Behaviour -->
+        <div class="modal-tab-panel hidden" id="stab-behaviour">
+          <label class="row">
+            <input type="checkbox" name="spa_mode" />
+            <span>SPA mode <small>(React/Vue Router — serve index.html for all 404s)</small></span>
+          </label>
+          <label class="row">
+            <input type="checkbox" name="cache_enabled" />
+            <span>Cache static assets <small>(1-year expires + immutable for JS/CSS/images)</small></span>
+          </label>
+          <label class="row">
+            <input type="checkbox" name="maintenance_mode" />
+            <span>Maintenance mode <small>(shows maintenance page to visitors)</small></span>
+          </label>
+          <label class="row" id="ssl-toggle-row">
+            <input type="checkbox" name="ssl_enabled" />
+            <span>Enable HTTPS <small id="ssl-toggle-hint">(requires ACME_EMAIL in .env)</small></span>
+          </label>
+
+          <div class="settings-subsection">
+            <div class="settings-subsection-title">Custom response headers <span class="settings-subsection-hint">optional</span></div>
+            <div id="headers-list"></div>
+            <button type="button" class="btn btn-sm" id="btn-add-header">+ Add header</button>
+          </div>
+        </div>
+
+        <!-- Tab: Access -->
+        <div class="modal-tab-panel hidden" id="stab-access">
+          <div class="settings-subsection">
+            <div class="settings-subsection-title">Basic auth <span class="settings-subsection-hint">optional — password-protect this site</span></div>
+            <div class="auth-grid">
+              <label>Username
+                <input type="text" name="auth_username" autocomplete="off" placeholder="admin" />
+              </label>
+              <label>Password
+                <input type="password" name="auth_password" autocomplete="new-password" placeholder="leave blank to keep current" />
+              </label>
+            </div>
+            <label class="row" style="margin-top:8px">
+              <input type="checkbox" name="auth_remove" />
+              <span style="color:var(--text-muted)">Remove basic auth</span>
+            </label>
+          </div>
+
+          <div class="settings-subsection">
+            <div class="settings-subsection-title">URL redirects <span class="settings-subsection-hint">optional — rewrite rules applied before serving files</span></div>
+            <div id="redirects-list"></div>
+            <button type="button" class="btn btn-sm" id="btn-add-redirect">+ Add redirect</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-danger" id="btn-delete-site">Delete site</button>
+          <div style="flex:1"></div>
+          <button type="button" class="btn" data-close="modal-settings">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Modal: Analytics ─────────────────────────── -->
+  <div id="modal-analytics" class="modal-backdrop hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Analytics — <span id="analytics-site-name"></span></h2>
+        <div style="display:flex;gap:6px;align-items:center">
+          <div class="analytics-periods">
+            <button class="analytics-period-btn" data-period="24h">24h</button>
+            <button class="analytics-period-btn active" data-period="7d">7d</button>
+            <button class="analytics-period-btn" data-period="30d">30d</button>
+          </div>
+          <button class="modal-close" data-close="modal-analytics">✕</button>
+        </div>
+      </div>
+
+      <div id="analytics-loading" class="hidden" style="text-align:center;padding:24px;color:var(--text-muted)">Loading…</div>
+
+      <div id="analytics-body">
+        <div class="analytics-stats">
+          <div class="analytics-stat">
+            <div class="analytics-stat-value" id="stat-requests">—</div>
+            <div class="analytics-stat-label">Requests</div>
+            <div class="analytics-stat-sub" id="stat-requests-1h">— last 1h</div>
+          </div>
+          <div class="analytics-stat">
+            <div class="analytics-stat-value" id="stat-bytes">—</div>
+            <div class="analytics-stat-label">Data served</div>
+          </div>
+          <div class="analytics-stat">
+            <div class="analytics-stat-value" id="stat-errors">—%</div>
+            <div class="analytics-stat-label">Error rate</div>
+            <div class="analytics-stat-sub" id="stat-errors-detail">—</div>
+          </div>
+        </div>
+
+        <div class="analytics-chart-wrap">
+          <div class="analytics-chart-title">Requests over time</div>
+          <div id="analytics-chart"></div>
+        </div>
+
+        <div class="analytics-breakdown">
+          <div class="analytics-breakdown-title">Status codes</div>
+          <div class="analytics-status-bar">
+            <div class="analytics-bar-seg seg-ok"       id="bar-ok"       style="width:0%"></div>
+            <div class="analytics-bar-seg seg-redirect" id="bar-redirect" style="width:0%"></div>
+            <div class="analytics-bar-seg seg-client"   id="bar-client"   style="width:0%"></div>
+            <div class="analytics-bar-seg seg-server"   id="bar-server"   style="width:0%"></div>
+          </div>
+          <div class="analytics-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:var(--green)"></span> 2xx <strong id="bar-ok-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--accent-hi)"></span> 3xx <strong id="bar-redirect-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--yellow)"></span> 4xx <strong id="bar-client-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--red)"></span> 5xx <strong id="bar-server-label">0</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-sm" id="btn-analytics-refresh">↻ Refresh now</button>
+        <div style="flex:1"></div>
+        <button type="button" class="btn" data-close="modal-analytics">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: DNS Setup ──────────────────────────── -->
+  <div id="modal-dns" class="modal-backdrop hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>DNS Setup — <span id="dns-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-dns">✕</button>
+      </div>
+
+      <div id="dns-status-banner" class="dns-banner dns-banner-checking">
+        <span class="dns-banner-dot"></span>
+        <span id="dns-status-text">Checking DNS…</span>
+        <button class="btn btn-sm" id="btn-recheck-dns" style="margin-left:auto">Recheck</button>
+      </div>
+
+      <div class="dns-tabs">
+        <button class="dns-tab active" data-tab="standard">Standard DNS</button>
+        <button class="dns-tab" data-tab="cloudflare">Cloudflare Proxy</button>
+      </div>
+
+      <div class="dns-tab-content" id="dns-tab-standard">
+        <p class="dns-desc">Add this record in your DNS provider (Hetzner, Namecheap, Porkbun, etc.):</p>
+        <div class="dns-record-table">
+          <div class="dns-record-row dns-record-header">
+            <span>Type</span><span>Name</span><span>Value</span><span>TTL</span>
+          </div>
+          <div class="dns-record-row">
+            <span class="dns-tag">A</span>
+            <span class="dns-mono" id="dns-std-name">—</span>
+            <span class="dns-mono dns-ip" id="dns-std-value">detecting…</span>
+            <span class="dns-muted">3600</span>
+          </div>
+        </div>
+        <p class="dns-note">DNS propagation usually takes 1–5 minutes with low TTL, up to 24h with high TTL. Click Recheck to test.</p>
+        <p class="dns-note">Once the domain resolves correctly, enable HTTPS by setting <code>ACME_EMAIL</code> in your <code>.env</code> and uncommenting the HTTPS router labels in <code>docker-compose.yml</code>.</p>
+      </div>
+
+      <div class="dns-tab-content hidden" id="dns-tab-cloudflare">
+        <p class="dns-desc">Add this record in Cloudflare DNS with the <strong>proxy enabled</strong> (orange cloud ☁):</p>
+        <div class="dns-record-table">
+          <div class="dns-record-row dns-record-header">
+            <span>Type</span><span>Name</span><span>Value</span><span>Proxy</span>
+          </div>
+          <div class="dns-record-row">
+            <span class="dns-tag">A</span>
+            <span class="dns-mono" id="dns-cf-name">—</span>
+            <span class="dns-mono dns-ip" id="dns-cf-value">detecting…</span>
+            <span class="dns-tag dns-tag-orange">Proxied ☁</span>
+          </div>
+        </div>
+        <div class="dns-steps">
+          <div class="dns-step">
+            <span class="dns-step-num">1</span>
+            <div><strong>Add the A record above</strong> in Cloudflare DNS with the proxy (orange cloud) enabled. Cloudflare handles SSL — no Let's Encrypt needed.</div>
+          </div>
+          <div class="dns-step">
+            <span class="dns-step-num">2</span>
+            <div><strong>Disable Traefik's HTTPS redirect</strong> — Cloudflare terminates SSL at the edge and sends HTTP to your server. Keep the supervisor labels as-is (HTTP router only).</div>
+          </div>
+          <div class="dns-step">
+            <span class="dns-step-num">3</span>
+            <div><strong>Set SSL/TLS mode to "Full"</strong> in Cloudflare (not Full Strict) — your server speaks plain HTTP internally. Go to SSL/TLS → Overview → Full.</div>
+          </div>
+        </div>
+        <p class="dns-note">With Cloudflare proxy you get free DDoS protection, CDN caching, and analytics on top of Grimport's per-site analytics.</p>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-dns">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Logs ────────────────────────────────── -->
+  <div id="modal-logs" class="modal-backdrop hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Logs — <span id="logs-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-logs">✕</button>
+      </div>
+      <pre id="logs-content" class="logs-output">Loading…</pre>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-logs">Close</button>
+        <button type="button" class="btn btn-primary" id="btn-refresh-logs">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Deploy History ────────────────────── -->
+  <div id="modal-history" class="modal-backdrop hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>History — <span id="history-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-history">✕</button>
+      </div>
+      <div id="history-list"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-history">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast ──────────────────────────────────────── -->
+  <div id="toast-container"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
