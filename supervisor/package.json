@@ -1,6 +1,6 @@
 {
   "name": "grimport",
-  "version": "0.7.3",
+  "version": "0.7.5",
   "description": "Grimport — self-hosted static site publishing panel",
   "main": "src/index.js",
   "scripts": {

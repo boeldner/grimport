@@ -1,4 +1,4 @@
-/* ── Grimport Supervisor — Frontend v0.7.0 ─────────────────── */
+/* ── Grimport Supervisor — Frontend v0.7.5 ─────────────────── */
 
 
 // ── State ─────────────────────────────────────────────────
@@ -1164,6 +1164,10 @@ async function init() {
   currentUser = { role: me.role || 'admin', username: me.username || '' };
   applyRoleUI();
   config = await api('GET', '/config').catch(() => config);
+  if (config.version) {
+    const el = document.getElementById('sidebar-version');
+    if (el) el.textContent = `Grimport v${config.version}`;
+  }
   await loadSites();
   await loadNotifications();
   checkForUpdate();
