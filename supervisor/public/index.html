@@ -16,15 +16,42 @@
         <rect x="3" y="3" width="14" height="3" rx="1.5" fill="#b91c1c"/>
       </svg>
       <span class="logo-text">Grimport</span>
+      <button class="bell-btn" id="btn-bell" title="Notifications" aria-label="Notifications">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="bell-badge hidden" id="bell-badge">0</span>
+      </button>
+      <!-- Notification dropdown — inside .logo so position:absolute is relative to it -->
+      <div class="notif-dropdown hidden" id="notif-dropdown">
+        <div class="notif-header">
+          <span>Notifications</span>
+          <button class="notif-read-all" id="btn-notif-read-all">Mark all read</button>
+        </div>
+        <div id="notif-list" class="notif-list">
+          <div class="notif-empty">No notifications so far</div>
+        </div>
+      </div>
     </div>
     <nav>
       <a href="#" class="nav-item active" data-view="sites">Sites</a>
       <a href="#" class="nav-item" data-view="activity">Activity <span class="nav-badge hidden" id="activity-badge"></span></a>
       <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
     </nav>
+    <!-- Update banner (shown when new version available) -->
+    <div id="update-banner" class="update-banner hidden">
+      <div class="update-banner-text">
+        <strong id="update-version">v?.?.? available</strong>
+        <span>A new version of Grimport is ready.</span>
+      </div>
+      <button class="btn btn-sm btn-primary" id="btn-update-now">Update</button>
+    </div>
+
     <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <span class="sidebar-username" id="sidebar-username">—</span>
+        <span class="role-badge" id="sidebar-role-badge">admin</span>
+      </div>
       <button class="btn btn-sm" id="btn-signout">Sign out</button>
-      <span class="version">Grimport v0.5.1</span>
+      <span class="version">Grimport v0.7.0</span>
     </div>
   </aside>
 
@@ -69,6 +96,9 @@
           <button class="settings-ptab active" data-stab="general">General</button>
           <button class="settings-ptab" data-stab="server">Server &amp; DNS</button>
           <button class="settings-ptab" data-stab="tokens">API Tokens</button>
+          <button class="settings-ptab" data-stab="webhooks">Webhooks</button>
+          <button class="settings-ptab" data-stab="notifications">Notifications</button>
+          <button class="settings-ptab admin-only" data-stab="users">Users</button>
           <button class="settings-ptab" data-stab="security">Security</button>
         </div>
 
@@ -93,6 +123,39 @@
                 <button type="submit" class="btn btn-primary">Save</button>
               </div>
             </form>
+          </section>
+
+          <section class="settings-section">
+            <h3>Analytics snippet</h3>
+            <p class="settings-desc">Inject a tracking script into every site's HTML (before <code>&lt;/body&gt;</code>). Works with Plausible, Umami, or any custom snippet. Applied to all sites — per-site toggle coming soon.</p>
+            <form id="form-analytics-snippet">
+              <label>Script tag
+                <textarea name="analytics_snippet" rows="3" placeholder='&lt;script defer data-domain="yourdomain.com" src="https://plausible.io/js/script.js"&gt;&lt;/script&gt;'></textarea>
+                <small>Leave blank to disable. Nginx restarts all site containers to apply changes.</small>
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save &amp; apply</button>
+              </div>
+            </form>
+          </section>
+          <section class="settings-section">
+            <h3>Updates</h3>
+            <div class="update-version-row">
+              <div class="update-version-cell">
+                <span class="settings-label">Installed</span>
+                <span id="settings-version-current" class="update-version-pill">—</span>
+              </div>
+              <div class="update-version-cell">
+                <span class="settings-label">Latest</span>
+                <span id="settings-version-latest" class="update-version-pill">—</span>
+              </div>
+            </div>
+            <div class="form-actions" style="margin-top:12px">
+              <button class="btn" id="btn-settings-check-update">Check now</button>
+              <button class="btn btn-primary hidden" id="btn-settings-do-update">Update to latest</button>
+            </div>
+            <p class="settings-desc" id="settings-update-msg" style="margin-top:8px"></p>
+            <div id="settings-release-notes" class="release-notes hidden"></div>
           </section>
         </div>
 
@@ -258,6 +321,72 @@ systemctl start cloudflared</pre>
           </section>
         </div>
 
+        <!-- Webhooks -->
+        <div id="spanel-webhooks" class="settings-ppanel hidden">
+          <section class="settings-section">
+            <h3>Webhooks</h3>
+            <p class="settings-desc">Send a POST request to an external URL when events happen. Supports Discord webhook URLs and generic JSON endpoints.</p>
+            <p class="settings-desc">Events: <code>deploy</code>, <code>rollback</code>, <code>site_down</code>, <code>site_up</code></p>
+
+            <div id="webhooks-list"></div>
+
+            <form id="form-create-webhook" class="webhook-create-form">
+              <input type="text" name="webhook_name" placeholder="Name, e.g. Discord deploys" />
+              <input type="url" name="webhook_url" placeholder="https://discord.com/api/webhooks/…" />
+              <button type="submit" class="btn btn-primary">Add webhook</button>
+            </form>
+          </section>
+        </div>
+
+        <!-- Notifications -->
+        <div id="spanel-notifications" class="settings-ppanel hidden">
+          <section class="settings-section">
+            <h3>Bell notifications</h3>
+            <p class="settings-desc">Choose which events appear in the notification bell.</p>
+            <form id="form-notif-settings">
+              <label class="checkbox-label">
+                <input type="checkbox" name="notif_unknown_domain" value="1" />
+                Unknown domain detected (visitor hits an unmapped domain)
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="notif_site_down" value="1" />
+                Site goes down
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="notif_site_up" value="1" />
+                Site recovers (comes back up)
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+              </div>
+            </form>
+          </section>
+          <section class="settings-section">
+            <h3>Clear notifications</h3>
+            <p class="settings-desc">Permanently delete all notifications from the bell feed.</p>
+            <button class="btn btn-danger" id="btn-notif-clear-all">Clear all notifications</button>
+          </section>
+        </div>
+
+        <!-- Users -->
+        <div id="spanel-users" class="settings-ppanel hidden admin-only">
+          <section class="settings-section">
+            <h3>User accounts</h3>
+            <p class="settings-desc">Manage who can access this Grimport instance. <strong>Admins</strong> have full access. <strong>Editors</strong> can deploy and manage their assigned sites. <strong>Viewers</strong> have read-only access to their assigned sites.</p>
+            <div id="users-list"></div>
+            <form id="form-create-user" class="user-create-form">
+              <input type="text" name="username" placeholder="Username" autocomplete="off" required />
+              <input type="password" name="password" placeholder="Password (min 8 chars)" autocomplete="new-password" required />
+              <select name="role">
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button type="submit" class="btn btn-primary">Add user</button>
+            </form>
+          </section>
+        </div>
+
         <!-- Security -->
         <div id="spanel-security" class="settings-ppanel hidden">
           <section class="settings-section">
@@ -295,14 +424,32 @@ systemctl start cloudflared</pre>
           <input type="text" name="domain" placeholder="portfolio.localhost" required />
           <small>Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</small>
         </label>
-        <label class="row">
-          <input type="checkbox" name="spa_mode" />
-          <span>SPA mode <small>(serve index.html for all 404s — for React / Vue Router)</small></span>
+        <label>Runtime
+          <select name="runtime" id="new-site-runtime">
+            <option value="static">Static (nginx)</option>
+            <option value="php">PHP (Apache)</option>
+            <option value="node">Node.js</option>
+            <option value="python">Python</option>
+          </select>
         </label>
-        <label class="row">
-          <input type="checkbox" name="cache_enabled" checked />
-          <span>Cache static assets</span>
-        </label>
+        <div id="new-site-static-opts">
+          <label class="row">
+            <input type="checkbox" name="spa_mode" />
+            <span>SPA mode <small>(serve index.html for all 404s — for React / Vue Router)</small></span>
+          </label>
+          <label class="row">
+            <input type="checkbox" name="cache_enabled" checked />
+            <span>Cache static assets</span>
+          </label>
+        </div>
+        <div id="new-site-app-opts" class="hidden">
+          <label>Start command
+            <input type="text" name="start_cmd" placeholder="node server.js" />
+          </label>
+          <label>App port <small>(port your app listens on)</small>
+            <input type="number" name="app_port" placeholder="3000" min="1" max="65535" />
+          </label>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn" data-close="modal-new-site">Cancel</button>
           <button type="submit" class="btn btn-primary">Create &amp; launch</button>
@@ -350,6 +497,7 @@ systemctl start cloudflared</pre>
         <button class="modal-tab active" data-stab="general">General</button>
         <button class="modal-tab" data-stab="behaviour">Behaviour</button>
         <button class="modal-tab" data-stab="access">Access</button>
+        <button class="modal-tab" data-stab="app">App config</button>
       </div>
 
       <form id="form-settings">
@@ -414,6 +562,35 @@ systemctl start cloudflared</pre>
             <div class="settings-subsection-title">URL redirects <span class="settings-subsection-hint">optional — rewrite rules applied before serving files</span></div>
             <div id="redirects-list"></div>
             <button type="button" class="btn btn-sm" id="btn-add-redirect">+ Add redirect</button>
+          </div>
+        </div>
+
+        <!-- Tab: App config -->
+        <div class="modal-tab-panel hidden" id="stab-app">
+          <p class="settings-desc" id="app-config-desc"></p>
+          <label>Runtime
+            <select name="runtime" id="settings-runtime">
+              <option value="static">Static (nginx)</option>
+              <option value="php">PHP (Apache)</option>
+              <option value="node">Node.js</option>
+              <option value="python">Python</option>
+            </select>
+          </label>
+          <div id="app-config-fields" class="hidden">
+            <label>Build command <small>optional — runs once after each deploy</small>
+              <input type="text" name="build_cmd" placeholder="npm install &amp;&amp; npm run build" />
+            </label>
+            <label>Start command
+              <input type="text" name="start_cmd" placeholder="node server.js" />
+            </label>
+            <label>Port <small>port your app listens on</small>
+              <input type="number" name="app_port" min="1" max="65535" placeholder="3000" />
+            </label>
+          </div>
+          <div class="settings-subsection" style="margin-top:16px">
+            <div class="settings-subsection-title">Environment variables</div>
+            <div id="env-vars-list"></div>
+            <button type="button" class="btn btn-sm" id="btn-add-env-var">+ Add variable</button>
           </div>
         </div>
 
@@ -589,6 +766,85 @@ systemctl start cloudflared</pre>
       <div id="history-list"></div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modal-history">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Connect unknown domain ────────────────── -->
+  <div id="modal-connect-domain" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Connect domain</h2>
+        <button class="modal-close" data-close="modal-connect-domain">✕</button>
+      </div>
+      <p class="settings-desc" style="margin-bottom:16px">
+        <strong id="connect-domain-name"></strong> is pointing to this server but isn't connected to a site yet.
+      </p>
+      <div class="connect-domain-options">
+        <div class="connect-opt">
+          <h4>Create a new site</h4>
+          <button class="btn btn-primary" id="btn-connect-create">Create site with this domain</button>
+        </div>
+        <div class="connect-opt-divider">or assign to existing site</div>
+        <div id="connect-site-list" class="connect-site-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-connect-domain">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Create preview ──────────────────────── -->
+  <div id="modal-preview" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Create preview</h2>
+        <button class="modal-close" data-close="modal-preview">✕</button>
+      </div>
+      <p class="settings-desc" style="margin-bottom:16px">
+        A preview container runs your site at a staging domain. When ready, one click swaps it live — no DNS changes, no downtime.
+      </p>
+      <form id="form-create-preview">
+        <label>Preview domain
+          <input type="text" name="preview_domain" placeholder="preview.yourdomain.com" required />
+          <small>This domain must point to your server (or use <code>preview.localhost</code> locally).</small>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" data-close="modal-preview">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create preview</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Modal: Update ────────────────────────────── -->
+  <div id="modal-update" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <h2 class="modal-title">Updating Grimport</h2>
+      </div>
+      <div style="padding:8px 0 16px">
+        <div id="update-modal-release-notes" class="release-notes hidden" style="margin-bottom:16px"></div>
+        <div class="update-progress-steps" id="update-steps">
+          <div class="update-step" id="ustep-pulling">
+            <span class="update-step-icon" id="ustep-pulling-icon">○</span>
+            <span>Pulling new image from GHCR</span>
+          </div>
+          <div class="update-step" id="ustep-applying">
+            <span class="update-step-icon" id="ustep-applying-icon">○</span>
+            <span>Preparing new container</span>
+          </div>
+          <div class="update-step" id="ustep-restarting">
+            <span class="update-step-icon" id="ustep-restarting-icon">○</span>
+            <span>Restarting supervisor</span>
+          </div>
+          <div class="update-step" id="ustep-done">
+            <span class="update-step-icon" id="ustep-done-icon">○</span>
+            <span>Done — reloading panel</span>
+          </div>
+        </div>
+        <p class="settings-desc" id="update-status-msg" style="margin-top:12px">Starting update…</p>
+        <p class="settings-desc" style="margin-top:8px;color:var(--text-subtle)">Everything happens inside the running container. Your sites stay online — only the panel restarts for a few seconds.</p>
       </div>
     </div>
   </div>

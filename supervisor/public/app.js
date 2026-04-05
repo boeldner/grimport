@@ -1,4 +1,4 @@
-/* ── Grimport Supervisor — Frontend v0.5.1 ─────────────────── */
+/* ── Grimport Supervisor — Frontend v0.7.0 ─────────────────── */
 
 
 // ── State ─────────────────────────────────────────────────
@@ -8,6 +8,8 @@ let selectedDeployFile = null;
 let config = { siteBaseDomain: '', sslReady: false, acmeEmail: '' };
 let searchQuery = '';
 let uptimeData = {}; // siteId → { currentStatus, uptime24h }
+let connectDomain = ''; // domain being connected from notification
+let currentUser = { role: 'admin', username: '' }; // populated on init
 
 // ── API helpers ───────────────────────────────────────────
 async function api(method, path, body) {
@@ -129,14 +131,17 @@ function renderSites() {
       e.stopPropagation();
       const { action, id } = btn.dataset;
       const site = sites.find(s => s.id === id);
-      if (action === 'deploy')    openDeploy(site);
-      if (action === 'settings')  openSettings(site);
-      if (action === 'logs')      openLogs(site);
-      if (action === 'dns')       openDns(site);
-      if (action === 'analytics') openAnalytics(site);
-      if (action === 'start')     siteAction(id, 'start');
-      if (action === 'stop')      siteAction(id, 'stop');
-      if (action === 'history')   openHistory(site);
+      if (action === 'deploy')          openDeploy(site);
+      if (action === 'settings')        openSettings(site);
+      if (action === 'logs')            openLogs(site);
+      if (action === 'dns')             openDns(site);
+      if (action === 'analytics')       openAnalytics(site);
+      if (action === 'start')           siteAction(id, 'start');
+      if (action === 'stop')            siteAction(id, 'stop');
+      if (action === 'history')         openHistory(site);
+      if (action === 'preview-create')  openPreviewModal(site);
+      if (action === 'preview-swap')    previewSwap(site);
+      if (action === 'preview-discard') previewDiscard(site);
     });
   });
 }
@@ -158,12 +163,23 @@ function statusInfo(container) {
 function siteCard(site) {
   const { cls, label, error } = statusInfo(site.container);
   const isRunning = site.container?.running;
+  const runtime = site.runtime || 'static';
   const tags = [
+    runtime !== 'static' ? `<span class="runtime-badge ${runtime}">${runtime}</span>` : '',
     site.spa_mode         ? `<span class="tag blue">SPA</span>` : '',
     site.maintenance_mode ? `<span class="tag yellow">Maintenance</span>` : '',
     site.cache_enabled    ? `<span class="tag green">Cache</span>` : '',
     site.basic_auth       ? `<span class="tag">Auth</span>` : '',
   ].filter(Boolean).join('');
+
+  const previewBadge = site.preview_container_id ? `
+    <div class="preview-badge">
+      <span>◈ Preview: <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)}</a></span>
+      <div class="preview-badge-actions">
+        <button class="preview-swap-btn btn btn-sm btn-primary" data-action="preview-swap" data-id="${site.id}">Go live ↑</button>
+        <button class="btn btn-sm btn-danger" data-action="preview-discard" data-id="${site.id}">Discard</button>
+      </div>
+    </div>` : '';
 
   return `
     <div class="site-card">
@@ -179,6 +195,7 @@ function siteCard(site) {
         </button>
       </div>
       ${tags ? `<div class="site-tags">${tags}</div>` : ''}
+      ${previewBadge}
       ${error ? `<div class="site-error-hint">⚠ Container exited unexpectedly — check logs</div>` : ''}
       ${uptimeStrip(site.id)}
       <div class="site-actions">
@@ -191,6 +208,7 @@ function siteCard(site) {
           <button class="icon-btn" data-action="analytics" data-id="${site.id}" title="Analytics">◈</button>
           <button class="icon-btn" data-action="logs" data-id="${site.id}" title="Logs">≡</button>
           <button class="icon-btn" data-action="settings" data-id="${site.id}" title="Settings">⚙</button>
+          ${!site.preview_container_id ? `<button class="icon-btn" data-action="preview-create" data-id="${site.id}" title="Create preview">⬡</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -242,11 +260,18 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
     toast('Invalid domain — use a format like mysite.example.com or test.localhost', 'error');
     return;
   }
+  const runtime = fd.get('runtime') || 'static';
+  const isApp = runtime === 'node' || runtime === 'python';
   const payload = {
     name: fd.get('name'),
     domain,
+    runtime,
     spa_mode: fd.get('spa_mode') === 'on',
     cache_enabled: fd.get('cache_enabled') === 'on',
+    ...(isApp ? {
+      start_cmd: fd.get('start_cmd') || null,
+      app_port: fd.get('app_port') ? Number(fd.get('app_port')) : 3000,
+    } : {}),
   };
   try {
     await api('POST', '/sites', payload);
@@ -379,6 +404,7 @@ function openSettings(site) {
 
   renderHeadersList(site.custom_headers || []);
   renderRedirectsList(site.redirects || []);
+  populateAppConfigTab(site);
   openModal('modal-settings');
 }
 
@@ -474,6 +500,8 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
     }
   }
 
+  const runtime = document.getElementById('settings-runtime')?.value || 'static';
+  const isApp = runtime === 'node' || runtime === 'python';
   const payload = {
     name: form.elements['name'].value,
     domain: form.elements['domain'].value,
@@ -484,6 +512,11 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
     custom_headers,
     redirects,
     ...(basic_auth !== undefined ? { basic_auth } : {}),
+    runtime,
+    build_cmd: isApp ? (form.elements['build_cmd']?.value || null) : null,
+    start_cmd: isApp ? (form.elements['start_cmd']?.value || null) : null,
+    app_port: isApp ? (Number(form.elements['app_port']?.value) || 3000) : null,
+    env_vars: JSON.stringify(collectEnvVars()),
   };
 
   try {
@@ -895,8 +928,11 @@ document.querySelectorAll('.settings-ptab').forEach(tab => {
     tab.classList.add('active');
     document.querySelectorAll('.settings-ppanel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`spanel-${tab.dataset.stab}`).classList.remove('hidden');
-    if (tab.dataset.stab === 'server') loadServerInfo();
-    if (tab.dataset.stab === 'tokens') loadTokens();
+    if (tab.dataset.stab === 'general')       checkForUpdate();
+    if (tab.dataset.stab === 'server')        loadServerInfo();
+    if (tab.dataset.stab === 'tokens')        loadTokens();
+    if (tab.dataset.stab === 'webhooks')      loadWebhooks();
+    if (tab.dataset.stab === 'notifications') loadNotifSettings();
   });
 });
 
@@ -909,6 +945,8 @@ async function loadPanelSettings() {
     form.elements['default_spa_mode'].checked = !!s.default_spa_mode;
     form.elements['default_cache_enabled'].checked = s.default_cache_enabled !== false;
     document.querySelector('#form-acme [name="acme_email"]').value = s.acme_email || '';
+    const snippetEl = document.querySelector('#form-analytics-snippet [name="analytics_snippet"]');
+    if (snippetEl) snippetEl.value = s.analytics_snippet || '';
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -1077,8 +1115,670 @@ document.getElementById('btn-signout').addEventListener('click', async () => {
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
   if (!me.authenticated) { window.location.href = '/login.html'; return; }
+  currentUser = { role: me.role || 'admin', username: me.username || '' };
+  applyRoleUI();
   config = await api('GET', '/config').catch(() => config);
   await loadSites();
+  await loadNotifications();
+  checkForUpdate();
   setInterval(loadSites, 15_000);
+  setInterval(loadNotifications, 30_000);
+  setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h
 }
 init();
+
+// ── Notifications ─────────────────────────────────────────
+let notifDropdownOpen = false;
+
+const bellBtn = document.getElementById('btn-bell');
+const notifDropdown = document.getElementById('notif-dropdown');
+
+bellBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  notifDropdownOpen = !notifDropdownOpen;
+  notifDropdown.classList.toggle('hidden', !notifDropdownOpen);
+  if (notifDropdownOpen) loadNotifications();
+});
+
+document.addEventListener('click', e => {
+  if (notifDropdownOpen && !notifDropdown.contains(e.target) && e.target !== bellBtn) {
+    notifDropdownOpen = false;
+    notifDropdown.classList.add('hidden');
+  }
+});
+
+async function loadNotifications() {
+  try {
+    const { unread, notifications } = await api('GET', '/notifications');
+    const badge = document.getElementById('bell-badge');
+    if (unread > 0) {
+      badge.textContent = unread > 9 ? '9+' : String(unread);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+    if (notifDropdownOpen) renderNotifList(notifications);
+  } catch {}
+}
+
+function renderNotifList(notifs) {
+  const list = document.getElementById('notif-list');
+  if (!notifs.length) {
+    list.innerHTML = '<div class="notif-empty">No notifications so far</div>';
+    return;
+  }
+  const ICONS = { unknown_domain: '⬡', site_down: '✕', site_up: '✓' };
+  list.innerHTML = notifs.map(n => {
+    let data = {};
+    try { data = JSON.parse(n.data || '{}'); } catch {}
+    return `
+      <div class="notif-item ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
+        <span class="notif-icon">${ICONS[n.type] || '·'}</span>
+        <div class="notif-body">
+          <span class="notif-title">${esc(n.title)}</span>
+          ${n.detail ? `<span class="notif-detail">${esc(n.detail)}</span>` : ''}
+          <span class="notif-time">${timeAgo(n.created_at)}</span>
+          ${n.type === 'unknown_domain' && data.domain
+            ? `<button class="btn btn-sm notif-connect-btn" data-domain="${esc(data.domain)}">Connect to site →</button>`
+            : ''}
+        </div>
+        <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">✕</button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-dismiss]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await api('DELETE', `/notifications/${btn.dataset.dismiss}`).catch(() => {});
+      loadNotifications();
+    });
+  });
+
+  list.querySelectorAll('.notif-connect-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      notifDropdownOpen = false;
+      notifDropdown.classList.add('hidden');
+      openConnectDomain(btn.dataset.domain);
+    });
+  });
+
+  list.querySelectorAll('.notif-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      if (!item.classList.contains('notif-unread')) return;
+      await api('POST', `/notifications/${item.dataset.notifId}/read`).catch(() => {});
+      item.classList.remove('notif-unread');
+      loadNotifications();
+    });
+  });
+}
+
+document.getElementById('btn-notif-read-all').addEventListener('click', async () => {
+  await api('POST', '/notifications/read-all').catch(() => {});
+  loadNotifications();
+});
+
+// ── Connect domain modal ──────────────────────────────────
+function openConnectDomain(domain) {
+  connectDomain = domain;
+  document.getElementById('connect-domain-name').textContent = domain;
+  const siteList = document.getElementById('connect-site-list');
+  if (!sites.length) {
+    siteList.innerHTML = '<p style="color:var(--text-muted)">No sites yet — create one below.</p>';
+  } else {
+    siteList.innerHTML = sites.map(s => `
+      <div class="connect-site-row">
+        <span class="connect-site-name">${esc(s.name)}</span>
+        <span class="connect-site-domain">${esc(s.domain)}</span>
+        <button class="btn btn-sm btn-primary" data-assign-site="${s.id}">Assign</button>
+      </div>`).join('');
+    siteList.querySelectorAll('[data-assign-site]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const site = sites.find(s => s.id === btn.dataset.assignSite);
+        if (!site) return;
+        if (!confirm(`Change domain of "${site.name}" from "${site.domain}" to "${connectDomain}"?`)) return;
+        try {
+          await api('PUT', `/sites/${site.id}`, { name: site.name, domain: connectDomain });
+          closeModal('modal-connect-domain');
+          toast(`Domain assigned to "${site.name}"`, 'success');
+          await loadSites();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+    });
+  }
+  openModal('modal-connect-domain');
+}
+
+document.getElementById('btn-connect-create').addEventListener('click', () => {
+  closeModal('modal-connect-domain');
+  document.getElementById('form-new-site').reset();
+  const domainInput = document.querySelector('#form-new-site input[name="domain"]');
+  if (domainInput) domainInput.value = connectDomain;
+  const nameInput = document.querySelector('#form-new-site input[name="name"]');
+  if (nameInput) nameInput.value = connectDomain.split('.')[0];
+  openModal('modal-new-site');
+});
+
+// ── Preview modal ─────────────────────────────────────────
+function openPreviewModal(site) {
+  activeSiteId = site.id;
+  const previewInput = document.querySelector('#form-create-preview input[name="preview_domain"]');
+  if (previewInput) {
+    const parts = site.domain.split('.');
+    parts[0] = 'preview';
+    const suggested = parts.join('.');
+    previewInput.value = suggested !== site.domain ? suggested : `preview.${site.domain}`;
+  }
+  openModal('modal-preview');
+}
+
+document.getElementById('form-create-preview').addEventListener('submit', async e => {
+  e.preventDefault();
+  const domain = e.target.elements['preview_domain'].value.trim().toLowerCase();
+  if (!domain) return;
+  const btn = e.target.querySelector('[type="submit"]');
+  btn.disabled = true;
+  try {
+    await api('POST', `/sites/${activeSiteId}/preview`, { preview_domain: domain });
+    closeModal('modal-preview');
+    toast('Preview container created', 'success');
+    await loadSites();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function previewSwap(site) {
+  if (!confirm(`Swap preview live for "${site.name}"? The preview content becomes the live site. Current live content moves to preview.`)) return;
+  try {
+    await api('POST', `/sites/${site.id}/preview/swap`);
+    toast('Preview swapped live', 'success');
+    await loadSites();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function previewDiscard(site) {
+  if (!confirm(`Discard preview for "${site.name}"? The preview container and files will be removed.`)) return;
+  try {
+    await api('DELETE', `/sites/${site.id}/preview`);
+    toast('Preview discarded', 'success');
+    await loadSites();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ── Webhooks settings ─────────────────────────────────────
+async function loadWebhooks() {
+  try {
+    const webhooks = await api('GET', '/settings/webhooks');
+    renderWebhookList(webhooks);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function renderWebhookList(webhooks) {
+  const list = document.getElementById('webhooks-list');
+  if (!webhooks.length) {
+    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No webhooks yet.</p>';
+    return;
+  }
+  list.innerHTML = webhooks.map(w => {
+    let events = [];
+    try { events = JSON.parse(w.events || '[]'); } catch {}
+    return `
+      <div class="webhook-item">
+        <div class="webhook-item-info">
+          <span class="webhook-name">${esc(w.name)}</span>
+          <span class="webhook-url">${esc(w.url)}</span>
+          <span class="webhook-events">${events.join(', ')}</span>
+        </div>
+        <div class="webhook-item-actions">
+          <label class="toggle-label" title="${w.enabled ? 'Enabled' : 'Disabled'}">
+            <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
+          </label>
+          <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
+          <button class="btn btn-sm btn-danger" data-delete-webhook="${w.id}">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('.webhook-toggle').forEach(input => {
+    input.addEventListener('change', async () => {
+      await api('PATCH', `/settings/webhooks/${input.dataset.id}`, { enabled: input.checked })
+        .catch(err => toast(err.message, 'error'));
+    });
+  });
+
+  list.querySelectorAll('[data-test-webhook]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        await api('POST', `/settings/webhooks/${btn.dataset.testWebhook}/test`);
+        toast('Test sent', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Test';
+    });
+  });
+
+  list.querySelectorAll('[data-delete-webhook]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this webhook?')) return;
+      await api('DELETE', `/settings/webhooks/${btn.dataset.deleteWebhook}`)
+        .catch(err => toast(err.message, 'error'));
+      loadWebhooks();
+    });
+  });
+}
+
+document.getElementById('form-create-webhook').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try {
+    await api('POST', '/settings/webhooks', {
+      name: fd.get('webhook_name'),
+      url: fd.get('webhook_url'),
+      events: ['deploy', 'rollback', 'site_down', 'site_up'],
+    });
+    e.target.reset();
+    toast('Webhook created', 'success');
+    loadWebhooks();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Analytics snippet ─────────────────────────────────────
+document.getElementById('form-analytics-snippet').addEventListener('submit', async e => {
+  e.preventDefault();
+  const snippet = e.target.elements['analytics_snippet'].value;
+  try {
+    await api('PUT', '/settings', { analytics_snippet: snippet });
+    toast('Analytics snippet saved — redeploy sites to apply', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Role-aware UI ─────────────────────────────────────────
+function applyRoleUI() {
+  const { role, username } = currentUser;
+
+  // Sidebar user info
+  const usernameEl = document.getElementById('sidebar-username');
+  const roleBadge = document.getElementById('sidebar-role-badge');
+  if (usernameEl) usernameEl.textContent = username;
+  if (roleBadge) { roleBadge.textContent = role; roleBadge.dataset.role = role; }
+
+  // Hide admin-only elements for non-admins
+  if (role !== 'admin') {
+    document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
+    // Hide "New site" and "Delete site" buttons for non-admins
+    const btnNew = document.getElementById('btn-new-site');
+    if (btnNew) btnNew.classList.add('hidden');
+  }
+}
+
+// ── Runtime selector in new site modal ───────────────────
+document.getElementById('new-site-runtime').addEventListener('change', e => {
+  const runtime = e.target.value;
+  const isApp = runtime === 'node' || runtime === 'python';
+  const isPhp = runtime === 'php';
+  document.getElementById('new-site-static-opts').classList.toggle('hidden', isApp || isPhp);
+  document.getElementById('new-site-app-opts').classList.toggle('hidden', !isApp);
+});
+
+// ── Runtime selector in site settings ────────────────────
+document.getElementById('settings-runtime').addEventListener('change', e => {
+  const isApp = ['node', 'python'].includes(e.target.value);
+  document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+});
+
+// ── App Config tab: env vars ──────────────────────────────
+function renderEnvVarList(envVars) {
+  const list = document.getElementById('env-vars-list');
+  const entries = Object.entries(envVars);
+  if (!entries.length) {
+    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-bottom:8px">No variables yet.</p>';
+    return;
+  }
+  list.innerHTML = entries.map(([k, v], i) => `
+    <div class="env-var-row">
+      <input type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
+      <input type="text" placeholder="value" value="${esc(v)}" data-env-val data-idx="${i}" />
+      <button class="btn btn-sm btn-danger" data-remove-env="${i}">✕</button>
+    </div>`).join('');
+  list.querySelectorAll('[data-remove-env]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newVars = collectEnvVars();
+      const keys = Object.keys(newVars);
+      delete newVars[keys[Number(btn.dataset.removeEnv)]];
+      renderEnvVarList(newVars);
+    });
+  });
+}
+
+function collectEnvVars() {
+  const rows = document.getElementById('env-vars-list').querySelectorAll('.env-var-row');
+  const result = {};
+  rows.forEach(row => {
+    const k = row.querySelector('[data-env-key]').value.trim();
+    const v = row.querySelector('[data-env-val]').value;
+    if (k) result[k] = v;
+  });
+  return result;
+}
+
+document.getElementById('btn-add-env-var').addEventListener('click', () => {
+  const vars = collectEnvVars();
+  vars[''] = '';
+  renderEnvVarList(vars);
+  // Focus the last key input
+  const rows = document.getElementById('env-vars-list').querySelectorAll('[data-env-key]');
+  if (rows.length) rows[rows.length - 1].focus();
+});
+
+// ── App Config tab population (called from openSettings) ─
+function populateAppConfigTab(site) {
+  const runtime = site.runtime || 'static';
+  const settingsRuntime = document.getElementById('settings-runtime');
+  settingsRuntime.value = runtime;
+  const isApp = runtime === 'node' || runtime === 'python';
+  document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+  const form = document.getElementById('form-settings');
+  if (form.elements['build_cmd']) form.elements['build_cmd'].value = site.build_cmd || '';
+  if (form.elements['start_cmd']) form.elements['start_cmd'].value = site.start_cmd || '';
+  if (form.elements['app_port']) form.elements['app_port'].value = site.app_port || 3000;
+  const descMap = {
+    static: 'Static files served by nginx. Upload a .zip to deploy.',
+    php: 'PHP files served by Apache. Upload a .zip with your PHP app.',
+    node: 'Node.js app. Upload your source .zip — the build command runs on each deploy.',
+    python: 'Python app. Upload your source .zip — the build command runs on each deploy.',
+  };
+  const appDesc = document.getElementById('app-config-desc');
+  if (appDesc) appDesc.textContent = descMap[runtime] || '';
+  let envVars = {};
+  try { envVars = JSON.parse(site.env_vars || '{}'); } catch {}
+  renderEnvVarList(envVars);
+}
+
+// ── Users management ──────────────────────────────────────
+async function loadUsers() {
+  try {
+    const users = await api('GET', '/users');
+    renderUserList(users);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function renderUserList(users) {
+  const list = document.getElementById('users-list');
+  if (!users.length) {
+    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No users yet.</p>';
+    return;
+  }
+  list.innerHTML = `
+    <table class="users-table">
+      <thead><tr><th>Username</th><th>Role</th><th>Sites</th><th></th></tr></thead>
+      <tbody>
+        ${users.map(u => `
+          <tr>
+            <td>${esc(u.username)}${u.id === currentUser.id ? ' <span style="color:var(--text-muted)">(you)</span>' : ''}</td>
+            <td><span class="role-badge" data-role="${u.role}">${u.role}</span></td>
+            <td>${renderUserSites(u)}</td>
+            <td>
+              ${u.id !== currentUser.id ? `
+                <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">✕</button>
+              ` : ''}
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  list.querySelectorAll('[data-delete-user]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Delete user "${btn.dataset.username}"?`)) return;
+      await api('DELETE', `/users/${btn.dataset.deleteUser}`).catch(err => toast(err.message, 'error'));
+      loadUsers();
+    });
+  });
+
+  list.querySelectorAll('[data-edit-user]').forEach(btn => {
+    btn.addEventListener('click', () => openEditUser(btn.dataset.editUser, btn.dataset.username, btn.dataset.role));
+  });
+}
+
+function renderUserSites(u) {
+  if (u.role === 'admin' || u.sites === 'all') return '<span style="color:var(--text-muted)">All</span>';
+  if (!u.sites?.length) return '<span style="color:var(--text-subtle)">None</span>';
+  const siteNames = u.sites.map(sid => {
+    const s = sites.find(x => x.id === sid);
+    return s ? `<span class="user-site-chip">${esc(s.name)}</span>` : '';
+  }).filter(Boolean).join('');
+  return `<div class="user-sites-chips">${siteNames}</div>`;
+}
+
+function openEditUser(userId, username, role) {
+  const newRole = prompt(`Change role for "${username}" (admin/editor/viewer):`, role);
+  if (!newRole || newRole === role) return;
+  if (!['admin', 'editor', 'viewer'].includes(newRole)) { toast('Invalid role', 'error'); return; }
+  api('PATCH', `/users/${userId}`, { role: newRole })
+    .then(() => { toast('Role updated', 'success'); loadUsers(); })
+    .catch(err => toast(err.message, 'error'));
+}
+
+document.getElementById('form-create-user').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try {
+    await api('POST', '/users', {
+      username: fd.get('username').trim(),
+      password: fd.get('password'),
+      role: fd.get('role'),
+    });
+    e.target.reset();
+    toast('User created', 'success');
+    loadUsers();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Extend settings ptab to load users ───────────────────
+document.querySelectorAll('.settings-ptab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.dataset.stab === 'users') loadUsers();
+  });
+});
+
+// ── Notification settings ─────────────────────────────────
+async function loadNotifSettings() {
+  try {
+    const s = await api('GET', '/settings');
+    const events = s.notification_events
+      ? JSON.parse(s.notification_events)
+      : ['unknown_domain', 'site_down', 'site_up'];
+    const form = document.getElementById('form-notif-settings');
+    form.elements['notif_unknown_domain'].checked = events.includes('unknown_domain');
+    form.elements['notif_site_down'].checked      = events.includes('site_down');
+    form.elements['notif_site_up'].checked        = events.includes('site_up');
+  } catch {}
+}
+
+document.getElementById('form-notif-settings').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  const events = [];
+  if (form.elements['notif_unknown_domain'].checked) events.push('unknown_domain');
+  if (form.elements['notif_site_down'].checked)      events.push('site_down');
+  if (form.elements['notif_site_up'].checked)        events.push('site_up');
+  try {
+    await api('POST', '/settings', { notification_events: JSON.stringify(events) });
+    toast('Notification settings saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-notif-clear-all').addEventListener('click', async () => {
+  if (!confirm('Delete all notifications? This cannot be undone.')) return;
+  try {
+    await api('DELETE', '/notifications');
+    loadNotifications();
+    toast('All notifications cleared', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Update checker ────────────────────────────────────────
+async function checkForUpdate() {
+  try {
+    const data = await api('GET', '/update/check');
+    if (data.updateAvailable && currentUser.role === 'admin') {
+      document.getElementById('update-version').textContent = `v${data.latest} available`;
+      document.getElementById('update-banner').classList.remove('hidden');
+    }
+    renderSettingsUpdateInfo(data);
+    return data;
+  } catch {}
+}
+
+function renderSettingsUpdateInfo(data) {
+  const elCurrent = document.getElementById('settings-version-current');
+  const elLatest  = document.getElementById('settings-version-latest');
+  const elMsg     = document.getElementById('settings-update-msg');
+  const btnUpdate = document.getElementById('btn-settings-do-update');
+  const elNotes   = document.getElementById('settings-release-notes');
+  if (!elCurrent) return;
+  elCurrent.textContent = `v${data.current}`;
+  elLatest.textContent  = `v${data.latest}`;
+  elLatest.className    = `update-version-pill${data.updateAvailable ? ' update-version-pill--new' : ''}`;
+  if (data.updateAvailable) {
+    elMsg.textContent = `v${data.latest} is available.`;
+    if (currentUser.role === 'admin') btnUpdate.classList.remove('hidden');
+    if (elNotes && data.releaseNotes) {
+      elNotes.innerHTML = renderMarkdown(data.releaseNotes);
+      elNotes.classList.remove('hidden');
+    }
+  } else {
+    elMsg.textContent = 'You are on the latest version.';
+    btnUpdate.classList.add('hidden');
+    if (elNotes) elNotes.classList.add('hidden');
+  }
+}
+
+// Minimal markdown renderer: bold, code, list items, headings → plain HTML
+function renderMarkdown(md) {
+  return md
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+    .replace(/\n{2,}/g, '<br>')
+    .replace(/\n/g, ' ');
+}
+
+document.getElementById('btn-settings-check-update').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-settings-check-update');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  try {
+    // Bust the server-side cache by fetching directly (cache is 1h, this is a manual action)
+    const data = await api('GET', '/update/check');
+    renderSettingsUpdateInfo(data);
+  } catch { document.getElementById('settings-update-msg').textContent = 'Could not reach GitHub.'; }
+  btn.disabled = false;
+  btn.textContent = 'Check now';
+});
+
+document.getElementById('btn-settings-do-update').addEventListener('click', () => {
+  openModal('modal-update');
+  startUpdateFlow();
+});
+
+document.getElementById('btn-update-now').addEventListener('click', () => {
+  document.getElementById('update-banner').classList.add('hidden');
+  openModal('modal-update');
+  startUpdateFlow();
+});
+
+async function startUpdateFlow() {
+  // Show release notes in modal if available
+  try {
+    const data = await api('GET', '/update/check');
+    const el = document.getElementById('update-modal-release-notes');
+    if (el && data.releaseNotes) {
+      el.innerHTML = renderMarkdown(data.releaseNotes);
+      el.classList.remove('hidden');
+    }
+  } catch {}
+  // Fire-and-forget: start the update
+  await api('POST', '/update/apply').catch(() => {});
+  pollUpdateStatus();
+}
+
+function setUpdateStep(activeStatus) {
+  const stepOrder = ['pulling', 'applying', 'restarting', 'done'];
+  const activeIdx = stepOrder.indexOf(activeStatus);
+  stepOrder.forEach((s, i) => {
+    const iconEl = document.getElementById(`ustep-${s}-icon`);
+    const stepEl = document.getElementById(`ustep-${s}`);
+    if (!iconEl) return;
+    if (i < activeIdx) { iconEl.textContent = '✓'; stepEl.className = 'update-step done'; }
+    else if (i === activeIdx) { iconEl.textContent = '⟳'; stepEl.className = 'update-step active'; }
+    else { iconEl.textContent = '○'; stepEl.className = 'update-step'; }
+  });
+}
+
+async function pollUpdateStatus() {
+  let panelWasDown = false;
+  let pollInterval;
+
+  const check = async () => {
+    try {
+      // Try to reach the health endpoint (might fail during restart)
+      const health = await fetch('/api/health').then(r => r.json()).catch(() => null);
+
+      if (!health) {
+        // Panel is down — supervisor is restarting
+        panelWasDown = true;
+        setUpdateStep('restarting');
+        document.getElementById('update-status-msg').textContent = 'Panel restarting… sites are still online.';
+        return;
+      }
+
+      if (panelWasDown) {
+        // Panel is back up!
+        clearInterval(pollInterval);
+        setUpdateStep('done');
+        const doneIcon = document.getElementById('ustep-done-icon');
+        if (doneIcon) doneIcon.textContent = '✓';
+        document.getElementById('update-status-msg').textContent = `Updated to v${health.version || '?'}! Reloading…`;
+        setTimeout(() => window.location.reload(), 1500);
+        return;
+      }
+
+      // Panel is still up — check update status
+      const status = await api('GET', '/update/status').catch(() => null);
+      if (!status) return;
+
+      if (status.status === 'error') {
+        clearInterval(pollInterval);
+        document.getElementById('update-status-msg').textContent = `Error: ${status.message}`;
+        setUpdateStep('pulling'); // reset to start
+        return;
+      }
+
+      if (status.status !== 'idle') {
+        setUpdateStep(status.status);
+        document.getElementById('update-status-msg').textContent = status.message;
+      }
+
+    } catch {
+      // Network error — panel is probably down/restarting
+      panelWasDown = true;
+      setUpdateStep('restarting');
+      document.getElementById('update-status-msg').textContent = 'Panel restarting… sites are still online.';
+    }
+  };
+
+  setUpdateStep('pulling');
+  pollInterval = setInterval(check, 1500);
+}

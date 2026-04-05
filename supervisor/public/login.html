@@ -86,9 +86,14 @@
 
     <div class="login-card">
       <form id="login-form">
+        <label>Username
+          <input type="text" name="username" id="username-input"
+            autocomplete="username" required autofocus
+            placeholder="admin" />
+        </label>
         <label>Password
           <input type="password" name="password" id="password-input"
-            autocomplete="current-password" required autofocus
+            autocomplete="current-password" required
             placeholder="Enter your password" />
         </label>
         <p class="login-error" id="login-error"></p>
@@ -96,7 +101,7 @@
       </form>
     </div>
 
-    <div class="login-footer">Grimport v0.5.1</div>
+    <div class="login-footer">Grimport v0.7.0</div>
   </div>
 
   <script>
@@ -111,7 +116,10 @@
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: document.getElementById('password-input').value }),
+          body: JSON.stringify({
+            username: document.getElementById('username-input').value.trim(),
+            password: document.getElementById('password-input').value,
+          }),
         });
         const data = await res.json();
         if (res.ok) {
