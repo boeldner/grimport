@@ -1725,6 +1725,15 @@ function setUpdateStep(activeStatus) {
     else if (i === activeIdx) { iconEl.textContent = '⟳'; stepEl.className = 'update-step active'; }
     else { iconEl.textContent = '○'; stepEl.className = 'update-step'; }
   });
+  // Progress bar: each step is worth 25%, active step animates within its slice
+  const bar = document.getElementById('update-progressbar');
+  if (!bar) return;
+  const pct = activeStatus === 'done'
+    ? 100
+    : Math.round((activeIdx / stepOrder.length) * 100) + 10; // +10 so it doesn't start at 0
+  bar.style.width = `${Math.min(pct, 95)}%`;
+  if (activeStatus === 'done') bar.classList.add('update-progressbar--done');
+  else bar.classList.remove('update-progressbar--done');
 }
 
 async function pollUpdateStatus() {

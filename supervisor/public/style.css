@@ -1417,6 +1417,23 @@ code {
 .release-notes strong { color: var(--text); }
 .release-notes code { background: var(--surface); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
 
+/* ── Update progress bar ─────────────────────────────────── */
+.update-progressbar-wrap {
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.update-progressbar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+.update-progressbar--done { background: #4ade80; }
+
 /* ── Update progress steps ───────────────────────────────── */
 .update-progress-steps { display: flex; flex-direction: column; gap: 10px; }
 .update-step {
