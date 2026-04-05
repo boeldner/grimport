@@ -602,6 +602,28 @@ code {
 }
 .form-actions { padding-top: 4px; }
 
+/* ── Deploy tabs ─────────────────────────────────────────── */
+.deploy-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.deploy-tab {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color var(--transition), border-color var(--transition);
+}
+.deploy-tab:hover { color: var(--text); }
+.deploy-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
 /* ── Dropzone ────────────────────────────────────────────── */
 .dropzone {
   border: 2px dashed var(--border-hi);

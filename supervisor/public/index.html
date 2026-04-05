@@ -465,12 +465,27 @@ systemctl start cloudflared</pre>
         <h2>Deploy to <span id="deploy-site-name"></span></h2>
         <button class="modal-close" data-close="modal-deploy">✕</button>
       </div>
-      <div class="dropzone" id="dropzone">
-        <div class="dropzone-inner">
-          <span class="dropzone-icon">↑</span>
-          <p>Drop your <strong>.zip</strong> here, or click to browse</p>
-          <small>Supports Webflow exports, React / Vue build output, any static site</small>
-          <input type="file" id="deploy-file-input" accept=".zip" hidden />
+      <div class="deploy-tabs">
+        <button class="deploy-tab active" data-dtab="upload">Upload zip</button>
+        <button class="deploy-tab" data-dtab="url">From URL</button>
+      </div>
+      <!-- Upload tab -->
+      <div id="dtab-upload">
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-inner">
+            <span class="dropzone-icon">↑</span>
+            <p>Drop your <strong>.zip</strong> here, or click to browse</p>
+            <small>Supports Webflow exports, React / Vue build output, any static site</small>
+            <input type="file" id="deploy-file-input" accept=".zip" hidden />
+          </div>
+        </div>
+      </div>
+      <!-- URL tab -->
+      <div id="dtab-url" class="hidden">
+        <div style="padding:16px 0 8px">
+          <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px">Direct URL to a .zip file</label>
+          <input type="url" id="deploy-url-input" placeholder="https://example.com/release.zip" style="width:100%" />
+          <small style="color:var(--text-subtle);margin-top:6px;display:block">Must be a public direct download link ending in .zip. GitHub release assets, CDN links, etc.</small>
         </div>
       </div>
       <div id="deploy-progress" class="hidden">

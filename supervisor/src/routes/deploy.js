@@ -3,6 +3,8 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
@@ -216,6 +218,96 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
     res.json({ ok: true });
   } catch (err) {
     console.error('Rollback error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/deploy/:id/url — deploy from a public zip URL
+router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+  const { url } = req.body;
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
+
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https URLs are supported' });
+  if (!url.endsWith('.zip')) return res.status(400).json({ error: 'URL must point to a .zip file' });
+
+  const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Site not found' });
+
+  const tmpPath = path.join('/tmp', `grimport-url-${nanoid(8)}.zip`);
+
+  try {
+    // Download zip to temp file
+    await new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(tmpPath);
+      const get = parsed.protocol === 'https:' ? https.get : http.get;
+      get(url, { headers: { 'User-Agent': 'grimport-deploy' } }, response => {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          fs.unlinkSync(tmpPath);
+          return reject(new Error(`Redirects not followed — use the direct zip URL (got ${response.statusCode} to ${response.headers.location})`));
+        }
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlinkSync(tmpPath);
+          return reject(new Error(`Download failed: HTTP ${response.statusCode}`));
+        }
+        response.pipe(file);
+        file.on('finish', () => file.close(resolve));
+      }).on('error', err => { try { fs.unlinkSync(tmpPath); } catch {} reject(err); });
+    });
+
+    const stat = fs.statSync(tmpPath);
+    if (stat.size > 250 * 1024 * 1024) throw new Error('Zip too large (max 250MB)');
+
+    const runtime = row.runtime || 'static';
+    const isAppRuntime = runtime === 'node' || runtime === 'python';
+    const targetDir = path.resolve(isAppRuntime ? appDir(req.params.id) : path.join(siteDir(req.params.id), 'html'));
+
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    const zip = new AdmZip(tmpPath);
+    const entries = zip.getEntries();
+    for (const entry of entries) {
+      const dest = path.resolve(path.join(targetDir, entry.entryName));
+      if (!dest.startsWith(targetDir + path.sep) && dest !== targetDir)
+        throw new Error(`Rejected: zip entry outside target directory: ${entry.entryName}`);
+    }
+    const meaningful = entries.filter(e => !e.entryName.startsWith('__MACOSX') && !e.entryName.startsWith('.'));
+    const rootNames = new Set(meaningful.map(e => e.entryName.split('/')[0]));
+    zip.extractAllTo(targetDir, true);
+    if (rootNames.size === 1) {
+      const rootFolder = [...rootNames][0];
+      const nested = path.join(targetDir, rootFolder);
+      if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
+        fs.cpSync(nested, targetDir, { recursive: true });
+        fs.rmSync(nested, { recursive: true, force: true });
+      }
+    }
+    const macosDir = path.join(targetDir, '__MACOSX');
+    if (fs.existsSync(macosDir)) fs.rmSync(macosDir, { recursive: true });
+
+    const hDir = historyDir(req.params.id);
+    fs.mkdirSync(hDir, { recursive: true });
+    const deployId = nanoid(10);
+    const historyFilename = `${deployId}.zip`;
+    fs.copyFileSync(tmpPath, path.join(hDir, historyFilename));
+    fs.unlinkSync(tmpPath);
+
+    saveDeployment(req.params.id, historyFilename, stat.size);
+    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname);
+    fireWebhooks('deploy', req.params.id, row.name, url);
+
+    const site = { ...row, spa_mode: !!row.spa_mode, cache_enabled: !!row.cache_enabled, maintenance_mode: !!row.maintenance_mode, ssl_enabled: !!row.ssl_enabled, custom_headers: row.custom_headers || '[]', redirects: row.redirects || '[]' };
+    if (isAppRuntime && row.build_cmd) await runBuildStep(site);
+    await applySiteSettings(site);
+
+    res.json({ ok: true, files: fs.readdirSync(targetDir).length });
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch {}
+    console.error('URL deploy error:', err);
     res.status(500).json({ error: err.message });
   }
 });

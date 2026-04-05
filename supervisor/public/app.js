@@ -284,15 +284,44 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
 });
 
 // ── Deploy modal ──────────────────────────────────────────
+let activeDeployTab = 'upload';
+
+document.querySelectorAll('.deploy-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeDeployTab = tab.dataset.dtab;
+    document.getElementById('dtab-upload').classList.toggle('hidden', activeDeployTab !== 'upload');
+    document.getElementById('dtab-url').classList.toggle('hidden', activeDeployTab !== 'url');
+    // Enable confirm if URL tab and input has value
+    const urlInput = document.getElementById('deploy-url-input');
+    document.getElementById('btn-deploy-confirm').disabled =
+      activeDeployTab === 'upload' ? !selectedDeployFile : !urlInput.value.trim();
+  });
+});
+
+document.getElementById('deploy-url-input').addEventListener('input', e => {
+  if (activeDeployTab === 'url') {
+    document.getElementById('btn-deploy-confirm').disabled = !e.target.value.trim();
+  }
+});
+
 function openDeploy(site) {
   activeSiteId = site.id;
   selectedDeployFile = null;
+  activeDeployTab = 'upload';
   document.getElementById('deploy-site-name').textContent = site.name;
   document.getElementById('deploy-progress').classList.add('hidden');
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('deploy-status-text').textContent = 'Uploading…';
   document.getElementById('btn-deploy-confirm').disabled = true;
   document.getElementById('dropzone').classList.remove('dragging');
+  document.getElementById('deploy-url-input').value = '';
+  // Reset tabs
+  document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.deploy-tab[data-dtab="upload"]').classList.add('active');
+  document.getElementById('dtab-upload').classList.remove('hidden');
+  document.getElementById('dtab-url').classList.add('hidden');
   document.querySelector('#dropzone .dropzone-inner').innerHTML = `
     <span class="dropzone-icon">↑</span>
     <p>Drop your <strong>.zip</strong> here, or click to browse</p>
@@ -333,19 +362,30 @@ function selectDeployFile(file) {
 }
 
 document.getElementById('btn-deploy-confirm').addEventListener('click', async () => {
-  if (!selectedDeployFile || !activeSiteId) return;
+  if (!activeSiteId) return;
   const progress = document.getElementById('deploy-progress');
   const fill = document.getElementById('progress-fill');
   const status = document.getElementById('deploy-status-text');
   progress.classList.remove('hidden');
   document.getElementById('btn-deploy-confirm').disabled = true;
+
   try {
-    status.textContent = 'Uploading…';
-    await apiUpload(activeSiteId, selectedDeployFile, pct => {
-      fill.style.width = `${Math.round(pct * 90)}%`;
-      status.textContent = pct < 1 ? `Uploading… ${Math.round(pct * 100)}%` : 'Extracting…';
-    });
-    fill.style.width = '100%';
+    if (activeDeployTab === 'url') {
+      const url = document.getElementById('deploy-url-input').value.trim();
+      if (!url) throw new Error('No URL entered');
+      status.textContent = 'Downloading…';
+      fill.style.width = '40%';
+      await api('POST', `/deploy/${activeSiteId}/url`, { url });
+      fill.style.width = '100%';
+    } else {
+      if (!selectedDeployFile) return;
+      status.textContent = 'Uploading…';
+      await apiUpload(activeSiteId, selectedDeployFile, pct => {
+        fill.style.width = `${Math.round(pct * 90)}%`;
+        status.textContent = pct < 1 ? `Uploading… ${Math.round(pct * 100)}%` : 'Extracting…';
+      });
+      fill.style.width = '100%';
+    }
     status.textContent = 'Done!';
     await new Promise(r => setTimeout(r, 600));
     closeModal('modal-deploy');

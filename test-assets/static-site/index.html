@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grimport Test Site</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">▦ Grimport</div>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/about.html">About</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Static site test</h1>
+      <p>This page was deployed via Grimport. If you can see this, the static deployment pipeline works correctly.</p>
+      <div class="badge">✓ Deployed successfully</div>
+    </section>
+
+    <section class="cards">
+      <div class="card">
+        <h3>HTML</h3>
+        <p>Standard HTML5 page with semantic markup.</p>
+      </div>
+      <div class="card">
+        <h3>CSS</h3>
+        <p>External stylesheet loaded from <code>style.css</code>.</p>
+      </div>
+      <div class="card">
+        <h3>JavaScript</h3>
+        <p>Clock below is rendered by <code>app.js</code>.</p>
+      </div>
+    </section>
+
+    <section class="clock-box">
+      <p class="label">Current time</p>
+      <p class="clock" id="clock">--:--:--</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Grimport static test · <span id="deploy-time"></span></p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
