@@ -15,7 +15,7 @@ function logActivity(event, detail) {
 const router = Router();
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
-const CURRENT_VERSION = '0.7.8';
+const CURRENT_VERSION = require('../../package.json').version;
 const REPO = 'boeldner/grimport';
 const IMAGE = process.env.GRIMPORT_IMAGE || 'ghcr.io/boeldner/grimport:latest';
 const CONTAINER_NAME = 'webhost-supervisor';
