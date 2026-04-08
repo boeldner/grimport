@@ -6,6 +6,7 @@ const { generateNginxConfig, generateHtpasswd } = require('./nginx');
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
 const NETWORK = process.env.DOCKER_NETWORK || 'webhost-net';
+const LETSENCRYPT_MODE = !!process.env.ACME_EMAIL;
 const DATA_PATH = process.env.DATA_PATH || '/data/sites';
 // HOST_DATA_PATH must be the path on the Docker host (not inside this container),
 // because bind-mounts in dynamically created containers are resolved by the host daemon.
@@ -89,14 +90,15 @@ async function createSiteContainer(site) {
       [`traefik.http.routers.${site.id}-http.rule`]: `Host(\`${site.domain}\`)`,
       [`traefik.http.routers.${site.id}-http.entrypoints`]: 'web',
       [`traefik.http.routers.${site.id}-http.service`]: site.id,
-      // HTTPS router — only when ssl_enabled
-      ...(site.ssl_enabled ? {
+      // HTTPS router — only in letsencrypt mode with ssl_enabled
+      // In Cloudflare Tunnel mode ACME_EMAIL is not set — SSL is handled externally,
+      // adding redirect labels would cause redirect loops.
+      ...(site.ssl_enabled && LETSENCRYPT_MODE ? {
         [`traefik.http.routers.${site.id}.rule`]: `Host(\`${site.domain}\`)`,
         [`traefik.http.routers.${site.id}.entrypoints`]: 'websecure',
         [`traefik.http.routers.${site.id}.tls`]: 'true',
         [`traefik.http.routers.${site.id}.tls.certresolver`]: 'letsencrypt',
         [`traefik.http.routers.${site.id}.service`]: site.id,
-        // Redirect HTTP → HTTPS
         [`traefik.http.middlewares.${site.id}-https.redirectscheme.scheme`]: 'https',
         [`traefik.http.routers.${site.id}-http.middlewares`]: `${site.id}-https`,
       } : {}),
@@ -281,7 +283,7 @@ async function createAppContainer(site) {
     [`traefik.http.routers.${site.id}-http.rule`]: `Host(\`${site.domain}\`)`,
     [`traefik.http.routers.${site.id}-http.entrypoints`]: 'web',
     [`traefik.http.routers.${site.id}-http.service`]: site.id,
-    ...(site.ssl_enabled ? {
+    ...(site.ssl_enabled && LETSENCRYPT_MODE ? {
       [`traefik.http.routers.${site.id}.rule`]: `Host(\`${site.domain}\`)`,
       [`traefik.http.routers.${site.id}.entrypoints`]: 'websecure',
       [`traefik.http.routers.${site.id}.tls`]: 'true',
