@@ -443,6 +443,9 @@ systemctl start cloudflared</pre>
           </label>
         </div>
         <div id="new-site-app-opts" class="hidden">
+          <label>Build command <small>optional — runs once after each deploy (e.g. npm install)</small>
+            <input type="text" name="build_cmd" placeholder="npm install" />
+          </label>
           <label>Start command
             <input type="text" name="start_cmd" placeholder="node server.js" />
           </label>
@@ -577,6 +580,11 @@ systemctl start cloudflared</pre>
             <div class="settings-subsection-title">URL redirects <span class="settings-subsection-hint">optional — rewrite rules applied before serving files</span></div>
             <div id="redirects-list"></div>
             <button type="button" class="btn btn-sm" id="btn-add-redirect">+ Add redirect</button>
+          </div>
+
+          <div class="settings-subsection admin-only" id="site-access-users-wrap">
+            <div class="settings-subsection-title">Panel user access <span class="settings-subsection-hint">grant editors &amp; viewers access to this site</span></div>
+            <div id="site-access-users-list"><p class="settings-desc" style="color:var(--text-subtle)">Loading…</p></div>
           </div>
         </div>
 
@@ -874,6 +882,35 @@ systemctl start cloudflared</pre>
 
         <p class="settings-desc" style="margin-top:8px;color:var(--text-subtle)">Everything happens inside the running container. Your sites stay online — only the panel restarts for a few seconds.</p>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Edit User ──────────────────────────── -->
+  <div id="modal-edit-user" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Edit user — <span id="edit-user-name"></span></h2>
+        <button class="modal-close" data-close="modal-edit-user">✕</button>
+      </div>
+      <form id="form-edit-user">
+        <input type="hidden" id="edit-user-id" />
+        <label>Role
+          <select id="edit-user-role" name="role">
+            <option value="viewer">Viewer — read-only access to assigned sites</option>
+            <option value="editor">Editor — can deploy and manage assigned sites</option>
+            <option value="admin">Admin — full access to everything</option>
+          </select>
+        </label>
+        <div id="edit-user-sites-wrap" style="margin-top:16px">
+          <div class="settings-subsection-title">Site access</div>
+          <p class="settings-desc" style="margin:4px 0 10px">Select which sites this user can access.</p>
+          <div id="edit-user-sites-list"></div>
+        </div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button type="button" class="btn" data-close="modal-edit-user">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save changes</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -80,19 +80,19 @@ router.get('/:id', requireSiteAccess(), async (req, res) => {
 
 // POST /api/sites — create a new site (admin only)
 router.post('/', requireRole('admin'), async (req, res) => {
-  const { name, domain, spa_mode, cache_enabled, runtime, start_cmd, app_port } = req.body;
+  const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
   if (!name || !domain) return res.status(400).json({ error: 'name and domain are required' });
 
   const id = nanoid(10);
   const siteRuntime = runtime || 'static';
   try {
     db.prepare(
-      `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, start_cmd, app_port)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, name.trim(), domain.trim().toLowerCase(),
       spa_mode ? 1 : 0, cache_enabled !== false ? 1 : 0,
-      siteRuntime, start_cmd || null, app_port || null
+      siteRuntime, build_cmd || null, start_cmd || null, app_port || null
     );
 
     const site = parseSite(db.prepare('SELECT * FROM sites WHERE id = ?').get(id));
@@ -166,7 +166,11 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
   );
 
   const updated = parseSite(db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id));
-  await applySiteSettings(updated);
+  const newContainerId = await applySiteSettings(updated);
+  if (newContainerId) {
+    db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
+    updated.container_id = newContainerId;
+  }
   logActivity(req.params.id, updated.name, 'settings_changed', null);
   res.json(updated);
 });
@@ -203,6 +207,33 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
 
   db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
   logActivity(null, row.name, 'deleted', row.domain);
+  res.json({ ok: true });
+});
+
+// GET /api/sites/:id/users — get user IDs with access (admin only)
+router.get('/:id/users', requireRole('admin'), (req, res) => {
+  const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const userIds = db.prepare('SELECT user_id FROM site_permissions WHERE site_id = ?')
+    .all(req.params.id).map(r => r.user_id);
+  res.json({ user_ids: userIds });
+});
+
+// PUT /api/sites/:id/users — replace user access list (admin only)
+router.put('/:id/users', requireRole('admin'), (req, res) => {
+  const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const { user_ids } = req.body;
+  if (!Array.isArray(user_ids)) return res.status(400).json({ error: 'user_ids must be an array' });
+
+  const replace = db.transaction(ids => {
+    db.prepare('DELETE FROM site_permissions WHERE site_id = ?').run(req.params.id);
+    for (const userId of ids) {
+      db.prepare('INSERT OR IGNORE INTO site_permissions (user_id, site_id) VALUES (?, ?)')
+        .run(userId, req.params.id);
+    }
+  });
+  replace(user_ids);
   res.json({ ok: true });
 });
 

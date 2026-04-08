@@ -6,6 +6,9 @@ const { sessionMiddleware, requireAuth } = require('./auth');
 const app = express();
 const PORT = 3000;
 
+// Trust reverse proxy headers (Traefik / cloudflared / nginx)
+app.set('trust proxy', 1);
+
 // ── Security headers ───────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -33,7 +36,7 @@ app.get('/api/config', (req, res) => {
   const siteBaseDomain = db.prepare("SELECT value FROM settings WHERE key = 'site_base_domain'").get()?.value || '';
   const acmeEmail = db.prepare("SELECT value FROM settings WHERE key = 'acme_email'").get()?.value || process.env.ACME_EMAIL || '';
   res.json({
-    version: '0.7.5',
+    version: '0.7.6',
     siteBaseDomain,
     supervisorDomain: process.env.SUPERVISOR_DOMAIN || 'localhost',
     acmeEmail,
@@ -41,7 +44,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.7.5' }));
+app.get('/api/health', (req, res) => res.json({ ok: true, version: '0.7.6' }));
 
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));

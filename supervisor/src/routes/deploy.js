@@ -143,7 +143,10 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
       await runBuildStep(site);
     }
 
-    await applySiteSettings(site);
+    const newContainerId = await applySiteSettings(site);
+    if (newContainerId) {
+      db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
+    }
 
     res.json({ ok: true, files: fs.readdirSync(targetDir).length });
   } catch (err) {
@@ -211,7 +214,10 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
       custom_headers: row.custom_headers || '[]',
       redirects: row.redirects || '[]',
     };
-    await applySiteSettings(site);
+    const rollbackContainerId = await applySiteSettings(site);
+    if (rollbackContainerId) {
+      db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(rollbackContainerId, req.params.id);
+    }
 
     logActivity(req.params.id, row.name, 'rolled_back', dep.filename);
     fireWebhooks('rollback', req.params.id, row.name, dep.filename);
@@ -302,7 +308,10 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
 
     const site = { ...row, spa_mode: !!row.spa_mode, cache_enabled: !!row.cache_enabled, maintenance_mode: !!row.maintenance_mode, ssl_enabled: !!row.ssl_enabled, custom_headers: row.custom_headers || '[]', redirects: row.redirects || '[]' };
     if (isAppRuntime && row.build_cmd) await runBuildStep(site);
-    await applySiteSettings(site);
+    const urlDeployContainerId = await applySiteSettings(site);
+    if (urlDeployContainerId) {
+      db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(urlDeployContainerId, req.params.id);
+    }
 
     res.json({ ok: true, files: fs.readdirSync(targetDir).length });
   } catch (err) {

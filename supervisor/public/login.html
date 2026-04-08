@@ -101,10 +101,14 @@
       </form>
     </div>
 
-    <div class="login-footer">Grimport v0.7.0</div>
+    <div class="login-footer" id="login-footer-version">Grimport</div>
   </div>
 
   <script>
+    fetch('/api/config').then(r => r.json()).then(d => {
+      if (d.version) document.getElementById('login-footer-version').textContent = `Grimport v${d.version}`;
+    }).catch(() => {});
+
     document.getElementById('login-form').addEventListener('submit', async e => {
       e.preventDefault();
       const btn = document.getElementById('btn-login');

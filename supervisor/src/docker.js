@@ -134,16 +134,36 @@ async function restartSiteContainer(containerId) {
 
 /**
  * Apply updated settings to a running site.
- * Static sites rewrite nginx config + restart; app containers just restart.
+ * Static/PHP sites rewrite nginx config + restart in place.
+ * Node/Python app containers are fully recreated so start_cmd, env_vars, and
+ * app_port (all baked into the container at creation) take effect immediately.
+ * Returns the new container ID for app runtimes (caller must persist it), or null.
  */
 async function applySiteSettings(site) {
   const runtime = site.runtime || 'static';
   if (runtime === 'static') {
     writeNginxConfig(site);
+    if (site.container_id) {
+      try { await restartSiteContainer(site.container_id); } catch {}
+    }
+    return null;
   }
+  if (runtime === 'php') {
+    if (site.container_id) {
+      try { await restartSiteContainer(site.container_id); } catch {}
+    }
+    return null;
+  }
+  // node / python — recreate so new start_cmd / env_vars / app_port apply
   if (site.container_id) {
-    try { await restartSiteContainer(site.container_id); } catch {}
+    try {
+      const old = docker.getContainer(site.container_id);
+      try { await old.stop({ t: 5 }); } catch {}
+      await old.remove();
+    } catch {}
   }
+  const newId = await createAppContainer(site);
+  return newId;
 }
 
 async function startSiteContainer(containerId) {

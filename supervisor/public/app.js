@@ -1,4 +1,4 @@
-/* ── Grimport Supervisor — Frontend v0.7.5 ─────────────────── */
+/* ── Grimport Supervisor — Frontend v0.7.6 ─────────────────── */
 
 
 // ── State ─────────────────────────────────────────────────
@@ -10,6 +10,7 @@ let searchQuery = '';
 let uptimeData = {}; // siteId → { currentStatus, uptime24h }
 let connectDomain = ''; // domain being connected from notification
 let currentUser = { role: 'admin', username: '' }; // populated on init
+let cachedUpdateData = null; // latest update check result
 
 // ── API helpers ───────────────────────────────────────────
 async function api(method, path, body) {
@@ -269,6 +270,7 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
     spa_mode: fd.get('spa_mode') === 'on',
     cache_enabled: fd.get('cache_enabled') === 'on',
     ...(isApp ? {
+      build_cmd: fd.get('build_cmd') || null,
       start_cmd: fd.get('start_cmd') || null,
       app_port: fd.get('app_port') ? Number(fd.get('app_port')) : 3000,
     } : {}),
@@ -406,8 +408,42 @@ document.querySelectorAll('.modal-tab').forEach(tab => {
     tab.classList.add('active');
     document.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`stab-${tab.dataset.stab}`).classList.remove('hidden');
+    if (tab.dataset.stab === 'access' && currentUser.role === 'admin') loadSiteAccessUsers();
   });
 });
+
+async function loadSiteAccessUsers() {
+  const wrap = document.getElementById('site-access-users-list');
+  if (!activeSiteId) return;
+  try {
+    const [allUsers, siteUsers] = await Promise.all([
+      api('GET', '/users'),
+      api('GET', `/sites/${activeSiteId}/users`),
+    ]);
+    const nonAdmins = allUsers.filter(u => u.role !== 'admin');
+    if (!nonAdmins.length) {
+      wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No editor or viewer users exist yet.</p>';
+      return;
+    }
+    wrap.innerHTML = nonAdmins.map(u => `
+      <label class="checkbox-label">
+        <input type="checkbox" class="site-user-access-cb" data-uid="${u.id}"
+          ${siteUsers.user_ids.includes(u.id) ? 'checked' : ''} />
+        ${esc(u.username)} <span class="role-badge" data-role="${u.role}" style="margin-left:4px">${u.role}</span>
+      </label>
+    `).join('');
+
+    // Save on each toggle immediately
+    wrap.querySelectorAll('.site-user-access-cb').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const checked = [...wrap.querySelectorAll('.site-user-access-cb:checked')].map(c => c.dataset.uid);
+        await api('PUT', `/sites/${activeSiteId}/users`, { user_ids: checked }).catch(err => toast(err.message, 'error'));
+      });
+    });
+  } catch (err) {
+    wrap.innerHTML = `<p class="settings-desc" style="color:var(--red)">${esc(err.message)}</p>`;
+  }
+}
 
 function openSettings(site) {
   activeSiteId = site.id;
@@ -1200,9 +1236,11 @@ document.addEventListener('click', e => {
 async function loadNotifications() {
   try {
     const { unread, notifications } = await api('GET', '/notifications');
+    const hasUpdateNotif = cachedUpdateData?.updateAvailable && currentUser.role === 'admin';
+    const totalUnread = unread + (hasUpdateNotif ? 1 : 0);
     const badge = document.getElementById('bell-badge');
-    if (unread > 0) {
-      badge.textContent = unread > 9 ? '9+' : String(unread);
+    if (totalUnread > 0) {
+      badge.textContent = totalUnread > 9 ? '9+' : String(totalUnread);
       badge.classList.remove('hidden');
     } else {
       badge.classList.add('hidden');
@@ -1213,12 +1251,24 @@ async function loadNotifications() {
 
 function renderNotifList(notifs) {
   const list = document.getElementById('notif-list');
-  if (!notifs.length) {
+  const hasUpdateNotif = cachedUpdateData?.updateAvailable && currentUser.role === 'admin';
+
+  if (!notifs.length && !hasUpdateNotif) {
     list.innerHTML = '<div class="notif-empty">No notifications so far</div>';
     return;
   }
+
+  const updateHtml = hasUpdateNotif ? `
+    <div class="notif-item notif-update notif-unread" id="notif-update-item">
+      <span class="notif-icon">↑</span>
+      <div class="notif-body">
+        <span class="notif-title">Update available — v${esc(cachedUpdateData.latest)}</span>
+        <span class="notif-detail">Click to install the latest version</span>
+      </div>
+    </div>` : '';
+
   const ICONS = { unknown_domain: '⬡', site_down: '✕', site_up: '✓' };
-  list.innerHTML = notifs.map(n => {
+  list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
     try { data = JSON.parse(n.data || '{}'); } catch {}
     return `
@@ -1252,7 +1302,19 @@ function renderNotifList(notifs) {
     });
   });
 
-  list.querySelectorAll('.notif-item').forEach(item => {
+  // Pinned update notification click — open update modal
+  const updateItem = document.getElementById('notif-update-item');
+  if (updateItem) {
+    updateItem.addEventListener('click', () => {
+      notifDropdownOpen = false;
+      notifDropdown.classList.add('hidden');
+      openModal('modal-update');
+      startUpdateFlow();
+    });
+  }
+
+  // Regular notifications — mark as read on click
+  list.querySelectorAll('.notif-item:not(#notif-update-item)').forEach(item => {
     item.addEventListener('click', async () => {
       if (!item.classList.contains('notif-unread')) return;
       await api('POST', `/notifications/${item.dataset.notifId}/read`).catch(() => {});
@@ -1608,14 +1670,64 @@ function renderUserSites(u) {
   return `<div class="user-sites-chips">${siteNames}</div>`;
 }
 
-function openEditUser(userId, username, role) {
-  const newRole = prompt(`Change role for "${username}" (admin/editor/viewer):`, role);
-  if (!newRole || newRole === role) return;
-  if (!['admin', 'editor', 'viewer'].includes(newRole)) { toast('Invalid role', 'error'); return; }
-  api('PATCH', `/users/${userId}`, { role: newRole })
-    .then(() => { toast('Role updated', 'success'); loadUsers(); })
-    .catch(err => toast(err.message, 'error'));
+async function openEditUser(userId, username, role) {
+  document.getElementById('edit-user-id').value = userId;
+  document.getElementById('edit-user-name').textContent = username;
+  document.getElementById('edit-user-role').value = role;
+
+  // Load current site assignments for this user
+  const [siteData] = await Promise.all([
+    api('GET', `/users/${userId}/sites`).catch(() => ({ all: false, sites: [] })),
+  ]);
+
+  renderEditUserSites(siteData);
+
+  // Role change hides/shows site list
+  document.getElementById('edit-user-role').onchange = function() {
+    document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', this.value === 'admin');
+  };
+  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
+
+  openModal('modal-edit-user');
 }
+
+function renderEditUserSites(siteData) {
+  const wrap = document.getElementById('edit-user-sites-list');
+  if (!sites.length) {
+    wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No sites created yet.</p>';
+    return;
+  }
+  wrap.innerHTML = sites.map(s => `
+    <label class="checkbox-label">
+      <input type="checkbox" name="site_access" value="${s.id}"
+        ${siteData.all || (siteData.sites || []).includes(s.id) ? 'checked' : ''} />
+      ${esc(s.name)} <span style="color:var(--text-muted);font-size:11px">${esc(s.domain)}</span>
+    </label>
+  `).join('');
+}
+
+document.getElementById('form-edit-user').addEventListener('submit', async e => {
+  e.preventDefault();
+  const userId = document.getElementById('edit-user-id').value;
+  const newRole = document.getElementById('edit-user-role').value;
+
+  try {
+    await api('PATCH', `/users/${userId}`, { role: newRole });
+
+    // Update site assignments only for non-admin users
+    if (newRole !== 'admin') {
+      const checked = [...document.querySelectorAll('#edit-user-sites-list input[type=checkbox]:checked')];
+      const site_ids = checked.map(cb => cb.value);
+      await api('PUT', `/users/${userId}/sites`, { site_ids });
+    }
+
+    closeModal('modal-edit-user');
+    toast('User updated', 'success');
+    loadUsers();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
 
 document.getElementById('form-create-user').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1681,9 +1793,13 @@ async function checkForUpdate() {
   if (_updateCheckInFlight) return _updateCheckInFlight;
   _updateCheckInFlight = api('GET', '/update/check')
     .then(data => {
+      const wasAvailable = cachedUpdateData?.updateAvailable;
+      cachedUpdateData = data;
       if (data.updateAvailable && currentUser.role === 'admin') {
         document.getElementById('update-version').textContent = `v${data.latest} available`;
         document.getElementById('update-banner').classList.remove('hidden');
+        // Refresh notification bell to show pinned update item
+        if (!wasAvailable) loadNotifications();
       }
       renderSettingsUpdateInfo(data);
       return data;

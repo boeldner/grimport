@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3.6
     container_name: webhost-traefik
     restart: unless-stopped
     healthcheck:
@@ -16,13 +16,30 @@ services:
       - ACME_EMAIL=${ACME_EMAIL:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - ./data/certs:/certs
+      - traefik-certs:/certs
     command:
       - sh
       - -c
-      - "touch /certs/acme.json && chmod 600 /certs/acme.json && traefik"
+      - |
+        touch /certs/acme.json && chmod 600 /certs/acme.json
+        ACME_ARGS=""
+        if [ -n "$$ACME_EMAIL" ]; then
+          ACME_ARGS="--certificatesresolvers.letsencrypt.acme.email=$$ACME_EMAIL --certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json --certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+        fi
+        exec traefik \
+          --global.checkNewVersion=false \
+          --global.sendAnonymousUsage=false \
+          --ping=true \
+          --log.level=INFO \
+          --accesslog=true \
+          --entrypoints.web.address=:80 \
+          --entrypoints.websecure.address=:443 \
+          --providers.docker=true \
+          --providers.docker.endpoint=unix:///var/run/docker.sock \
+          --providers.docker.network=webhost-net \
+          --providers.docker.exposedByDefault=false \
+          --providers.docker.watch=true \
+          $$ACME_ARGS
     networks:
       - webhost-net
 
@@ -37,11 +54,12 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - SUPERVISOR_SECRET=${SUPERVISOR_SECRET:-changeme}
       - DATA_PATH=/data/sites
-      - HOST_DATA_PATH=${PWD}/data/sites
+      - HOST_DATA_PATH=${HOST_DATA_PATH:-${PWD}/data/sites}
       - DOCKER_NETWORK=webhost-net
       - SUPERVISOR_DOMAIN=${SUPERVISOR_DOMAIN:-localhost}
       - SITE_BASE_DOMAIN=${SITE_BASE_DOMAIN:-}
       - ACME_EMAIL=${ACME_EMAIL:-}
+      - GRIMPORT_IMAGE=${GRIMPORT_IMAGE:-ghcr.io/boeldner/grimport:latest}
       - PUBLIC_IP=${PUBLIC_IP:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -51,23 +69,33 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.supervisor.loadbalancer.server.port=3000"
-      # HTTP router — always active (local dev + ACME challenge)
+
+      # ── HTTP router — always active ──────────────────────────────────────────
       - "traefik.http.routers.supervisor-http.rule=Host(`${SUPERVISOR_DOMAIN:-localhost}`)"
       - "traefik.http.routers.supervisor-http.entrypoints=web"
       - "traefik.http.routers.supervisor-http.service=supervisor"
-      # ── Production HTTPS — uncomment all 4 lines below when deploying to a real domain ──
-      # - "traefik.http.routers.supervisor.rule=Host(`${SUPERVISOR_DOMAIN:-localhost}`)"
-      # - "traefik.http.routers.supervisor.entrypoints=websecure"
-      # - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
-      # - "traefik.http.routers.supervisor.service=supervisor"
-      # ── Also uncomment these 2 to redirect HTTP→HTTPS in production ──
-      # - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
-      # - "traefik.http.routers.supervisor-http.middlewares=https-redirect"
-      # ── Catch-all router — routes unknown hostnames to supervisor for detection ──
+
+      # ── Catch-all — unknown domains show the "connect domain" page ──────────
       - "traefik.http.routers.supervisor-catchall.rule=HostRegexp(`.+`)"
       - "traefik.http.routers.supervisor-catchall.priority=1"
       - "traefik.http.routers.supervisor-catchall.entrypoints=web"
       - "traefik.http.routers.supervisor-catchall.service=supervisor"
+
+      # ── SSL_MODE=letsencrypt — uncomment this block when NOT using cloudflared
+      # SSL: Traefik handles HTTPS directly with Let's Encrypt.
+      # Requires: ACME_EMAIL set in .env, port 80+443 open, DNS pointing to server.
+      # - "traefik.http.routers.supervisor.rule=Host(`${SUPERVISOR_DOMAIN:-localhost}`)"
+      # - "traefik.http.routers.supervisor.entrypoints=websecure"
+      # - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
+      # - "traefik.http.routers.supervisor.service=supervisor"
+      # - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      # - "traefik.http.routers.supervisor-http.middlewares=https-redirect"
+
+      # ── SSL_MODE=cloudflare — default, no changes needed ────────────────────
+      # Cloudflare Tunnel terminates SSL externally. Traefik only handles HTTP
+      # internally. Point your tunnel to: http://webhost-supervisor:3000 (panel)
+      # and http://webhost-traefik:80 (sites with wildcard *.yourdomain.com).
+
     depends_on:
       traefik:
         condition: service_healthy
@@ -76,3 +104,6 @@ networks:
   webhost-net:
     name: webhost-net
     driver: bridge
+
+volumes:
+  traefik-certs:
