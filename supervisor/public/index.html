@@ -32,9 +32,18 @@
       </div>
     </div>
     <nav>
+      <span class="nav-section">Monitor</span>
       <a href="#" class="nav-item active" data-view="sites">Sites</a>
+      <a href="#" class="nav-item" data-view="overview">Overview</a>
       <a href="#" class="nav-item" data-view="activity">Activity <span class="nav-badge hidden" id="activity-badge"></span></a>
-      <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
+
+      <span class="nav-section nav-section-editor">Manage</span>
+      <a href="#" class="nav-item nav-editor" data-view="deployments">Deployments</a>
+      <a href="#" class="nav-item nav-editor" data-view="logs">Logs</a>
+
+      <span class="nav-section nav-section-admin">Admin</span>
+      <a href="#" class="nav-item nav-admin" data-view="domains">Domains</a>
+      <a href="#" class="nav-item nav-admin" data-view="panel-settings">Settings</a>
     </nav>
     <!-- Update banner (shown when new version available) -->
     <div id="update-banner" class="update-banner hidden">
@@ -69,6 +78,143 @@
         </div>
       </header>
       <div id="sites-list" class="sites-grid"></div>
+    </div>
+
+    <!-- Overview view -->
+    <div id="view-overview" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Overview</h1>
+          <p class="subtitle">Analytics &amp; uptime across all sites</p>
+        </div>
+        <div class="view-header-end">
+          <div class="period-btns" id="overview-period-btns">
+            <button class="period-btn active" data-period="24h">24h</button>
+            <button class="period-btn" data-period="7d">7d</button>
+            <button class="period-btn" data-period="30d">30d</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Grand totals -->
+      <div class="overview-grand" id="overview-grand">
+        <div class="overview-stat"><span class="overview-stat-val" id="ov-requests">—</span><span class="overview-stat-lbl">Total requests</span></div>
+        <div class="overview-stat"><span class="overview-stat-val" id="ov-bytes">—</span><span class="overview-stat-lbl">Bandwidth</span></div>
+        <div class="overview-stat"><span class="overview-stat-val" id="ov-errors">—</span><span class="overview-stat-lbl">Errors (4xx+5xx)</span></div>
+        <div class="overview-stat"><span class="overview-stat-val" id="ov-sites-up">—</span><span class="overview-stat-lbl">Sites up</span></div>
+        <div class="overview-stat"><span class="overview-stat-val" id="ov-sites-down">—</span><span class="overview-stat-lbl">Sites down</span></div>
+      </div>
+
+      <!-- Sort bar -->
+      <div class="overview-sortbar">
+        <span class="overview-sortbar-label">Sort by</span>
+        <button class="sort-btn active" data-sort="requests">Requests</button>
+        <button class="sort-btn" data-sort="bytes">Bandwidth</button>
+        <button class="sort-btn" data-sort="errors">Errors</button>
+        <button class="sort-btn" data-sort="uptime">Uptime</button>
+        <button class="sort-btn" data-sort="latency">Latency</button>
+        <button class="sort-btn" data-sort="name">Name</button>
+      </div>
+
+      <div id="overview-loading" class="overview-loading">Loading…</div>
+      <div id="overview-table-wrap" class="hidden">
+        <table class="overview-table" id="overview-table">
+          <thead>
+            <tr>
+              <th>Site</th>
+              <th class="num">Requests</th>
+              <th class="num">Bandwidth</th>
+              <th class="num">2xx</th>
+              <th class="num">3xx</th>
+              <th class="num">4xx</th>
+              <th class="num">5xx</th>
+              <th class="num">Uptime</th>
+              <th class="num">Avg latency</th>
+              <th class="num">Status</th>
+            </tr>
+          </thead>
+          <tbody id="overview-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Deployments view -->
+    <div id="view-deployments" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Deployments</h1>
+          <p class="subtitle">Global deployment history across all sites</p>
+        </div>
+        <div class="view-header-end">
+          <select id="deployments-filter" class="select-input">
+            <option value="">All sites</option>
+          </select>
+        </div>
+      </header>
+      <div id="deployments-loading" class="overview-loading">Loading…</div>
+      <div id="deployments-table-wrap" class="hidden">
+        <table class="overview-table" id="deployments-table">
+          <thead>
+            <tr>
+              <th>Site</th>
+              <th>File</th>
+              <th class="num">Size</th>
+              <th>Deployed</th>
+              <th class="admin-only"></th>
+            </tr>
+          </thead>
+          <tbody id="deployments-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Logs view -->
+    <div id="view-logs" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Logs</h1>
+          <p class="subtitle">Container log output</p>
+        </div>
+        <div class="view-header-end">
+          <select id="logs-site-select" class="select-input">
+            <option value="">Select a site…</option>
+          </select>
+          <select id="logs-lines-select" class="select-input" style="width:90px">
+            <option value="50">50 lines</option>
+            <option value="100" selected>100 lines</option>
+            <option value="250">250 lines</option>
+            <option value="500">500 lines</option>
+          </select>
+          <button class="btn" id="btn-logs-refresh">Refresh</button>
+          <label class="logs-auto-label"><input type="checkbox" id="logs-auto-refresh"> Auto</label>
+        </div>
+      </header>
+      <pre id="logs-output" class="logs-output">Select a site to view logs.</pre>
+    </div>
+
+    <!-- Domains view -->
+    <div id="view-domains" class="view hidden">
+      <header class="view-header">
+        <div>
+          <h1>Domains</h1>
+          <p class="subtitle">All site domains and their status</p>
+        </div>
+      </header>
+      <div id="domains-loading" class="overview-loading">Loading…</div>
+      <div id="domains-table-wrap" class="hidden">
+        <table class="overview-table">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>Site</th>
+              <th>Runtime</th>
+              <th>SSL</th>
+              <th>Container</th>
+            </tr>
+          </thead>
+          <tbody id="domains-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Activity view -->

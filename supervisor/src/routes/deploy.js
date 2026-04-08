@@ -44,6 +44,21 @@ function saveDeployment(siteId, filename, size) {
 
 const router = Router();
 
+// GET /api/deploy — global deployment history (filtered by site access)
+router.get('/', requireRole('admin', 'editor'), (req, res) => {
+  const rows = req.user?.role === 'admin'
+    ? db.prepare(`SELECT d.id, d.site_id, d.filename, d.size, d.deployed_at,
+          s.name AS site_name, s.domain AS site_domain
+        FROM deployments d JOIN sites s ON s.id = d.site_id
+        ORDER BY d.deployed_at DESC LIMIT 200`).all()
+    : db.prepare(`SELECT d.id, d.site_id, d.filename, d.size, d.deployed_at,
+          s.name AS site_name, s.domain AS site_domain
+        FROM deployments d JOIN sites s ON s.id = d.site_id
+        INNER JOIN site_permissions sp ON sp.site_id = d.site_id AND sp.user_id = ?
+        ORDER BY d.deployed_at DESC LIMIT 200`).all(req.user?.id);
+  res.json(rows);
+});
+
 // Store uploads in /tmp — they're extracted immediately and deleted
 const upload = multer({
   dest: '/tmp/webhost-uploads/',

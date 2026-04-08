@@ -672,13 +672,14 @@ let activeAnalyticsSiteId = null;
 let activeAnalyticsPeriod = '7d';
 
 function fmtBytes(b) {
-  if (b < 1024) return b + ' B';
-  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-  return (b / 1024 / 1024).toFixed(2) + ' MB';
+  if (b >= 1e9) return (b / 1e9).toFixed(2) + ' GB';
+  if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB';
+  if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB';
+  return b + ' B';
 }
 function fmtNum(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
   return String(n);
 }
 
@@ -1000,6 +1001,10 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
     document.getElementById(`view-${view}`).classList.remove('hidden');
     if (view === 'panel-settings') loadPanelSettings();
     if (view === 'activity') loadActivity();
+    if (view === 'overview') loadOverview();
+    if (view === 'deployments') loadDeployments();
+    if (view === 'logs') loadLogsView();
+    if (view === 'domains') loadDomains();
   });
 });
 
@@ -1524,10 +1529,13 @@ function applyRoleUI() {
 
   // Hide admin-only elements for non-admins
   if (role !== 'admin') {
-    document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
-    // Hide "New site" and "Delete site" buttons for non-admins
+    document.querySelectorAll('.admin-only, .nav-admin, .nav-section-admin').forEach(el => el.classList.add('hidden'));
     const btnNew = document.getElementById('btn-new-site');
     if (btnNew) btnNew.classList.add('hidden');
+  }
+  // Hide editor+ elements for viewers
+  if (role === 'viewer') {
+    document.querySelectorAll('.nav-editor, .nav-section-editor').forEach(el => el.classList.add('hidden'));
   }
 }
 
@@ -1785,6 +1793,223 @@ document.getElementById('btn-notif-clear-all').addEventListener('click', async (
     loadNotifications();
     toast('All notifications cleared', 'success');
   } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Deployments view ──────────────────────────────────────
+let allDeployments = [];
+
+async function loadDeployments() {
+  document.getElementById('deployments-loading').classList.remove('hidden');
+  document.getElementById('deployments-table-wrap').classList.add('hidden');
+  try {
+    allDeployments = await api('GET', '/deploy');
+    // Populate site filter
+    const siteIds = [...new Set(allDeployments.map(d => d.site_id))];
+    const filter = document.getElementById('deployments-filter');
+    const current = filter.value;
+    filter.innerHTML = '<option value="">All sites</option>' +
+      siteIds.map(id => {
+        const d = allDeployments.find(x => x.site_id === id);
+        return `<option value="${esc(id)}"${current === id ? ' selected' : ''}>${esc(d.site_name)}</option>`;
+      }).join('');
+    renderDeployments();
+  } catch {
+    document.getElementById('deployments-loading').textContent = 'Failed to load deployments.';
+  }
+}
+
+function renderDeployments() {
+  const filterVal = document.getElementById('deployments-filter').value;
+  const rows = filterVal ? allDeployments.filter(d => d.site_id === filterVal) : allDeployments;
+  const isAdmin = currentUser.role === 'admin';
+
+  document.getElementById('deployments-tbody').innerHTML = rows.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No deployments yet</td></tr>`
+    : rows.map(d => `
+    <tr>
+      <td>
+        <span style="font-weight:600;color:var(--text)">${esc(d.site_name)}</span>
+        <span style="display:block;font-size:11px;color:var(--text-subtle)">${esc(d.site_domain)}</span>
+      </td>
+      <td style="font-family:monospace;font-size:12px">${esc(d.filename)}</td>
+      <td class="num">${fmtBytes(d.size)}</td>
+      <td>${timeAgo(d.deployed_at)}</td>
+      <td>${isAdmin ? `<button class="btn btn-sm" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Rollback</button>` : ''}</td>
+    </tr>`).join('');
+
+  document.querySelectorAll('[data-rollback-site]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Roll back to this deployment?')) return;
+      try {
+        await api('POST', `/deploy/${btn.dataset.rollbackSite}/rollback/${btn.dataset.rollbackId}`);
+        toast('Rolled back successfully', 'success');
+        loadDeployments();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+
+  document.getElementById('deployments-loading').classList.add('hidden');
+  document.getElementById('deployments-table-wrap').classList.remove('hidden');
+}
+
+document.getElementById('deployments-filter').addEventListener('change', renderDeployments);
+
+// ── Logs view ─────────────────────────────────────────────
+let logsAutoInterval = null;
+
+async function loadLogsView() {
+  // Populate site selector from already-loaded sites list
+  const select = document.getElementById('logs-site-select');
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Select a site…</option>' +
+    sites.map(s => `<option value="${esc(s.id)}"${s.id === currentVal ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+  if (currentVal) fetchLogs(currentVal);
+}
+
+async function fetchLogs(siteId) {
+  if (!siteId) return;
+  const lines = document.getElementById('logs-lines-select').value;
+  const out = document.getElementById('logs-output');
+  out.textContent = 'Loading…';
+  try {
+    const res = await fetch(`/api/sites/${siteId}/logs?lines=${lines}`);
+    const text = await res.text();
+    out.textContent = text || '(no output)';
+    out.scrollTop = out.scrollHeight;
+  } catch { out.textContent = 'Failed to fetch logs.'; }
+}
+
+document.getElementById('logs-site-select').addEventListener('change', e => fetchLogs(e.target.value));
+document.getElementById('logs-lines-select').addEventListener('change', () => fetchLogs(document.getElementById('logs-site-select').value));
+document.getElementById('btn-logs-refresh').addEventListener('click', () => fetchLogs(document.getElementById('logs-site-select').value));
+document.getElementById('logs-auto-refresh').addEventListener('change', e => {
+  clearInterval(logsAutoInterval);
+  if (e.target.checked) {
+    logsAutoInterval = setInterval(() => fetchLogs(document.getElementById('logs-site-select').value), 3000);
+  }
+});
+
+// ── Domains view ──────────────────────────────────────────
+async function loadDomains() {
+  document.getElementById('domains-loading').classList.remove('hidden');
+  document.getElementById('domains-table-wrap').classList.add('hidden');
+  try {
+    const data = await api('GET', '/sites');
+    const statusDot = s =>
+      s?.running ? '<span class="ov-dot ov-dot-up" title="Running"></span>' :
+      s?.status === 'none' ? '<span class="ov-dot ov-dot-unknown" title="No container"></span>' :
+      '<span class="ov-dot ov-dot-down" title="Stopped"></span>';
+
+    document.getElementById('domains-tbody').innerHTML = data.length === 0
+      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No sites yet</td></tr>`
+      : data.map(s => `
+      <tr>
+        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none">${esc(s.domain)}</a></td>
+        <td style="color:var(--text-muted)">${esc(s.name)}</td>
+        <td><span class="runtime-badge">${esc(s.runtime || 'static')}</span></td>
+        <td>${s.ssl_enabled ? '<span class="ov-good">✓ SSL</span>' : '<span style="color:var(--text-subtle)">—</span>'}</td>
+        <td>${statusDot(s.container)}</td>
+      </tr>`).join('');
+
+    document.getElementById('domains-loading').classList.add('hidden');
+    document.getElementById('domains-table-wrap').classList.remove('hidden');
+  } catch {
+    document.getElementById('domains-loading').textContent = 'Failed to load domains.';
+  }
+}
+
+// ── Overview ──────────────────────────────────────────────
+let overviewPeriod = '24h';
+let overviewData = null;
+let overviewSort = 'requests';
+
+async function loadOverview() {
+  document.getElementById('overview-loading').classList.remove('hidden');
+  document.getElementById('overview-table-wrap').classList.add('hidden');
+  try {
+    overviewData = await api('GET', `/analytics/overview?period=${overviewPeriod}`);
+    renderOverview();
+  } catch (err) {
+    document.getElementById('overview-loading').textContent = 'Failed to load overview.';
+  }
+}
+
+function renderOverview() {
+  if (!overviewData) return;
+  const { sites, grand } = overviewData;
+
+  // Grand totals
+  document.getElementById('ov-requests').textContent = fmtNum(grand.requests);
+  document.getElementById('ov-bytes').textContent = fmtBytes(grand.bytes);
+  document.getElementById('ov-errors').textContent = fmtNum(grand.client_err + grand.server_err);
+  document.getElementById('ov-sites-up').textContent = grand.sitesUp;
+  document.getElementById('ov-sites-down').textContent = grand.sitesDown;
+
+  // Sort
+  const sorted = [...sites].sort((a, b) => {
+    if (overviewSort === 'requests') return b.requests - a.requests;
+    if (overviewSort === 'bytes')    return b.bytes - a.bytes;
+    if (overviewSort === 'errors')   return (b.client_err + b.server_err) - (a.client_err + a.server_err);
+    if (overviewSort === 'uptime')   return (parseFloat(b.uptime) || 0) - (parseFloat(a.uptime) || 0);
+    if (overviewSort === 'latency')  return (a.avgLatency ?? 99999) - (b.avgLatency ?? 99999);
+    if (overviewSort === 'name')     return a.name.localeCompare(b.name);
+    return 0;
+  });
+
+  const statusDot = s =>
+    s === 'up'   ? '<span class="ov-dot ov-dot-up" title="Up"></span>' :
+    s === 'down' ? '<span class="ov-dot ov-dot-down" title="Down"></span>' :
+                   '<span class="ov-dot ov-dot-unknown" title="Unknown"></span>';
+
+  const uptimeClass = u =>
+    u === null ? '' : parseFloat(u) >= 99 ? 'ov-good' : parseFloat(u) >= 95 ? 'ov-warn' : 'ov-bad';
+
+  document.getElementById('overview-tbody').innerHTML = sorted.map(s => `
+    <tr class="ov-row" data-id="${esc(s.id)}">
+      <td class="ov-site-cell">
+        <span class="ov-site-name">${esc(s.name)}</span>
+        <span class="ov-site-domain">${esc(s.domain)}</span>
+      </td>
+      <td class="num">${fmtNum(s.requests)}</td>
+      <td class="num">${fmtBytes(s.bytes)}</td>
+      <td class="num ov-good">${fmtNum(s.ok)}</td>
+      <td class="num">${fmtNum(s.redirects)}</td>
+      <td class="num ${s.client_err > 0 ? 'ov-warn' : ''}">${fmtNum(s.client_err)}</td>
+      <td class="num ${s.server_err > 0 ? 'ov-bad' : ''}">${fmtNum(s.server_err)}</td>
+      <td class="num ${uptimeClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
+      <td class="num">${s.avgLatency !== null ? s.avgLatency + ' ms' : '—'}</td>
+      <td class="num">${statusDot(s.currentStatus)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('overview-loading').classList.add('hidden');
+  document.getElementById('overview-table-wrap').classList.remove('hidden');
+
+  // Click row → open site analytics
+  document.querySelectorAll('.ov-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const site = sites.find(s => s.id === row.dataset.id);
+      if (site) openAnalytics(site);
+    });
+  });
+}
+
+document.querySelectorAll('#overview-period-btns .period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#overview-period-btns .period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    overviewPeriod = btn.dataset.period;
+    loadOverview();
+  });
+});
+
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    overviewSort = btn.dataset.sort;
+    renderOverview();
+  });
 });
 
 // ── Update checker ────────────────────────────────────────
