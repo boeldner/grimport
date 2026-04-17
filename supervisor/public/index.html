@@ -16,6 +16,10 @@
         <rect x="3" y="3" width="14" height="3" rx="1.5" fill="#b91c1c"/>
       </svg>
       <span class="logo-text">Grimport</span>
+      <button class="theme-toggle" id="btn-theme" title="Toggle light/dark mode" aria-label="Toggle theme">
+        <svg id="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <button class="bell-btn" id="btn-bell" title="Notifications" aria-label="Notifications">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         <span class="bell-badge hidden" id="bell-badge">0</span>
@@ -361,7 +365,7 @@
           <section class="settings-section">
             <h3>HTTPS / SSL</h3>
             <div id="ssl-status-banner" class="ssl-status-banner ssl-status-unconfigured">
-              <span id="ssl-status-icon">✕</span>
+              <span id="ssl-status-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
               <div>
                 <strong id="ssl-status-title">SSL not configured</strong>
                 <div id="ssl-status-detail" class="settings-desc" style="margin-top:4px"></div>
@@ -560,7 +564,7 @@ systemctl start cloudflared</pre>
     <div class="modal">
       <div class="modal-header">
         <h2>New site</h2>
-        <button class="modal-close" data-close="modal-new-site">✕</button>
+        <button class="modal-close" data-close="modal-new-site"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-new-site">
         <label>Site name
@@ -612,7 +616,7 @@ systemctl start cloudflared</pre>
     <div class="modal">
       <div class="modal-header">
         <h2>Deploy to <span id="deploy-site-name"></span></h2>
-        <button class="modal-close" data-close="modal-deploy">✕</button>
+        <button class="modal-close" data-close="modal-deploy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div class="deploy-tabs">
         <button class="deploy-tab active" data-dtab="upload">Upload zip</button>
@@ -653,7 +657,7 @@ systemctl start cloudflared</pre>
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Settings — <span id="settings-site-name"></span></h2>
-        <button class="modal-close" data-close="modal-settings">✕</button>
+        <button class="modal-close" data-close="modal-settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
 
       <!-- Tabs -->
@@ -784,7 +788,7 @@ systemctl start cloudflared</pre>
             <button class="analytics-period-btn active" data-period="7d">7d</button>
             <button class="analytics-period-btn" data-period="30d">30d</button>
           </div>
-          <button class="modal-close" data-close="modal-analytics">✕</button>
+          <button class="modal-close" data-close="modal-analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
       </div>
 
@@ -843,7 +847,7 @@ systemctl start cloudflared</pre>
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>DNS Setup — <span id="dns-site-name"></span></h2>
-        <button class="modal-close" data-close="modal-dns">✕</button>
+        <button class="modal-close" data-close="modal-dns"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
 
       <div id="dns-status-banner" class="dns-banner dns-banner-checking">
@@ -875,7 +879,7 @@ systemctl start cloudflared</pre>
       </div>
 
       <div class="dns-tab-content hidden" id="dns-tab-cloudflare">
-        <p class="dns-desc">Add this record in Cloudflare DNS with the <strong>proxy enabled</strong> (orange cloud ☁):</p>
+        <p class="dns-desc">Add this record in Cloudflare DNS with the <strong>proxy enabled</strong> (orange cloud):</p>
         <div class="dns-record-table">
           <div class="dns-record-row dns-record-header">
             <span>Type</span><span>Name</span><span>Value</span><span>Proxy</span>
@@ -884,7 +888,7 @@ systemctl start cloudflared</pre>
             <span class="dns-tag">A</span>
             <span class="dns-mono" id="dns-cf-name">—</span>
             <span class="dns-mono dns-ip" id="dns-cf-value">detecting…</span>
-            <span class="dns-tag dns-tag-orange">Proxied ☁</span>
+            <span class="dns-tag dns-tag-orange">Proxied</span>
           </div>
         </div>
         <div class="dns-steps">
@@ -915,7 +919,7 @@ systemctl start cloudflared</pre>
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Logs — <span id="logs-site-name"></span></h2>
-        <button class="modal-close" data-close="modal-logs">✕</button>
+        <button class="modal-close" data-close="modal-logs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <pre id="logs-content" class="logs-output">Loading…</pre>
       <div class="modal-actions">
@@ -930,7 +934,7 @@ systemctl start cloudflared</pre>
     <div class="modal modal-wide">
       <div class="modal-header">
         <h2>History — <span id="history-site-name"></span></h2>
-        <button class="modal-close" data-close="modal-history">✕</button>
+        <button class="modal-close" data-close="modal-history"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div id="history-list"></div>
       <div class="modal-actions">
@@ -944,7 +948,7 @@ systemctl start cloudflared</pre>
     <div class="modal">
       <div class="modal-header">
         <h2 class="modal-title">Connect domain</h2>
-        <button class="modal-close" data-close="modal-connect-domain">✕</button>
+        <button class="modal-close" data-close="modal-connect-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <p class="settings-desc" style="margin-bottom:16px">
         <strong id="connect-domain-name"></strong> is pointing to this server but isn't connected to a site yet.
@@ -968,7 +972,7 @@ systemctl start cloudflared</pre>
     <div class="modal">
       <div class="modal-header">
         <h2 class="modal-title">Create preview</h2>
-        <button class="modal-close" data-close="modal-preview">✕</button>
+        <button class="modal-close" data-close="modal-preview"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <p class="settings-desc" style="margin-bottom:16px">
         A preview container runs your site at a staging domain. When ready, one click swaps it live — no DNS changes, no downtime.
@@ -1036,7 +1040,7 @@ systemctl start cloudflared</pre>
     <div class="modal">
       <div class="modal-header">
         <h2>Edit user — <span id="edit-user-name"></span></h2>
-        <button class="modal-close" data-close="modal-edit-user">✕</button>
+        <button class="modal-close" data-close="modal-edit-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-edit-user">
         <input type="hidden" id="edit-user-id" />

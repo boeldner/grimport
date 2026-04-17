@@ -203,13 +203,22 @@ async function containerStatus(containerId) {
  */
 async function containerLogs(containerId, lines = 100) {
   const container = docker.getContainer(containerId);
-  const logs = await container.logs({
+  const buf = await container.logs({
     stdout: true,
     stderr: true,
+    follow: false,
     tail: lines,
     timestamps: true,
   });
-  return logs.toString('utf8');
+  // Demux Docker's multiplexed log format (8-byte header per frame)
+  const result = [];
+  let offset = 0;
+  while (offset + 8 <= buf.length) {
+    const size = buf.readUInt32BE(offset + 4);
+    if (size > 0) result.push(buf.subarray(offset + 8, offset + 8 + size).toString('utf8'));
+    offset += 8 + size;
+  }
+  return result.length ? result.join('') : buf.toString('utf8');
 }
 
 /**
@@ -446,21 +455,26 @@ async function removePreviewContainer(site) {
   if (fs.existsSync(previewConf)) fs.unlinkSync(previewConf);
 }
 
+const { withAudit } = require('./audit');
+
+const siteMeta = (args) => ({ siteId: args[0]?.id, siteName: args[0]?.name });
+const idMeta   = () => ({});
+
 module.exports = {
   siteDir,
   appDir,
   previewDir,
   writeNginxConfig,
-  createSiteContainer,
-  createAppContainer,
-  runBuildStep,
-  createPreviewContainer,
-  swapPreview,
-  removePreviewContainer,
-  applySiteSettings,
-  startSiteContainer,
-  stopSiteContainer,
-  removeSiteContainer,
+  createSiteContainer:   withAudit('createSiteContainer',   createSiteContainer,   siteMeta),
+  createAppContainer:    withAudit('createAppContainer',    createAppContainer,    siteMeta),
+  runBuildStep:          withAudit('runBuildStep',          runBuildStep,          siteMeta),
+  createPreviewContainer:withAudit('createPreviewContainer',createPreviewContainer,siteMeta),
+  swapPreview:           withAudit('swapPreview',           swapPreview,           siteMeta),
+  removePreviewContainer:withAudit('removePreviewContainer',removePreviewContainer,siteMeta),
+  applySiteSettings:     withAudit('applySiteSettings',     applySiteSettings,     siteMeta),
+  startSiteContainer:    withAudit('startSiteContainer',    startSiteContainer,    idMeta),
+  stopSiteContainer:     withAudit('stopSiteContainer',     stopSiteContainer,     idMeta),
+  removeSiteContainer:   withAudit('removeSiteContainer',   removeSiteContainer,   idMeta),
   containerStatus,
   containerLogs,
 };

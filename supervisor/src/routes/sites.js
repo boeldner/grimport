@@ -20,10 +20,10 @@ const fs = require('fs');
 
 const router = Router();
 
-function logActivity(siteId, siteName, event, detail) {
+function logActivity(siteId, siteName, event, detail, actor = 'system') {
   try {
-    db.prepare('INSERT INTO activity (site_id, site_name, event, detail) VALUES (?, ?, ?, ?)')
-      .run(siteId, siteName, event, detail || null);
+    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor) VALUES (?, ?, ?, ?, ?)')
+      .run(siteId, siteName, event, detail || null, actor);
   } catch {}
 }
 
@@ -100,7 +100,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(containerId, id);
     site.container_id = containerId;
     site.container = await containerStatus(containerId);
-    logActivity(id, name.trim(), 'created', domain.trim().toLowerCase());
+    logActivity(id, name.trim(), 'created', domain.trim().toLowerCase(), req.user?.username || 'system');
     res.status(201).json(site);
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -171,7 +171,7 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
     updated.container_id = newContainerId;
   }
-  logActivity(req.params.id, updated.name, 'settings_changed', null);
+  logActivity(req.params.id, updated.name, 'settings_changed', null, req.user?.username || 'system');
   res.json(updated);
 });
 
@@ -180,7 +180,7 @@ router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), a
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await startSiteContainer(row.container_id);
-  logActivity(req.params.id, row.name, 'started', null);
+  logActivity(req.params.id, row.name, 'started', null, req.user?.username || 'system');
   res.json({ ok: true });
 });
 
@@ -189,7 +189,7 @@ router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), as
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await stopSiteContainer(row.container_id);
-  logActivity(req.params.id, row.name, 'stopped', null);
+  logActivity(req.params.id, row.name, 'stopped', null, req.user?.username || 'system');
   res.json({ ok: true });
 });
 
@@ -206,7 +206,7 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 
   db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
-  logActivity(null, row.name, 'deleted', row.domain);
+  logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system');
   res.json({ ok: true });
 });
 
@@ -241,8 +241,12 @@ router.put('/:id/users', requireRole('admin'), (req, res) => {
 router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
-  const logs = await containerLogs(row.container_id, Number(req.query.lines) || 100);
-  res.type('text/plain').send(logs);
+  try {
+    const logs = await containerLogs(row.container_id, Number(req.query.lines) || 100);
+    res.type('text/plain').send(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Blue-green preview ─────────────────────────────────────

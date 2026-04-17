@@ -137,6 +137,10 @@ try { db.exec('ALTER TABLE sites ADD COLUMN build_cmd TEXT'); } catch {}
 try { db.exec('ALTER TABLE sites ADD COLUMN start_cmd TEXT'); } catch {}
 try { db.exec('ALTER TABLE sites ADD COLUMN app_port INTEGER DEFAULT 3000'); } catch {}
 try { db.exec("ALTER TABLE sites ADD COLUMN env_vars TEXT DEFAULT '{}'"); } catch {}
+try { db.exec("ALTER TABLE activity ADD COLUMN level TEXT NOT NULL DEFAULT 'info'"); } catch {}
+try { db.exec("ALTER TABLE activity ADD COLUMN actor TEXT NOT NULL DEFAULT 'system'"); } catch {}
+try { db.exec("ALTER TABLE activity ADD COLUMN duration_ms INTEGER"); } catch {}
+try { db.exec("ALTER TABLE activity ADD COLUMN fn TEXT"); } catch {}
 
 // Seed first admin user from existing password_hash setting (one-time migration)
 const { nanoid } = require('nanoid');

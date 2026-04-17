@@ -17,10 +17,10 @@ function historyDir(siteId) {
   return path.join(siteDir(siteId), 'history');
 }
 
-function logActivity(siteId, siteName, event, detail) {
+function logActivity(siteId, siteName, event, detail, actor = 'system') {
   try {
-    db.prepare('INSERT INTO activity (site_id, site_name, event, detail) VALUES (?, ?, ?, ?)')
-      .run(siteId, siteName, event, detail || null);
+    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor) VALUES (?, ?, ?, ?, ?)')
+      .run(siteId, siteName, event, detail || null, actor);
   } catch {}
 }
 
@@ -140,7 +140,7 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
     fs.unlinkSync(req.file.path);
 
     saveDeployment(req.params.id, historyFilename, req.file.size);
-    logActivity(req.params.id, row.name, 'deployed', req.file.originalname);
+    logActivity(req.params.id, row.name, 'deployed', req.file.originalname, req.user?.username || 'system');
     fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
 
     const site = {
@@ -234,7 +234,7 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
       db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(rollbackContainerId, req.params.id);
     }
 
-    logActivity(req.params.id, row.name, 'rolled_back', dep.filename);
+    logActivity(req.params.id, row.name, 'rolled_back', dep.filename, req.user?.username || 'system');
     fireWebhooks('rollback', req.params.id, row.name, dep.filename);
     res.json({ ok: true });
   } catch (err) {
@@ -318,7 +318,7 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
     fs.unlinkSync(tmpPath);
 
     saveDeployment(req.params.id, historyFilename, stat.size);
-    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname);
+    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname, req.user?.username || 'system');
     fireWebhooks('deploy', req.params.id, row.name, url);
 
     const site = { ...row, spa_mode: !!row.spa_mode, cache_enabled: !!row.cache_enabled, maintenance_mode: !!row.maintenance_mode, ssl_enabled: !!row.ssl_enabled, custom_headers: row.custom_headers || '[]', redirects: row.redirects || '[]' };

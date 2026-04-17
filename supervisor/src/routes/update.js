@@ -113,6 +113,12 @@ async function performUpdate() {
     const self = docker.getContainer(CONTAINER_NAME);
     const info = await self.inspect();
 
+    // Build clean network config — only pass network names, not stale endpoint metadata
+    const endpointsConfig = {};
+    for (const [netName, netInfo] of Object.entries(info.NetworkSettings.Networks || {})) {
+      endpointsConfig[netName] = { Aliases: (netInfo.Aliases || []).filter(a => a !== CONTAINER_NAME) };
+    }
+
     const cfg = {
       name:   CONTAINER_NAME,
       Image:  IMAGE,
@@ -122,10 +128,9 @@ async function performUpdate() {
         Binds:         info.HostConfig.Binds       || [],
         NetworkMode:   info.HostConfig.NetworkMode || 'bridge',
         RestartPolicy: { Name: 'unless-stopped' },
+        PortBindings:  info.HostConfig.PortBindings || {},
       },
-      NetworkingConfig: {
-        EndpointsConfig: info.NetworkSettings.Networks || {},
-      },
+      NetworkingConfig: { EndpointsConfig: endpointsConfig },
     };
 
     // 3. Spawn a helper container using the NEW image.

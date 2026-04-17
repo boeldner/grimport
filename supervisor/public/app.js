@@ -1,5 +1,66 @@
-/* ── Grimport Supervisor — Frontend v0.7.6 ─────────────────── */
+/* ── Grimport Supervisor — Frontend v0.8.0 ─────────────────── */
 
+// ── Theme ─────────────────────────────────────────────────
+(function () {
+  const saved = localStorage.getItem('grimport-theme');
+  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+})();
+
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    document.getElementById('theme-icon-dark').classList.add('hidden');
+    document.getElementById('theme-icon-light').classList.remove('hidden');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    document.getElementById('theme-icon-dark').classList.remove('hidden');
+    document.getElementById('theme-icon-light').classList.add('hidden');
+  }
+  localStorage.setItem('grimport-theme', theme);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('grimport-theme') || 'dark';
+  applyTheme(saved);
+  document.getElementById('btn-theme').addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    applyTheme(current === 'light' ? 'dark' : 'light');
+  });
+});
+
+// ── SVG Icon system ───────────────────────────────────────
+const IC = (path, size = 14) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+const ICON = {
+  arrowUp:      IC('<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>'),
+  arrowDown:    IC('<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>'),
+  upload:       IC('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+  download:     IC('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+  plus:         IC('<path d="M12 5v14M5 12h14"/>'),
+  x:            IC('<path d="M18 6 6 18M6 6l12 12"/>'),
+  check:        IC('<polyline points="20 6 9 17 4 12"/>'),
+  play:         IC('<polygon points="5 3 19 12 5 21 5 3"/>'),
+  stop:         IC('<rect x="4" y="4" width="16" height="16" rx="2"/>'),
+  settings:     IC('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
+  rotateCcw:    IC('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
+  rotateCw:     IC('<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M21 3v5h-5"/>'),
+  warning:      IC('<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  logs:         IC('<line x1="21" y1="6" x2="3" y2="6"/><line x1="15" y1="12" x2="3" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/>'),
+  layers:       IC('<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>'),
+  barChart:     IC('<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'),
+  history:      IC('<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>'),
+  trash:        IC('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'),
+  externalLink: IC('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'),
+  globe:        IC('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>'),
+  cloud:        IC('<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>'),
+  circle:       IC('<circle cx="12" cy="12" r="10"/>'),
+  dot:          IC('<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', 10),
+  refreshCw:    IC('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'),
+  shield:       IC('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'),
+  link:         IC('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
+  eye:          IC('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
+  user:         IC('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+  zap:          IC('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>'),
+};
 
 // ── State ─────────────────────────────────────────────────
 let sites = [];
@@ -107,10 +168,10 @@ function renderSites() {
   if (sites.length === 0) {
     grid.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">⬡</div>
+        <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
         <p>Deploy your first site to get started.</p>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">+ New site</button>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} New site</button>
       </div>`;
     return;
   }
@@ -118,7 +179,7 @@ function renderSites() {
   if (filtered.length === 0) {
     grid.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">⬡</div>
+        <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No results for "${esc(searchQuery)}"</h3>
         <p>Try a different name or domain.</p>
       </div>`;
@@ -165,51 +226,49 @@ function siteCard(site) {
   const { cls, label, error } = statusInfo(site.container);
   const isRunning = site.container?.running;
   const runtime = site.runtime || 'static';
+
   const tags = [
-    runtime !== 'static' ? `<span class="runtime-badge ${runtime}">${runtime}</span>` : '',
-    site.spa_mode         ? `<span class="tag blue">SPA</span>` : '',
-    site.maintenance_mode ? `<span class="tag yellow">Maintenance</span>` : '',
-    site.cache_enabled    ? `<span class="tag green">Cache</span>` : '',
-    site.basic_auth       ? `<span class="tag">Auth</span>` : '',
+    runtime !== 'static' ? `<span class="runtime-badge ${runtime}">${runtime.toUpperCase()}</span>` : '',
+    site.maintenance_mode ? `<span class="tag tag-yellow">Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="tag tag-gray">${ICON.shield} Auth</span>` : '',
+    site.spa_mode         ? `<span class="tag tag-blue">SPA</span>` : '',
   ].filter(Boolean).join('');
 
   const previewBadge = site.preview_container_id ? `
     <div class="preview-badge">
-      <span>◈ Preview: <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)}</a></span>
-      <div class="preview-badge-actions">
-        <button class="preview-swap-btn btn btn-sm btn-primary" data-action="preview-swap" data-id="${site.id}">Go live ↑</button>
-        <button class="btn btn-sm btn-danger" data-action="preview-discard" data-id="${site.id}">Discard</button>
-      </div>
+      ${ICON.layers}
+      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)}</a>
+      <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
+      <button class="btn btn-xs" data-action="preview-discard" data-id="${site.id}">Discard</button>
     </div>` : '';
 
   return `
-    <div class="site-card">
+    <div class="site-card${error ? ' site-card--error' : ''}">
       <div class="site-card-header">
         <span class="status-dot ${cls}" title="${label}"></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
-        <span class="tag">${label}</span>
+        <span class="site-status-label">${label}</span>
       </div>
       <div class="site-domain-row">
-        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">⬡ ${esc(site.domain)}</a>
-        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS setup &amp; status">
+        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}</a>
+        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS">
           <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}"></span>
         </button>
+        <a class="site-ext-link" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="Open site">${ICON.externalLink}</a>
       </div>
       ${tags ? `<div class="site-tags">${tags}</div>` : ''}
       ${previewBadge}
-      ${error ? `<div class="site-error-hint">⚠ Container exited unexpectedly — check logs</div>` : ''}
+      ${error ? `<div class="site-error-hint">${ICON.warning} Container exited — check logs</div>` : ''}
       ${uptimeStrip(site.id)}
       <div class="site-actions">
-        <button class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}" style="flex:1">↑ Deploy</button>
+        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">${ICON.upload} Deploy</button>
         <div class="site-action-icons">
-          <button class="icon-btn" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" title="${isRunning ? 'Stop site' : 'Start site'}">
-            ${isRunning ? '⏹' : '▷'}
-          </button>
-          <button class="icon-btn" data-action="history" data-id="${site.id}" title="Deploy history &amp; rollback">↺</button>
-          <button class="icon-btn" data-action="analytics" data-id="${site.id}" title="Analytics">◈</button>
-          <button class="icon-btn" data-action="logs" data-id="${site.id}" title="Logs">≡</button>
-          <button class="icon-btn" data-action="settings" data-id="${site.id}" title="Settings">⚙</button>
-          ${!site.preview_container_id ? `<button class="icon-btn" data-action="preview-create" data-id="${site.id}" title="Create preview">⬡</button>` : ''}
+          <button class="icon-btn" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" title="${isRunning ? 'Stop' : 'Start'}">${isRunning ? ICON.stop : ICON.play}</button>
+          <button class="icon-btn" data-action="logs"     data-id="${site.id}" title="Logs">${ICON.logs}</button>
+          <button class="icon-btn" data-action="analytics" data-id="${site.id}" title="Analytics">${ICON.barChart}</button>
+          <button class="icon-btn" data-action="history"  data-id="${site.id}" title="History">${ICON.history}</button>
+          <button class="icon-btn" data-action="settings" data-id="${site.id}" title="Settings">${ICON.settings}</button>
+          ${!site.preview_container_id ? `<button class="icon-btn" data-action="preview-create" data-id="${site.id}" title="Create preview">${ICON.layers}</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -325,7 +384,7 @@ function openDeploy(site) {
   document.getElementById('dtab-upload').classList.remove('hidden');
   document.getElementById('dtab-url').classList.add('hidden');
   document.querySelector('#dropzone .dropzone-inner').innerHTML = `
-    <span class="dropzone-icon">↑</span>
+    <span class="dropzone-icon">${ICON.upload}</span>
     <p>Drop your <strong>.zip</strong> here, or click to browse</p>
     <small>Supports Webflow exports, React/Vue build output, any static site</small>
     <input type="file" id="deploy-file-input" accept=".zip" hidden />
@@ -356,7 +415,7 @@ function selectDeployFile(file) {
   if (!file.name.endsWith('.zip')) { toast('Only .zip files are accepted', 'error'); return; }
   selectedDeployFile = file;
   dropzone.querySelector('.dropzone-inner').innerHTML = `
-    <span class="dropzone-icon">✓</span>
+    <span class="dropzone-icon dropzone-icon--ready">${ICON.check}</span>
     <p><strong>${esc(file.name)}</strong></p>
     <small>${(file.size / 1024 / 1024).toFixed(1)} MB — click to change</small>
   `;
@@ -491,7 +550,7 @@ function renderHeadersList(headers) {
     <div class="header-row">
       <input type="text" placeholder="Header-Name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
       <input type="text" placeholder="value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
-      <button class="btn btn-sm btn-danger" data-remove-header="${i}">✕</button>
+      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-header="${i}" title="Remove">${ICON.x}</button>
     </div>
   `).join('');
   list.querySelectorAll('[data-remove-header]').forEach(btn => {
@@ -523,7 +582,7 @@ function renderRedirectsList(redirects) {
         <input type="checkbox" data-redirect-permanent data-idx="${i}" ${r.permanent ? 'checked' : ''} />
         301
       </label>
-      <button class="btn btn-sm btn-danger" data-remove-redirect="${i}">✕</button>
+      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-redirect="${i}" title="Remove">${ICON.x}</button>
     </div>
   `).join('');
   list.querySelectorAll('[data-remove-redirect]').forEach(btn => {
@@ -625,23 +684,27 @@ async function openLogs(site) {
   document.getElementById('logs-site-name').textContent = site.name;
   document.getElementById('logs-content').textContent = 'Loading…';
   openModal('modal-logs');
-  await fetchLogs();
+  await fetchModalLogs();
 }
 
-async function fetchLogs() {
+async function fetchModalLogs() {
   if (!activeSiteId) return;
   try {
     const res = await fetch(`/api/sites/${activeSiteId}/logs?lines=200`);
     const text = await res.text();
     const el = document.getElementById('logs-content');
-    el.textContent = text || '(no logs yet)';
-    el.scrollTop = el.scrollHeight;
+    if (!res.ok) {
+      try { el.textContent = `Error: ${JSON.parse(text).error}`; } catch { el.textContent = text; }
+    } else {
+      el.textContent = text || '(no logs yet)';
+      el.scrollTop = el.scrollHeight;
+    }
   } catch (err) {
     document.getElementById('logs-content').textContent = `Error: ${err.message}`;
   }
 }
 
-document.getElementById('btn-refresh-logs').addEventListener('click', fetchLogs);
+document.getElementById('btn-refresh-logs').addEventListener('click', fetchModalLogs);
 
 // ── Site start / stop ─────────────────────────────────────
 async function siteAction(id, action) {
@@ -909,18 +972,23 @@ async function refreshHistory(siteId, siteName) {
 
 // ── Activity feed ─────────────────────────────────────────
 const EVENT_ICONS = {
-  deployed:         '↑',
-  rolled_back:      '⟳',
-  created:          '+',
-  deleted:          '✕',
-  started:          '▷',
-  stopped:          '⏹',
-  settings_changed: '⚙',
-  up:               '✓',
-  down:             '✕',
-  update_started:   '↓',
-  update_applying:  '↻',
-  update_failed:    '✕',
+  deployed:         ICON.upload,
+  rolled_back:      ICON.rotateCcw,
+  created:          ICON.plus,
+  deleted:          ICON.trash,
+  started:          ICON.play,
+  stopped:          ICON.stop,
+  settings_changed: ICON.settings,
+  up:               ICON.check,
+  down:             ICON.warning,
+  update_started:   ICON.download,
+  update_applying:  ICON.rotateCw,
+  update_failed:    ICON.x,
+  login:            ICON.user,
+  logout:           ICON.user,
+  preview_created:  ICON.layers,
+  preview_swapped:  ICON.zap,
+  preview_removed:  ICON.x,
 };
 const EVENT_LABELS = {
   deployed:         'Deployed',
@@ -938,43 +1006,63 @@ const EVENT_LABELS = {
 };
 
 let activitySiteFilter = null;
+let activityLevelFilter = null;
 
 async function loadActivity() {
-  // Render site filter chips
   const filtersEl = document.getElementById('activity-filters');
   if (filtersEl && sites.length) {
     filtersEl.innerHTML = `
-      <button class="activity-filter-chip ${activitySiteFilter === null ? 'active' : ''}" data-filter="">All</button>
-      ${sites.map(s => `<button class="activity-filter-chip ${activitySiteFilter === s.id ? 'active' : ''}" data-filter="${s.id}">${esc(s.name)}</button>`).join('')}
+      <button class="activity-filter-chip ${activitySiteFilter === null ? 'active' : ''}" data-filter="">All sites</button>
+      ${sites.map(s => `<button class="activity-filter-chip ${activitySiteFilter === s.id ? 'active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+      <span class="activity-filter-sep">|</span>
+      <button class="activity-filter-chip activity-level-chip ${activityLevelFilter === null ? 'active' : ''}" data-level="">All levels</button>
+      <button class="activity-filter-chip activity-level-chip activity-level-error ${activityLevelFilter === 'error' ? 'active' : ''}" data-level="error">Errors</button>
+      <button class="activity-filter-chip activity-level-chip activity-level-warn ${activityLevelFilter === 'warn' ? 'active' : ''}" data-level="warn">Warnings</button>
+      <a href="/activity/export.csv" class="activity-export-btn" download>${ICON.download} CSV</a>
     `;
-    filtersEl.querySelectorAll('.activity-filter-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activitySiteFilter = btn.dataset.filter || null;
-        loadActivity();
-      });
+    filtersEl.querySelectorAll('.activity-filter-chip:not(.activity-level-chip)').forEach(btn => {
+      btn.addEventListener('click', () => { activitySiteFilter = btn.dataset.filter || null; loadActivity(); });
+    });
+    filtersEl.querySelectorAll('.activity-level-chip').forEach(btn => {
+      btn.addEventListener('click', () => { activityLevelFilter = btn.dataset.level || null; loadActivity(); });
     });
   }
 
-  const url = activitySiteFilter
-    ? `/activity?limit=100&site_id=${activitySiteFilter}`
-    : '/activity?limit=100';
+  let url = '/activity?limit=200';
+  if (activitySiteFilter) url += `&site_id=${activitySiteFilter}`;
+  if (activityLevelFilter) url += `&level=${activityLevelFilter}`;
+
   try {
     const events = await api('GET', url);
     const feed = document.getElementById('activity-feed');
     if (!events.length) {
-      feed.innerHTML = '<div class="activity-empty">No activity yet — events will appear here as you use Grimport.</div>';
+      feed.innerHTML = '<div class="activity-empty">No activity yet.</div>';
       return;
     }
     feed.innerHTML = events.map(e => {
-      const isDown = e.event === 'down';
-      const isUp   = e.event === 'up';
+      const isDown  = e.event === 'down';
+      const isUp    = e.event === 'up';
+      const isError = e.level === 'error';
+      const isWarn  = e.level === 'warn';
+      const levelBadge = isError
+        ? '<span class="audit-badge audit-error">error</span>'
+        : isWarn
+          ? '<span class="audit-badge audit-warn">warn</span>'
+          : '';
+      const actorBadge = (e.actor && e.actor !== 'system')
+        ? `<span class="audit-actor">${esc(e.actor)}</span>`
+        : '';
+      const fnBadge = e.fn ? `<span class="audit-fn">${esc(e.fn)}</span>` : '';
+      const duration = e.duration_ms != null ? `<span class="audit-duration">${e.duration_ms}ms</span>` : '';
       return `
-        <div class="activity-item ${isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : ''}">
-          <span class="activity-icon">${EVENT_ICONS[e.event] || '·'}</span>
+        <div class="activity-item ${isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : ''}">
+          <span class="activity-icon">${EVENT_ICONS[e.event] || (isError ? ICON.x : isWarn ? ICON.warning : ICON.dot)}</span>
           <div class="activity-body">
+            ${levelBadge}${actorBadge}
             <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
-            <span class="activity-event">${EVENT_LABELS[e.event] || e.event}</span>
+            <span class="activity-event">${fnBadge || (EVENT_LABELS[e.event] || esc(e.event))}</span>
             ${e.detail ? `<span class="activity-detail">${esc(e.detail)}</span>` : ''}
+            ${duration}
           </div>
           <span class="activity-time">${timeAgo(e.created_at)}</span>
         </div>`;
@@ -1081,17 +1169,17 @@ async function loadServerInfo() {
     const isHttps = window.location.protocol === 'https:';
     if (cfg.sslReady && isHttps) {
       banner.className = 'ssl-status-banner ssl-status-ok';
-      document.getElementById('ssl-status-icon').textContent = '✓';
+      document.getElementById('ssl-status-icon').innerHTML = ICON.check;
       document.getElementById('ssl-status-title').textContent = 'SSL active';
       document.getElementById('ssl-status-detail').textContent = `Certificates managed by Let's Encrypt. Registered email: ${cfg.acmeEmail}`;
     } else if (cfg.sslReady && !isHttps) {
       banner.className = 'ssl-status-banner ssl-status-partial';
-      document.getElementById('ssl-status-icon').textContent = '◑';
+      document.getElementById('ssl-status-icon').innerHTML = ICON.shield;
       document.getElementById('ssl-status-title').textContent = 'ACME_EMAIL configured — panel HTTPS not yet enabled';
       document.getElementById('ssl-status-detail').textContent = 'Per-site SSL is available. To enable HTTPS on the panel itself, uncomment the HTTPS labels in docker-compose.yml and restart.';
     } else {
       banner.className = 'ssl-status-banner ssl-status-unconfigured';
-      document.getElementById('ssl-status-icon').textContent = '✕';
+      document.getElementById('ssl-status-icon').innerHTML = ICON.x;
       document.getElementById('ssl-status-title').textContent = 'SSL not configured';
       document.getElementById('ssl-status-detail').textContent = 'Set ACME_EMAIL in Settings → Server & DNS and restart the stack to enable Let\'s Encrypt certificates.';
     }
@@ -1265,20 +1353,20 @@ function renderNotifList(notifs) {
 
   const updateHtml = hasUpdateNotif ? `
     <div class="notif-item notif-update notif-unread" id="notif-update-item">
-      <span class="notif-icon">↑</span>
+      <span class="notif-icon">${ICON.arrowUp}</span>
       <div class="notif-body">
         <span class="notif-title">Update available — v${esc(cachedUpdateData.latest)}</span>
         <span class="notif-detail">Click to install the latest version</span>
       </div>
     </div>` : '';
 
-  const ICONS = { unknown_domain: '⬡', site_down: '✕', site_up: '✓' };
+  const NOTIF_ICONS = { unknown_domain: ICON.globe, site_down: ICON.warning, site_up: ICON.check };
   list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
     try { data = JSON.parse(n.data || '{}'); } catch {}
     return `
       <div class="notif-item ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
-        <span class="notif-icon">${ICONS[n.type] || '·'}</span>
+        <span class="notif-icon">${NOTIF_ICONS[n.type] || ICON.dot}</span>
         <div class="notif-body">
           <span class="notif-title">${esc(n.title)}</span>
           ${n.detail ? `<span class="notif-detail">${esc(n.detail)}</span>` : ''}
@@ -1287,7 +1375,7 @@ function renderNotifList(notifs) {
             ? `<button class="btn btn-sm notif-connect-btn" data-domain="${esc(data.domain)}">Connect to site →</button>`
             : ''}
         </div>
-        <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">✕</button>
+        <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">${ICON.x}</button>
       </div>`;
   }).join('');
 
@@ -1459,7 +1547,7 @@ function renderWebhookList(webhooks) {
             <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
           </label>
           <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
-          <button class="btn btn-sm btn-danger" data-delete-webhook="${w.id}">✕</button>
+          <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
         </div>
       </div>`;
   }).join('');
@@ -1566,7 +1654,7 @@ function renderEnvVarList(envVars) {
     <div class="env-var-row">
       <input type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
       <input type="text" placeholder="value" value="${esc(v)}" data-env-val data-idx="${i}" />
-      <button class="btn btn-sm btn-danger" data-remove-env="${i}">✕</button>
+      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-env="${i}" title="Remove">${ICON.x}</button>
     </div>`).join('');
   list.querySelectorAll('[data-remove-env]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1648,7 +1736,7 @@ function renderUserList(users) {
             <td>
               ${u.id !== currentUser.id ? `
                 <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
-                <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">✕</button>
+                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}" title="Delete user">${ICON.trash}</button>
               ` : ''}
             </td>
           </tr>`).join('')}
@@ -1874,8 +1962,12 @@ async function fetchLogs(siteId) {
   try {
     const res = await fetch(`/api/sites/${siteId}/logs?lines=${lines}`);
     const text = await res.text();
-    out.textContent = text || '(no output)';
-    out.scrollTop = out.scrollHeight;
+    if (!res.ok) {
+      try { out.textContent = `Error: ${JSON.parse(text).error}`; } catch { out.textContent = text; }
+    } else {
+      out.textContent = text || '(no output)';
+      out.scrollTop = out.scrollHeight;
+    }
   } catch { out.textContent = 'Failed to fetch logs.'; }
 }
 
@@ -2117,9 +2209,9 @@ function setUpdateStep(activeStatus) {
     const iconEl = document.getElementById(`ustep-${s}-icon`);
     const stepEl = document.getElementById(`ustep-${s}`);
     if (!iconEl) return;
-    if (i < activeIdx) { iconEl.textContent = '✓'; stepEl.className = 'update-step done'; }
-    else if (i === activeIdx) { iconEl.textContent = '⟳'; stepEl.className = 'update-step active'; }
-    else { iconEl.textContent = '○'; stepEl.className = 'update-step'; }
+    if (i < activeIdx) { iconEl.innerHTML = ICON.check; stepEl.className = 'update-step done'; }
+    else if (i === activeIdx) { iconEl.innerHTML = ICON.rotateCw; stepEl.className = 'update-step active'; }
+    else { iconEl.innerHTML = ICON.circle; stepEl.className = 'update-step'; }
   });
   // Progress bar: each step is worth 25%, active step animates within its slice
   const bar = document.getElementById('update-progressbar');
@@ -2141,7 +2233,7 @@ async function pollUpdateStatus() {
     clearInterval(pollInterval);
     setUpdateStep('done');
     const doneIcon = document.getElementById('ustep-done-icon');
-    if (doneIcon) doneIcon.textContent = '✓';
+    if (doneIcon) doneIcon.innerHTML = ICON.check;
     document.getElementById('update-status-msg').textContent = `Updated to v${health?.version || '?'}!`;
 
     // Show countdown reload box

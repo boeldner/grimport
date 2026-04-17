@@ -47,6 +47,41 @@ app.get('/api/config', (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true, version: VERSION }));
 
+// ── Debug endpoint (admin-only) ────────────────────────────
+const { requireRole } = require('./auth');
+const { containerStatus } = require('./docker');
+const Dockerode = require('dockerode');
+const _docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
+
+app.get('/api/debug/status', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const sites = db.prepare('SELECT id, name, domain, container_id, runtime FROM sites').all();
+    const siteStatus = await Promise.all(sites.map(async s => ({
+      id: s.id, name: s.name, domain: s.domain, runtime: s.runtime,
+      container_id: s.container_id,
+      container: s.container_id ? await containerStatus(s.container_id) : { status: 'none' },
+    })));
+
+    let dockerContainers = [];
+    try {
+      dockerContainers = (await _docker.listContainers({
+        all: true,
+        filters: JSON.stringify({ label: ['webhost.site=true'] }),
+      })).map(c => ({ id: c.Id.slice(0, 12), name: c.Names[0], state: c.State, status: c.Status }));
+    } catch {}
+
+    res.json({
+      version: VERSION,
+      uptime_s: Math.floor(process.uptime()),
+      env: process.env.NODE_ENV,
+      sites: siteStatus,
+      docker_site_containers: dockerContainers,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
 app.use('/api/deploy',   requireAuth, require('./routes/deploy'));
