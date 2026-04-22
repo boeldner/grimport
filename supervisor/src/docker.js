@@ -143,6 +143,26 @@ async function restartSiteContainer(containerId) {
  */
 async function applySiteSettings(site) {
   const runtime = site.runtime || 'static';
+
+  // Traefik labels are immutable — if domain changed we must recreate the container
+  if (site.container_id) {
+    let domainChanged = false;
+    try {
+      const info = await docker.getContainer(site.container_id).inspect();
+      const current = info.Config.Labels?.[`traefik.http.routers.${site.id}-http.rule`];
+      domainChanged = current !== `Host(\`${site.domain}\`)`;
+    } catch {}
+
+    if (domainChanged) {
+      try {
+        const old = docker.getContainer(site.container_id);
+        try { await old.stop({ t: 5 }); } catch {}
+        await old.remove();
+      } catch {}
+      return createSiteContainer(site);
+    }
+  }
+
   if (runtime === 'static') {
     writeNginxConfig(site);
     if (site.container_id) {
@@ -164,8 +184,7 @@ async function applySiteSettings(site) {
       await old.remove();
     } catch {}
   }
-  const newId = await createAppContainer(site);
-  return newId;
+  return createAppContainer(site);
 }
 
 async function startSiteContainer(containerId) {
