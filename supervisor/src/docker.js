@@ -1,7 +1,7 @@
 const Dockerode = require('dockerode');
 const path = require('path');
 const fs = require('fs');
-const { generateNginxConfig, generateHtpasswd, generate404Html } = require('./nginx');
+const { generateNginxConfig, generateHtpasswd, generateErrorHtml, ERROR_PAGES } = require('./nginx');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -44,12 +44,14 @@ function writeNginxConfig(site) {
     ? generateHtpasswd(auth.username, auth.password)
     : '';
   fs.writeFileSync(path.join(dir, '.htpasswd'), htpasswd);
-  // Write default 404 page — only if site doesn't have a custom one
+  // Write default error pages — only if site doesn't have custom ones
   const htmlDir = path.join(dir, 'html');
-  const page404 = path.join(htmlDir, '404.html');
   fs.mkdirSync(htmlDir, { recursive: true });
-  if (!fs.existsSync(page404)) {
-    fs.writeFileSync(page404, generate404Html(site.domain));
+  for (const [code, { title, desc }] of Object.entries(ERROR_PAGES)) {
+    const file = path.join(htmlDir, `${code}.html`);
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(file, generateErrorHtml(Number(code), title, desc));
+    }
   }
 }
 
