@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { fireWebhooks } = require('../webhooks');
+const { fireWebhooks, postWebhook } = require('../webhooks');
 const { assertPublicUrl } = require('../validate');
 const { asyncHandler } = require('../async-handler');
 
@@ -54,7 +54,7 @@ router.post('/:id/test', asyncHandler(async (req, res) => {
   try { await assertPublicUrl(wh.url); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
-  await fireWebhooks('deploy', 'test-site-id', 'Test Site', 'test-webhook-ping.zip');
+  postWebhook(wh, 'deploy', 'test-site-id', 'Test Site', 'test-webhook-ping.zip');
   res.json({ ok: true });
 }));
 
