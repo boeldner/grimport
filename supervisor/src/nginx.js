@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { sanitizeHeaderName, sanitizeRedirectField } = require('./validate');
 
 const ERROR_PAGES = {
   400: { title: 'Bad Request',            desc: 'The server could not understand this request.' },
@@ -112,7 +113,7 @@ function generateNginxConfig(site) {
   const customHeaders = (() => {
     try {
       const headers = JSON.parse(site.custom_headers || '[]');
-      return headers.map(h => `  add_header ${h.name} "${h.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}";`).join('\n');
+      return headers.map(h => `  add_header ${sanitizeHeaderName(h.name)} "${h.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}";`).join('\n');
     } catch {
       return '';
     }
@@ -121,7 +122,7 @@ function generateNginxConfig(site) {
   const redirects = (() => {
     try {
       const rules = JSON.parse(site.redirects || '[]');
-      return rules.map(r => `  rewrite ^${r.from}$ ${r.to} ${r.permanent ? 'permanent' : 'redirect'};`).join('\n');
+      return rules.map(r => `  rewrite ^${sanitizeRedirectField(r.from)}$ ${sanitizeRedirectField(r.to)} ${r.permanent ? 'permanent' : 'redirect'};`).join('\n');
     } catch {
       return '';
     }

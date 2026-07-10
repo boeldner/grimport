@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { isValidHostname } = require('../validate');
+const { isValidHostname, sanitizeHeaderName, sanitizeRedirectField } = require('../validate');
 const {
   createSiteContainer,
   createPreviewContainer,
@@ -131,6 +131,19 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
   if (domain !== undefined) {
     domainValue = String(domain).trim().toLowerCase();
     if (!isValidHostname(domainValue)) return res.status(400).json({ error: 'Invalid domain' });
+  }
+
+  if (custom_headers !== undefined) {
+    try {
+      const list = typeof custom_headers === 'string' ? JSON.parse(custom_headers) : custom_headers;
+      for (const h of list) sanitizeHeaderName(h.name);
+    } catch (e) { return res.status(400).json({ error: `Invalid custom header: ${e.message}` }); }
+  }
+  if (redirects !== undefined) {
+    try {
+      const list = typeof redirects === 'string' ? JSON.parse(redirects) : redirects;
+      for (const r of list) { sanitizeRedirectField(r.from); sanitizeRedirectField(r.to); }
+    } catch (e) { return res.status(400).json({ error: `Invalid redirect: ${e.message}` }); }
   }
 
   db.prepare(
