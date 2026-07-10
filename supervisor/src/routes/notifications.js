@@ -1,7 +1,14 @@
 const { Router } = require('express');
 const db = require('../db');
+const { requireRole } = require('../auth');
 
 const router = Router();
+
+// The bell (public/index.html #btn-bell) has no nav-admin/admin-only class,
+// so editors/viewers see and use it. GET stays open to any authenticated
+// user; the mutating routes below are admin-only since notifications are a
+// shared, un-scoped (no site_id) global feed and mutations here affect the
+// feed for every user.
 
 // GET /api/notifications — recent notifications (read + unread)
 router.get('/', (req, res) => {
@@ -43,26 +50,26 @@ router.get('/', (req, res) => {
   });
 });
 
-// POST /api/notifications/:id/read — mark one read
-router.post('/:id/read', (req, res) => {
+// POST /api/notifications/:id/read — mark one read (admin only)
+router.post('/:id/read', requireRole('admin'), (req, res) => {
   db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// POST /api/notifications/read-all
-router.post('/read-all', (req, res) => {
+// POST /api/notifications/read-all (admin only)
+router.post('/read-all', requireRole('admin'), (req, res) => {
   db.prepare('UPDATE notifications SET read = 1').run();
   res.json({ ok: true });
 });
 
-// DELETE /api/notifications — clear all
-router.delete('/', (req, res) => {
+// DELETE /api/notifications — clear all (admin only)
+router.delete('/', requireRole('admin'), (req, res) => {
   db.prepare('DELETE FROM notifications').run();
   res.json({ ok: true });
 });
 
-// DELETE /api/notifications/:id
-router.delete('/:id', (req, res) => {
+// DELETE /api/notifications/:id (admin only)
+router.delete('/:id', requireRole('admin'), (req, res) => {
   db.prepare('DELETE FROM notifications WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

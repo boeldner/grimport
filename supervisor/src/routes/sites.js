@@ -44,7 +44,7 @@ function parseSite(row) {
 }
 
 // GET /api/sites — list sites (filtered by permissions for non-admins)
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   let rows;
   if (req.user?.role === 'admin') {
     rows = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
@@ -67,10 +67,10 @@ router.get('/', async (req, res) => {
     })
   );
   res.json(sites);
-});
+}));
 
 // GET /api/sites/:id
-router.get('/:id', requireSiteAccess(), async (req, res) => {
+router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   const site = parseSite(row);
@@ -78,10 +78,10 @@ router.get('/:id', requireSiteAccess(), async (req, res) => {
     site.container = await containerStatus(site.container_id);
   }
   res.json(site);
-});
+}));
 
 // POST /api/sites — create a new site (admin only)
-router.post('/', requireRole('admin'), async (req, res) => {
+router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
   const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
   if (!name || !domain) return res.status(400).json({ error: 'name and domain are required' });
 
@@ -114,10 +114,10 @@ router.post('/', requireRole('admin'), async (req, res) => {
     console.error('Create site error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // PUT /api/sites/:id — update settings (editor or admin with site access)
-router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -197,28 +197,28 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
   }
   logActivity(req.params.id, updated.name, 'settings_changed', null, req.user?.username || 'system');
   res.json(updated);
-});
+}));
 
 // POST /api/sites/:id/start
-router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await startSiteContainer(row.container_id);
   logActivity(req.params.id, row.name, 'started', null, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // POST /api/sites/:id/stop
-router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await stopSiteContainer(row.container_id);
   logActivity(req.params.id, row.name, 'stopped', null, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // DELETE /api/sites/:id — stop + remove container, delete files (admin only)
-router.delete('/:id', requireRole('admin'), async (req, res) => {
+router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -232,7 +232,7 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
   logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // GET /api/sites/:id/users — get user IDs with access (admin only)
 router.get('/:id/users', requireRole('admin'), (req, res) => {
@@ -262,7 +262,7 @@ router.put('/:id/users', requireRole('admin'), (req, res) => {
 });
 
 // GET /api/sites/:id/logs
-router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
+router.get('/:id/logs', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   try {
@@ -271,7 +271,7 @@ router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ── Blue-green preview ─────────────────────────────────────
 

@@ -39,7 +39,10 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   req.session.regenerate(err => {
     if (err) return res.status(500).json({ error: 'Session error' });
-    req.session.authenticated = true; // kept for backward compat
+    // Legacy flag: only set for admins. requireAuth's legacy branch grants
+    // whoever holds `session.authenticated` the first admin account found —
+    // so it must never be set for editor/viewer logins.
+    if (user.role === 'admin') req.session.authenticated = true;
     req.session.userId = user.id;
     req.session.role = user.role;
     req.session.username = user.username;

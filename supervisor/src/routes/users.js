@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { requireRole } = require('../auth');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.get('/', requireRole('admin'), (req, res) => {
 });
 
 // POST /api/users — create user (admin only)
-router.post('/', requireRole('admin'), async (req, res) => {
+router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
   const { username, password, role } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'username and password required' });
   if (!['admin', 'editor', 'viewer'].includes(role)) return res.status(400).json({ error: 'role must be admin, editor, or viewer' });
@@ -36,10 +37,10 @@ router.post('/', requireRole('admin'), async (req, res) => {
   db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)')
     .run(id, username, hash, role);
   res.status(201).json({ id, username, role });
-});
+}));
 
 // PATCH /api/users/:id — update user (admin can update anyone; users can update own password)
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', asyncHandler(async (req, res) => {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found' });
 
@@ -75,7 +76,7 @@ router.patch('/:id', async (req, res) => {
   const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   db.prepare(`UPDATE users SET ${sets} WHERE id = ?`).run(...Object.values(updates), target.id);
   res.json({ ok: true });
-});
+}));
 
 // DELETE /api/users/:id — delete user (admin only, cannot delete self)
 router.delete('/:id', requireRole('admin'), (req, res) => {

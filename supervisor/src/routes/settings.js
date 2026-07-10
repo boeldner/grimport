@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -65,7 +66,7 @@ router.delete('/tokens/:id', (req, res) => {
 });
 
 // PUT /api/settings/password
-router.put('/password', async (req, res) => {
+router.put('/password', asyncHandler(async (req, res) => {
   const { old_password, new_password } = req.body;
   if (!old_password || !new_password) return res.status(400).json({ error: 'old_password and new_password required' });
   if (new_password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -77,6 +78,6 @@ router.put('/password', async (req, res) => {
   const hash = await bcrypt.hash(new_password, 12);
   setSetting('password_hash', hash);
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

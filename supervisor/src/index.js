@@ -96,6 +96,11 @@ app.use('/api/settings', requireAuth, requireRole('admin'), require('./routes/se
 app.use('/api/dns',       requireAuth, require('./routes/dns'));
 app.use('/api/analytics', requireAuth, require('./routes/analytics'));
 app.use('/api/uptime',          requireAuth, require('./routes/uptime'));
+// NOT gated requireRole('admin') at the mount: public/index.html shows the
+// Activity nav-item and the notification bell to every role (no nav-admin /
+// admin-only class), so editors/viewers use both. Each router instead
+// enforces per-route/per-row authorization internally — see the comments
+// at the top of routes/activity.js and routes/notifications.js.
 app.use('/api/activity',        requireAuth, require('./routes/activity'));
 app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
 app.use('/api/users',           requireAuth, require('./routes/users'));

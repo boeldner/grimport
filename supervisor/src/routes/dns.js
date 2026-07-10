@@ -1,6 +1,8 @@
 const { Router } = require('express');
 const dns = require('dns').promises;
 const db = require('../db');
+const { requireSiteAccess } = require('../auth');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -23,13 +25,13 @@ async function getPublicIp() {
 
 // GET /api/dns/server-ip — just return the server's public IP
 // Must be before /:id so Express doesn't swallow it as a param
-router.get('/server-ip', async (req, res) => {
+router.get('/server-ip', asyncHandler(async (req, res) => {
   const ip = await getPublicIp();
   res.json({ ip });
-});
+}));
 
 // GET /api/dns/:id — check DNS status for a site
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT id, domain FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -67,7 +69,7 @@ router.get('/:id', async (req, res) => {
       { type: 'A', name: row.domain, value: serverIp },
     ] : [],
   });
-});
+}));
 
 
 module.exports = router;
