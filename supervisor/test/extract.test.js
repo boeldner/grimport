@@ -31,16 +31,40 @@ test('corrupt zip leaves existing target untouched', () => {
   assert.strictEqual(fs.readFileSync(path.join(target, 'live.html'), 'utf8'), 'LIVE');
 });
 
-test('rejects zip-slip entries', () => {
+test('zip-slip entry cannot escape target dir', () => {
   const work = tmp();
   const zipPath = path.join(work, 'slip.zip');
   const zip = new AdmZip();
-  zip.addFile('../evil.txt', Buffer.from('x'));
+  // adm-zip's addFile() normalizes a '../evil.txt' name to 'evil.txt'
+  // immediately, so a traversal name never survives writeZip()/getEntries()
+  // when set through the normal API. To build a zip that genuinely carries
+  // a '..'-containing entry name on disk (and thus exercise the real
+  // zip-slip defense in atomicExtract), we add a placeholder entry and then
+  // mutate its entryName directly before writing the zip. This does survive
+  // a write/read round-trip (verified below), proving traversal entries can
+  // reach atomicExtract in the wild (e.g. crafted zips, other zip tools, or
+  // future adm-zip versions with different normalization).
+  zip.addFile('placeholder.txt', Buffer.from('x'));
+  zip.getEntries()[0].entryName = '../evil.txt';
   zip.writeZip(zipPath);
+
+  // Sanity check: the traversal name really made it onto disk.
+  const roundTripped = new AdmZip(zipPath).getEntries()[0].entryName;
+  assert.ok(roundTripped.includes('..'), 'test setup must produce a real traversal entry name');
+
   const target = path.join(work, 'html');
   fs.mkdirSync(target, { recursive: true });
   fs.writeFileSync(path.join(target, 'live.html'), 'LIVE');
+
+  // The explicit zip-slip check in atomicExtract is defense-in-depth: it
+  // fires here because the entry name still contains '..' when we reach it.
   assert.throws(() => atomicExtract(zipPath, target));
+
+  // The real invariant under test: nothing escapes targetDir, and the
+  // pre-existing live file is untouched, regardless of how the rejection
+  // happens.
   assert.ok(fs.existsSync(path.join(target, 'live.html')));
+  assert.strictEqual(fs.readFileSync(path.join(target, 'live.html'), 'utf8'), 'LIVE');
   assert.ok(!fs.existsSync(path.join(work, 'evil.txt')));
+  assert.ok(!fs.existsSync(path.join(path.dirname(work), 'evil.txt')));
 });
