@@ -2,6 +2,7 @@ const Dockerode = require('dockerode');
 const path = require('path');
 const fs = require('fs');
 const { generateNginxConfig, generateHtpasswd, generateErrorHtml, ERROR_PAGES } = require('./nginx');
+const { isValidHostname } = require('./validate');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -87,6 +88,8 @@ async function createSiteContainer(site) {
       });
     });
   } catch {}
+
+  if (!isValidHostname(site.domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.domain}`);
 
   const container = await docker.createContainer({
     name: containerName(site.id),
@@ -312,6 +315,8 @@ async function createAppContainer(site) {
   const appPort = site.app_port || 3000;
   const servicePort = isPhp ? '80' : String(appPort);
 
+  if (!isValidHostname(site.domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.domain}`);
+
   // Traefik labels — same pattern as static containers
   const labels = {
     'webhost.site': 'true',
@@ -406,6 +411,8 @@ async function createPreviewContainer(site) {
   const { generateNginxConfig } = require('./nginx');
   const previewSite = { ...site, domain: site.preview_domain };
   fs.writeFileSync(previewNginxConf, generateNginxConfig(previewSite));
+
+  if (!isValidHostname(site.preview_domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.preview_domain}`);
 
   const container = await docker.createContainer({
     name: previewContainerName(site.id),

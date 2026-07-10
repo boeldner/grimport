@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { isValidHostname } = require('../validate');
 const {
   createSiteContainer,
   createPreviewContainer,
@@ -84,6 +85,9 @@ router.post('/', requireRole('admin'), async (req, res) => {
   const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
   if (!name || !domain) return res.status(400).json({ error: 'name and domain are required' });
 
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!isValidHostname(normalizedDomain)) return res.status(400).json({ error: 'Invalid domain' });
+
   const id = nanoid(10);
   const siteRuntime = runtime || 'static';
   try {
@@ -91,7 +95,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
       `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, name.trim(), domain.trim().toLowerCase(),
+      id, name.trim(), normalizedDomain,
       spa_mode ? 1 : 0, cache_enabled !== false ? 1 : 0,
       siteRuntime, build_cmd || null, start_cmd || null, app_port || null
     );
@@ -101,7 +105,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(containerId, id);
     site.container_id = containerId;
     site.container = await containerStatus(containerId);
-    logActivity(id, name.trim(), 'created', domain.trim().toLowerCase(), req.user?.username || 'system');
+    logActivity(id, name.trim(), 'created', normalizedDomain, req.user?.username || 'system');
     res.status(201).json(site);
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -123,6 +127,12 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
     runtime, build_cmd, start_cmd, app_port, env_vars,
   } = req.body;
 
+  let domainValue = domain;
+  if (domain !== undefined) {
+    domainValue = String(domain).trim().toLowerCase();
+    if (!isValidHostname(domainValue)) return res.status(400).json({ error: 'Invalid domain' });
+  }
+
   db.prepare(
     `UPDATE sites SET
       name = COALESCE(?, name),
@@ -142,7 +152,7 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
     WHERE id = ?`
   ).run(
     name ?? null,
-    domain ? domain.trim().toLowerCase() : null,
+    domain ? domainValue : null,
     spa_mode !== undefined ? (spa_mode ? 1 : 0) : null,
     cache_enabled !== undefined ? (cache_enabled ? 1 : 0) : null,
     maintenance_mode !== undefined ? (maintenance_mode ? 1 : 0) : null,
