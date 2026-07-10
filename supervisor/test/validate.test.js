@@ -44,3 +44,19 @@ test('assertPublicUrl rejects non-http protocols', async () => {
   await assert.rejects(() => assertPublicUrl('file:///etc/passwd'));
   await assert.rejects(() => assertPublicUrl('ftp://example.com'));
 });
+
+test('isPrivateAddress covers full fe80::/10 link-local range', () => {
+  for (const ip of ['fe80::1', 'fe95::1', 'fea0::1', 'febf::1']) {
+    assert.ok(isPrivateAddress(ip), `${ip} should be private`);
+  }
+});
+
+test('isPrivateAddress covers wider reserved IPv4 ranges', () => {
+  for (const ip of ['224.0.0.1', '240.0.0.1', '255.255.255.255',
+                     '192.0.2.1', '198.51.100.1', '203.0.113.1']) {
+    assert.ok(isPrivateAddress(ip), `${ip} should be private`);
+  }
+  for (const ip of ['8.8.8.8', '1.1.1.1']) {
+    assert.ok(!isPrivateAddress(ip), `${ip} should still be public`);
+  }
+});
