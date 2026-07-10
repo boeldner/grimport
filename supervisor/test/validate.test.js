@@ -27,3 +27,20 @@ test('redirect field rejects newlines and braces', () => {
   assert.throws(() => sanitizeRedirectField('/x\nreturn 200'));
   assert.throws(() => sanitizeRedirectField('/x; }'));
 });
+
+const { assertPublicUrl, isPrivateAddress } = require('../src/validate');
+
+test('isPrivateAddress covers reserved ranges', () => {
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1',
+                     '169.254.169.254', '::1', 'fc00::1', '0.0.0.0']) {
+    assert.ok(isPrivateAddress(ip), `${ip} should be private`);
+  }
+  for (const ip of ['8.8.8.8', '1.1.1.1', '93.184.216.34']) {
+    assert.ok(!isPrivateAddress(ip), `${ip} should be public`);
+  }
+});
+
+test('assertPublicUrl rejects non-http protocols', async () => {
+  await assert.rejects(() => assertPublicUrl('file:///etc/passwd'));
+  await assert.rejects(() => assertPublicUrl('ftp://example.com'));
+});
