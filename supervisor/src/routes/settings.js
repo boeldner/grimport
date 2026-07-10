@@ -41,20 +41,21 @@ router.put('/', (req, res) => {
 // GET /api/settings/tokens
 router.get('/tokens', (req, res) => {
   const tokens = db.prepare(
-    'SELECT id, name, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
+    'SELECT id, name, role, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
   ).all();
   res.json(tokens);
 });
 
 // POST /api/settings/tokens
 router.post('/tokens', (req, res) => {
-  const { name } = req.body;
+  const { name, role } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  const tokenRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'admin';
   const token = 'grim_' + nanoid(32);
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const id = nanoid(10);
-  db.prepare('INSERT INTO api_tokens (id, name, token_hash) VALUES (?, ?, ?)').run(id, name.trim(), hash);
-  res.json({ id, name: name.trim(), token }); // token shown once
+  db.prepare('INSERT INTO api_tokens (id, name, token_hash, role) VALUES (?, ?, ?, ?)').run(id, name.trim(), hash, tokenRole);
+  res.json({ id, name: name.trim(), role: tokenRole, token }); // token shown once
 });
 
 // DELETE /api/settings/tokens/:id
