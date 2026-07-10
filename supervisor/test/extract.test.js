@@ -68,3 +68,27 @@ test('zip-slip entry cannot escape target dir', () => {
   assert.ok(!fs.existsSync(path.join(work, 'evil.txt')));
   assert.ok(!fs.existsSync(path.join(path.dirname(work), 'evil.txt')));
 });
+
+test('successful deploy over existing target replaces content, leaves no stray temp/backup dirs', () => {
+  const work = tmp();
+  const target = path.join(work, 'html');
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'old.html'), 'OLD');
+
+  const zipPath = path.join(work, 'new.zip');
+  const zip = new AdmZip();
+  zip.addFile('new.html', Buffer.from('<h1>new</h1>'));
+  zip.writeZip(zipPath);
+
+  const { fileCount } = atomicExtract(zipPath, target);
+  assert.strictEqual(fileCount, 1);
+  assert.ok(fs.existsSync(path.join(target, 'new.html')));
+  assert.ok(!fs.existsSync(path.join(target, 'old.html')));
+
+  const parentEntries = fs.readdirSync(work);
+  const stray = parentEntries.filter(
+    name => name.startsWith('.deploy-bak-') || name.startsWith('.deploy-tmp-')
+  );
+  assert.deepStrictEqual(stray, []);
+  assert.deepStrictEqual(parentEntries.sort(), ['html', 'new.zip'].sort());
+});

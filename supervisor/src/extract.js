@@ -41,16 +41,26 @@ function atomicExtract(zipPath, targetDir) {
     const macos = path.join(tmpDir, '__MACOSX');
     if (fs.existsSync(macos)) fs.rmSync(macos, { recursive: true, force: true });
 
-    // Atomic-ish swap: remove old, move temp into place.
-    fs.rmSync(resolvedTarget, { recursive: true, force: true });
-    fs.mkdirSync(path.dirname(resolvedTarget), { recursive: true });
+    // Atomic swap via same-parent renames (temp is a sibling of target).
+    const backupDir = fs.existsSync(resolvedTarget)
+      ? path.join(path.dirname(resolvedTarget), `.deploy-bak-${nanoid(8)}`)
+      : null;
+    if (backupDir) fs.renameSync(resolvedTarget, backupDir);   // move live aside (atomic, same fs)
     try {
-      fs.renameSync(tmpDir, resolvedTarget);
+      fs.mkdirSync(path.dirname(resolvedTarget), { recursive: true });
+      fs.renameSync(tmpDir, resolvedTarget);                    // move new into place (atomic)
     } catch (e) {
-      // Cross-device (Docker volume) fallback: copy then remove temp.
-      fs.cpSync(tmpDir, resolvedTarget, { recursive: true });
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      // Cross-device fallback (e.g. tmp on a different mount): copy then remove.
+      try {
+        fs.cpSync(tmpDir, resolvedTarget, { recursive: true });
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch (e2) {
+        // Restore the live dir so target is never left missing.
+        if (backupDir) { fs.rmSync(resolvedTarget, { recursive: true, force: true }); fs.renameSync(backupDir, resolvedTarget); }
+        throw e2;
+      }
     }
+    if (backupDir) fs.rmSync(backupDir, { recursive: true, force: true });  // success: drop backup
 
     return { fileCount: fs.readdirSync(resolvedTarget).length };
   } catch (err) {
