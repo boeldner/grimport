@@ -10,6 +10,7 @@ const db = require('../db');
 const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
 const { requireSiteAccess, requireRole } = require('../auth');
 const { fireWebhooks } = require('../webhooks');
+const { assertPublicUrl } = require('../validate');
 
 const HISTORY_KEEP = 5; // zips to retain per site
 
@@ -248,10 +249,11 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
   const { url } = req.body;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
 
-  let parsed;
-  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
-  if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https URLs are supported' });
-  if (!url.endsWith('.zip')) return res.status(400).json({ error: 'URL must point to a .zip file' });
+  let parsed, pinnedAddress;
+  // TODO: connect to pinnedAddress to fully close DNS-rebinding
+  try { ({ url: parsed, address: pinnedAddress } = await assertPublicUrl(url)); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!parsed.pathname.endsWith('.zip')) return res.status(400).json({ error: 'URL must point to a .zip file' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });

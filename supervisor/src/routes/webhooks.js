@@ -2,6 +2,8 @@ const { Router } = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { fireWebhooks } = require('../webhooks');
+const { assertPublicUrl } = require('../validate');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -12,10 +14,14 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/settings/webhooks
-router.post('/', (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { name, url, events } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   if (!url?.trim()) return res.status(400).json({ error: 'url required' });
+
+  try { await assertPublicUrl(url); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
   const evts = Array.isArray(events)
     ? events
     : ['deploy', 'rollback', 'site_down', 'site_up'];
@@ -24,7 +30,7 @@ router.post('/', (req, res) => {
   db.prepare('INSERT INTO webhooks (id, name, url, events) VALUES (?, ?, ?, ?)')
     .run(id, name.trim(), url.trim(), JSON.stringify(evts));
   res.json({ id, name: name.trim(), url: url.trim(), events: evts, enabled: true });
-});
+}));
 
 // PATCH /api/settings/webhooks/:id — toggle enabled
 router.patch('/:id', (req, res) => {
@@ -41,11 +47,15 @@ router.delete('/:id', (req, res) => {
 });
 
 // POST /api/settings/webhooks/:id/test — send a test payload
-router.post('/:id/test', async (req, res) => {
+router.post('/:id/test', asyncHandler(async (req, res) => {
   const wh = db.prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id);
   if (!wh) return res.status(404).json({ error: 'Not found' });
+
+  try { await assertPublicUrl(wh.url); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
   await fireWebhooks('deploy', 'test-site-id', 'Test Site', 'test-webhook-ping.zip');
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;
