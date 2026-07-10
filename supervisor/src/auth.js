@@ -17,7 +17,8 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    // secure: true requires HTTPS — enabled automatically in production via Traefik
+    secure: process.env.SESSION_SECURE === 'true' ||
+            (process.env.SESSION_SECURE !== 'false' && process.env.NODE_ENV === 'production'),
     maxAge: 8 * 60 * 60 * 1000, // 8 hours
   },
 });

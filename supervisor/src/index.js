@@ -4,6 +4,12 @@ const db = require('./db');
 const { sessionMiddleware, requireAuth } = require('./auth');
 const { version: VERSION } = require('../package.json');
 
+if (process.env.NODE_ENV === 'production' &&
+    (!process.env.SUPERVISOR_SECRET || process.env.SUPERVISOR_SECRET === 'changeme')) {
+  console.error('FATAL: SUPERVISOR_SECRET must be set to a strong value in production.');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = 3000;
 
