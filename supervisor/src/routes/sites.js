@@ -16,6 +16,7 @@ const {
 } = require('../docker');
 const { fireWebhooks } = require('../webhooks');
 const { requireRole, requireSiteAccess } = require('../auth');
+const { asyncHandler } = require('../async-handler');
 const fs = require('fs');
 
 const router = Router();
@@ -252,7 +253,7 @@ router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
 // ── Blue-green preview ─────────────────────────────────────
 
 // POST /api/sites/:id/preview — create preview container
-router.post('/:id/preview', async (req, res) => {
+router.post('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.preview_container_id) return res.status(409).json({ error: 'Preview already exists' });
@@ -272,10 +273,10 @@ router.post('/:id/preview', async (req, res) => {
   db.prepare('UPDATE sites SET preview_container_id = ? WHERE id = ?').run(containerId, row.id);
   logActivity(row.id, row.name, 'preview_created', preview_domain.trim());
   res.json({ ok: true, preview_container_id: containerId });
-});
+}));
 
 // POST /api/sites/:id/preview/swap — go live (swap preview → production)
-router.post('/:id/preview/swap', async (req, res) => {
+router.post('/:id/preview/swap', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (!row.preview_container_id) return res.status(404).json({ error: 'No preview to swap' });
@@ -285,10 +286,10 @@ router.post('/:id/preview/swap', async (req, res) => {
   logActivity(row.id, row.name, 'preview_swapped', `${row.preview_domain} → ${row.domain}`);
   fireWebhooks('deploy', row.id, row.name, `Live swap from ${row.preview_domain}`);
   res.json({ ok: true });
-});
+}));
 
 // DELETE /api/sites/:id/preview — discard preview
-router.delete('/:id/preview', async (req, res) => {
+router.delete('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -297,6 +298,6 @@ router.delete('/:id/preview', async (req, res) => {
   db.prepare('UPDATE sites SET preview_container_id = NULL, preview_domain = NULL WHERE id = ?').run(row.id);
   logActivity(row.id, row.name, 'preview_removed', null);
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;
