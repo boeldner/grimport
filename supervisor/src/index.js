@@ -85,15 +85,15 @@ app.get('/api/debug/status', requireAuth, requireRole('admin'), async (req, res)
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
 app.use('/api/deploy',   requireAuth, require('./routes/deploy'));
-app.use('/api/settings', requireAuth, require('./routes/settings'));
+app.use('/api/settings/webhooks', requireAuth, requireRole('admin'), require('./routes/webhooks'));
+app.use('/api/settings', requireAuth, requireRole('admin'), require('./routes/settings'));
 app.use('/api/dns',       requireAuth, require('./routes/dns'));
 app.use('/api/analytics', requireAuth, require('./routes/analytics'));
 app.use('/api/uptime',          requireAuth, require('./routes/uptime'));
 app.use('/api/activity',        requireAuth, require('./routes/activity'));
 app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
-app.use('/api/settings/webhooks', requireAuth, require('./routes/webhooks'));
 app.use('/api/users',           requireAuth, require('./routes/users'));
-app.use('/api/update',          requireAuth, require('./routes/update'));
+app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
 
 // ── Static files ───────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));

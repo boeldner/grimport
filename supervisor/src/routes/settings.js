@@ -1,3 +1,4 @@
+// NOTE: mounted behind requireRole('admin') in index.js — all routes here are admin-only.
 const { Router } = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
