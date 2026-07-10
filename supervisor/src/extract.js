@@ -56,13 +56,20 @@ function atomicExtract(zipPath, targetDir) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch (e2) {
         // Restore the live dir so target is never left missing.
-        if (backupDir) { fs.rmSync(resolvedTarget, { recursive: true, force: true }); fs.renameSync(backupDir, resolvedTarget); }
+        // Best-effort: if this restore itself fails, still throw the original error.
+        try {
+          if (backupDir) { fs.rmSync(resolvedTarget, { recursive: true, force: true }); fs.renameSync(backupDir, resolvedTarget); }
+        } catch {}
         throw e2;
       }
     }
-    if (backupDir) fs.rmSync(backupDir, { recursive: true, force: true });  // success: drop backup
 
-    return { fileCount: fs.readdirSync(resolvedTarget).length };
+    // Compute result before best-effort backup cleanup, so a cleanup failure
+    // can never turn a successful deploy into a reported failure.
+    const fileCount = fs.readdirSync(resolvedTarget).length;
+    if (backupDir) { try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {} }  // success: drop backup
+
+    return { fileCount };
   } catch (err) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     throw err;
