@@ -100,12 +100,102 @@ async function apiUpload(siteId, file, onProgress) {
 }
 
 // ── Toast ─────────────────────────────────────────────────
-function toast(message, type = 'info') {
+// toast(type, message) is the canonical signature per the design system,
+// but every existing call site in this file predates it and calls
+// toast(message, type). Both orders are accepted so nothing needs
+// rewiring here; later phases will migrate call sites to (type, message).
+const TOAST_TYPES = ['info', 'success', 'error', 'warn'];
+
+function getToastStack() {
+  let stack = document.getElementById('toast-container');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-container';
+    document.body.appendChild(stack);
+  }
+  stack.classList.add('toast-stack');
+  return stack;
+}
+
+function dismissToast(el) {
+  if (!el || !el.isConnected) return;
+  el.classList.add('toast-leaving');
+  const remove = () => el.remove();
+  // don't rely on animationend when reduced-motion strips the animation
+  setTimeout(remove, 200);
+}
+
+function toast(a, b) {
+  let type = 'info';
+  let message = '';
+  if (TOAST_TYPES.includes(a)) { type = a; message = b ?? ''; }
+  else if (TOAST_TYPES.includes(b)) { type = b; message = a ?? ''; }
+  else { message = a ?? ''; if (b) type = b; }
+
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  el.className = `toast toast-${type} ${type}`;
+  el.setAttribute('role', 'status');
+
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'toast-dismiss';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => dismissToast(el));
+  el.appendChild(closeBtn);
+
+  getToastStack().appendChild(el);
+  setTimeout(() => dismissToast(el), 4000);
+  return el;
+}
+
+// Alias for call sites that expect a showToast() name.
+if (typeof window !== 'undefined') {
+  window.toast = toast;
+  window.showToast = toast;
+}
+
+// ── Copy to clipboard ───────────────────────────────────────
+function copyToClipboard(text, btnEl) {
+  const done = (ok) => {
+    if (!btnEl) return;
+    const original = btnEl.dataset.copyLabel ?? btnEl.textContent;
+    btnEl.dataset.copyLabel = original;
+    btnEl.textContent = ok ? 'Copied!' : 'Copy failed';
+    btnEl.classList.toggle('copied', ok);
+    setTimeout(() => {
+      btnEl.textContent = original;
+      btnEl.classList.remove('copied');
+    }, 2000);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+    return;
+  }
+
+  // fallback for non-secure contexts / older environments
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  } catch (err) {
+    done(false);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.copyToClipboard = copyToClipboard;
 }
 
 // ── Modal helpers ─────────────────────────────────────────
