@@ -1701,8 +1701,10 @@ function applyRoleUI() {
   // Sidebar user info
   const usernameEl = document.getElementById('sidebar-username');
   const roleBadge = document.getElementById('sidebar-role-badge');
+  const avatarEl = document.getElementById('sidebar-avatar');
   if (usernameEl) usernameEl.textContent = username;
   if (roleBadge) { roleBadge.textContent = role; roleBadge.dataset.role = role; }
+  if (avatarEl) avatarEl.textContent = (username || '?').slice(0, 2).toUpperCase();
 
   // Hide admin-only elements for non-admins
   if (role !== 'admin') {
@@ -1710,9 +1712,12 @@ function applyRoleUI() {
     const btnNew = document.getElementById('btn-new-site');
     if (btnNew) btnNew.classList.add('hidden');
   }
-  // Hide editor+ elements for viewers
+  // Hide editor+ elements for viewers. Viewer keeps a single ungrouped
+  // nav group, so its "Monitor" section label is dropped too — never
+  // show a lone group label (canvas 7a).
   if (role === 'viewer') {
     document.querySelectorAll('.nav-editor, .nav-section-editor').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.nav-section-monitor').forEach(el => el.classList.add('hidden'));
   }
 }
 

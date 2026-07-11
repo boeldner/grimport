@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <aside class="sidebar">
+  <aside class="sidebar vibrancy">
     <div class="logo">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="22" height="22" fill="none" aria-hidden="true">
         <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z"/>
@@ -35,7 +35,7 @@
       </div>
     </div>
     <nav>
-      <span class="nav-section">Monitor</span>
+      <span class="nav-section nav-section-monitor">Monitor</span>
       <a href="#" class="nav-item active" data-view="sites">Sites</a>
       <a href="#" class="nav-item" data-view="overview">Overview</a>
       <a href="#" class="nav-item" data-view="activity">Activity <span class="nav-badge hidden" id="activity-badge"></span></a>
@@ -59,11 +59,16 @@
 
     <div class="sidebar-footer">
       <div class="sidebar-user">
-        <span class="sidebar-username" id="sidebar-username">—</span>
-        <span class="role-badge" id="sidebar-role-badge">admin</span>
+        <span class="sidebar-avatar" id="sidebar-avatar" aria-hidden="true">—</span>
+        <span class="sidebar-user-meta">
+          <span class="sidebar-username" id="sidebar-username">—</span>
+          <span class="role-badge" id="sidebar-role-badge">admin</span>
+        </span>
       </div>
-      <button class="btn btn-sm" id="btn-signout">Sign out</button>
-      <span class="version" id="sidebar-version">Grimport</span>
+      <div class="sidebar-footer-row">
+        <span class="version" id="sidebar-version">Grimport</span>
+        <button class="btn btn-sm" id="btn-signout">Sign out</button>
+      </div>
     </div>
   </aside>
 
@@ -76,7 +81,10 @@
           <p class="subtitle" id="site-count">Loading…</p>
         </div>
         <div class="view-header-end">
-          <input class="search-input" id="site-search" type="search" placeholder="Search sites…" autocomplete="off" />
+          <div class="search-wrap">
+            <input class="search-input" id="site-search" type="search" placeholder="Search sites…" autocomplete="off" />
+            <kbd class="search-kbd">⌘K</kbd>
+          </div>
           <button class="btn btn-primary" id="btn-new-site">+ New site</button>
         </div>
       </header>
