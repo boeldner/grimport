@@ -44,6 +44,37 @@ function buildGenericPayload(event, siteName, siteId, detail) {
 }
 
 /**
+ * POST a payload to a single webhook, unconditionally (no subscription check).
+ * Completely async — errors are swallowed (fire-and-forget).
+ */
+function postWebhook(wh, event, siteId, siteName, detail) {
+  try {
+    const body = isDiscordUrl(wh.url)
+      ? buildDiscordPayload(event, siteName, siteId, detail)
+      : buildGenericPayload(event, siteName, siteId, detail);
+
+    fetch(wh.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => {});
+  } catch {}
+}
+
+/**
+ * Send to a single webhook if it subscribes to the given event.
+ * Completely async — errors are swallowed (fire-and-forget).
+ */
+function sendToWebhook(wh, event, siteId, siteName, detail) {
+  try {
+    const events = JSON.parse(wh.events || '[]');
+    if (!events.includes(event)) return;
+    postWebhook(wh, event, siteId, siteName, detail);
+  } catch {}
+}
+
+/**
  * Fire all enabled webhooks that subscribe to the given event.
  * Completely async — errors are swallowed (fire-and-forget).
  */
@@ -54,22 +85,8 @@ async function fireWebhooks(event, siteId, siteName, detail) {
   } catch { return; }
 
   for (const wh of webhooks) {
-    try {
-      const events = JSON.parse(wh.events || '[]');
-      if (!events.includes(event)) continue;
-
-      const body = isDiscordUrl(wh.url)
-        ? buildDiscordPayload(event, siteName, siteId, detail)
-        : buildGenericPayload(event, siteName, siteId, detail);
-
-      fetch(wh.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => {});
-    } catch {}
+    sendToWebhook(wh, event, siteId, siteName, detail);
   }
 }
 
-module.exports = { fireWebhooks };
+module.exports = { fireWebhooks, sendToWebhook, postWebhook };

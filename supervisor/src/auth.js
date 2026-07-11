@@ -17,7 +17,8 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    // secure: true requires HTTPS — enabled automatically in production via Traefik
+    secure: process.env.SESSION_SECURE === 'true' ||
+            (process.env.SESSION_SECURE !== 'false' && process.env.NODE_ENV === 'production'),
     maxAge: 8 * 60 * 60 * 1000, // 8 hours
   },
 });
@@ -41,11 +42,10 @@ function requireAuth(req, res, next) {
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) {
     const hash = crypto.createHash('sha256').update(auth.slice(7)).digest('hex');
-    const row = db.prepare('SELECT id FROM api_tokens WHERE token_hash = ?').get(hash);
+    const row = db.prepare('SELECT id, role FROM api_tokens WHERE token_hash = ?').get(hash);
     if (row) {
       db.prepare('UPDATE api_tokens SET last_used = unixepoch() WHERE id = ?').run(row.id);
-      // API tokens act as admin
-      req.user = { id: 'token', role: 'admin', username: 'api' };
+      req.user = { id: 'token', role: row.role || 'admin', username: 'api' };
       return next();
     }
   }

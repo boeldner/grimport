@@ -1,8 +1,10 @@
+// NOTE: mounted behind requireRole('admin') in index.js — all routes here are admin-only.
 const { Router } = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -40,20 +42,21 @@ router.put('/', (req, res) => {
 // GET /api/settings/tokens
 router.get('/tokens', (req, res) => {
   const tokens = db.prepare(
-    'SELECT id, name, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
+    'SELECT id, name, role, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
   ).all();
   res.json(tokens);
 });
 
 // POST /api/settings/tokens
 router.post('/tokens', (req, res) => {
-  const { name } = req.body;
+  const { name, role } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  const tokenRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'admin';
   const token = 'grim_' + nanoid(32);
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const id = nanoid(10);
-  db.prepare('INSERT INTO api_tokens (id, name, token_hash) VALUES (?, ?, ?)').run(id, name.trim(), hash);
-  res.json({ id, name: name.trim(), token }); // token shown once
+  db.prepare('INSERT INTO api_tokens (id, name, token_hash, role) VALUES (?, ?, ?, ?)').run(id, name.trim(), hash, tokenRole);
+  res.json({ id, name: name.trim(), role: tokenRole, token }); // token shown once
 });
 
 // DELETE /api/settings/tokens/:id
@@ -63,7 +66,7 @@ router.delete('/tokens/:id', (req, res) => {
 });
 
 // PUT /api/settings/password
-router.put('/password', async (req, res) => {
+router.put('/password', asyncHandler(async (req, res) => {
   const { old_password, new_password } = req.body;
   if (!old_password || !new_password) return res.status(400).json({ error: 'old_password and new_password required' });
   if (new_password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -75,6 +78,6 @@ router.put('/password', async (req, res) => {
   const hash = await bcrypt.hash(new_password, 12);
   setSetting('password_hash', hash);
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

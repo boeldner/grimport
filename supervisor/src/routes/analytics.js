@@ -1,11 +1,13 @@
 const { Router } = require('express');
 const db = require('../db');
 const { runPass } = require('../analytics');
+const { requireSiteAccess } = require('../auth');
+const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
 // GET /api/analytics/overview?period=24h|7d|30d — aggregate across all sites
-router.get('/overview', async (req, res) => {
+router.get('/overview', asyncHandler(async (req, res) => {
   const period = req.query.period || '24h';
   const hours = period === '7d' ? 168 : period === '30d' ? 720 : 24;
   const now   = Math.floor(Date.now() / 1000);
@@ -75,10 +77,10 @@ router.get('/overview', async (req, res) => {
   };
 
   res.json({ sites: rows, grand, period });
-});
+}));
 
 // GET /api/analytics/:id?period=24h|7d|30d
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -121,12 +123,12 @@ router.get('/:id', async (req, res) => {
   `).get(req.params.id, since - (since % 3600));
 
   res.json({ hourly: hourlyRows, totals, last1h, period });
-});
+}));
 
 // POST /api/analytics/:id/refresh — force a log parse for one site
-router.post('/:id/refresh', async (req, res) => {
+router.post('/:id/refresh', requireSiteAccess(), asyncHandler(async (req, res) => {
   await runPass();
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

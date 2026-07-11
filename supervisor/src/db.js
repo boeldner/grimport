@@ -141,6 +141,7 @@ try { db.exec("ALTER TABLE activity ADD COLUMN level TEXT NOT NULL DEFAULT 'info
 try { db.exec("ALTER TABLE activity ADD COLUMN actor TEXT NOT NULL DEFAULT 'system'"); } catch {}
 try { db.exec("ALTER TABLE activity ADD COLUMN duration_ms INTEGER"); } catch {}
 try { db.exec("ALTER TABLE activity ADD COLUMN fn TEXT"); } catch {}
+try { db.exec("ALTER TABLE api_tokens ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"); } catch {}
 
 // Seed first admin user from existing password_hash setting (one-time migration)
 const { nanoid } = require('nanoid');

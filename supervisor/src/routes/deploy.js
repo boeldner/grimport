@@ -1,6 +1,5 @@
 const { Router } = require('express');
 const multer = require('multer');
-const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -10,6 +9,9 @@ const db = require('../db');
 const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
 const { requireSiteAccess, requireRole } = require('../auth');
 const { fireWebhooks } = require('../webhooks');
+const { assertPublicUrl } = require('../validate');
+const { atomicExtract } = require('../extract');
+const { asyncHandler } = require('../async-handler');
 
 const HISTORY_KEEP = 5; // zips to retain per site
 
@@ -73,7 +75,7 @@ const upload = multer({
 });
 
 // POST /api/deploy/:id — upload a zip and deploy it to a site
-router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.single('file'), async (req, res) => {
+router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
@@ -88,60 +90,11 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
 
   try {
     const targetDir = path.resolve(isAppRuntime
-      ? path.join(appDir(req.params.id))
+      ? appDir(req.params.id)
       : path.join(siteDir(req.params.id), 'html'));
-    const htmlDir = targetDir; // alias for rest of code
 
-    // Clear existing files
-    fs.rmSync(htmlDir, { recursive: true, force: true });
-    fs.mkdirSync(htmlDir, { recursive: true });
-
-    const zip = new AdmZip(req.file.path);
-    const entries = zip.getEntries();
-
-    // Security: validate all entry paths stay within htmlDir (zip path traversal prevention)
-    for (const entry of entries) {
-      const dest = path.resolve(path.join(htmlDir, entry.entryName));
-      if (!dest.startsWith(htmlDir + path.sep) && dest !== htmlDir) {
-        throw new Error(`Rejected: zip entry outside target directory: ${entry.entryName}`);
-      }
-    }
-
-    // Detect if zip has a single root folder and all content is inside it.
-    // Strip it so files always land flat in html/.
-    const meaningfulEntries = entries.filter(
-      e => !e.entryName.startsWith('__MACOSX') && !e.entryName.startsWith('.')
-    );
-    const rootNames = new Set(meaningfulEntries.map(e => e.entryName.split('/')[0]));
-
-    zip.extractAllTo(htmlDir, true);
-
-    // If every file lives under one root folder, hoist contents up.
-    // Use cpSync+rmSync instead of renameSync to avoid cross-device errors on Docker volumes.
-    if (rootNames.size === 1) {
-      const rootFolder = [...rootNames][0];
-      const nested = path.join(htmlDir, rootFolder);
-      if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-        fs.cpSync(nested, htmlDir, { recursive: true });
-        fs.rmSync(nested, { recursive: true, force: true });
-      }
-    }
-
-    // Remove macOS metadata junk
-    const macosDir = path.join(htmlDir, '__MACOSX');
-    if (fs.existsSync(macosDir)) fs.rmSync(macosDir, { recursive: true });
-
-    // Save zip to history before deleting
-    const hDir = historyDir(req.params.id);
-    fs.mkdirSync(hDir, { recursive: true });
-    const deployId = nanoid(10);
-    const historyFilename = `${deployId}.zip`;
-    fs.copyFileSync(req.file.path, path.join(hDir, historyFilename));
-    fs.unlinkSync(req.file.path);
-
-    saveDeployment(req.params.id, historyFilename, req.file.size);
-    logActivity(req.params.id, row.name, 'deployed', req.file.originalname, req.user?.username || 'system');
-    fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
+    // Non-destructive: throws before touching live dir if the zip is bad.
+    const { fileCount } = atomicExtract(req.file.path, targetDir);
 
     const site = {
       ...row,
@@ -163,13 +116,24 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
       db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
     }
 
-    res.json({ ok: true, files: fs.readdirSync(targetDir).length });
+    // Success — now persist history + notify.
+    const hDir = historyDir(req.params.id);
+    fs.mkdirSync(hDir, { recursive: true });
+    const historyFilename = `${nanoid(10)}.zip`;
+    fs.copyFileSync(req.file.path, path.join(hDir, historyFilename));
+    fs.unlinkSync(req.file.path);
+
+    saveDeployment(req.params.id, historyFilename, req.file.size);
+    logActivity(req.params.id, row.name, 'deployed', req.file.originalname, req.user?.username || 'system');
+    fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
+
+    res.json({ ok: true, files: fileCount });
   } catch (err) {
     try { fs.unlinkSync(req.file.path); } catch {}
     console.error('Deploy error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // GET /api/deploy/:id/history
 router.get('/:id/history', requireSiteAccess(), (req, res) => {
@@ -180,7 +144,7 @@ router.get('/:id/history', requireSiteAccess(), (req, res) => {
 });
 
 // POST /api/deploy/:id/rollback/:deploymentId
-router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -192,33 +156,11 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
   if (!fs.existsSync(zipPath)) return res.status(404).json({ error: 'Deployment file missing' });
 
   try {
-    const htmlDir = path.resolve(path.join(siteDir(req.params.id), 'html'));
-    fs.rmSync(htmlDir, { recursive: true, force: true });
-    fs.mkdirSync(htmlDir, { recursive: true });
+    const runtime = row.runtime || 'static';
+    const isAppRuntime = runtime === 'node' || runtime === 'python';
+    const targetDir = path.resolve(isAppRuntime ? appDir(req.params.id) : path.join(siteDir(req.params.id), 'html'));
 
-    const zip = new AdmZip(zipPath);
-    const entries = zip.getEntries();
-    for (const entry of entries) {
-      const dest = path.resolve(path.join(htmlDir, entry.entryName));
-      if (!dest.startsWith(htmlDir + path.sep) && dest !== htmlDir) {
-        throw new Error(`Rejected: zip entry outside target directory: ${entry.entryName}`);
-      }
-    }
-    const meaningfulEntries = entries.filter(
-      e => !e.entryName.startsWith('__MACOSX') && !e.entryName.startsWith('.')
-    );
-    const rootNames = new Set(meaningfulEntries.map(e => e.entryName.split('/')[0]));
-    zip.extractAllTo(htmlDir, true);
-    if (rootNames.size === 1) {
-      const rootFolder = [...rootNames][0];
-      const nested = path.join(htmlDir, rootFolder);
-      if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-        fs.cpSync(nested, htmlDir, { recursive: true });
-        fs.rmSync(nested, { recursive: true, force: true });
-      }
-    }
-    const macosDir = path.join(htmlDir, '__MACOSX');
-    if (fs.existsSync(macosDir)) fs.rmSync(macosDir, { recursive: true });
+    atomicExtract(zipPath, targetDir);
 
     const site = {
       ...row,
@@ -229,6 +171,7 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
       custom_headers: row.custom_headers || '[]',
       redirects: row.redirects || '[]',
     };
+    if (isAppRuntime && row.build_cmd) await runBuildStep(site);
     const rollbackContainerId = await applySiteSettings(site);
     if (rollbackContainerId) {
       db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(rollbackContainerId, req.params.id);
@@ -241,17 +184,18 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
     console.error('Rollback error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // POST /api/deploy/:id/url — deploy from a public zip URL
-router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const { url } = req.body;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
 
-  let parsed;
-  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
-  if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https URLs are supported' });
-  if (!url.endsWith('.zip')) return res.status(400).json({ error: 'URL must point to a .zip file' });
+  let parsed, pinnedAddress;
+  // TODO: connect to pinnedAddress to fully close DNS-rebinding
+  try { ({ url: parsed, address: pinnedAddress } = await assertPublicUrl(url)); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!parsed.pathname.endsWith('.zip')) return res.status(400).json({ error: 'URL must point to a .zip file' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
@@ -286,40 +230,8 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
     const isAppRuntime = runtime === 'node' || runtime === 'python';
     const targetDir = path.resolve(isAppRuntime ? appDir(req.params.id) : path.join(siteDir(req.params.id), 'html'));
 
-    fs.rmSync(targetDir, { recursive: true, force: true });
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    const zip = new AdmZip(tmpPath);
-    const entries = zip.getEntries();
-    for (const entry of entries) {
-      const dest = path.resolve(path.join(targetDir, entry.entryName));
-      if (!dest.startsWith(targetDir + path.sep) && dest !== targetDir)
-        throw new Error(`Rejected: zip entry outside target directory: ${entry.entryName}`);
-    }
-    const meaningful = entries.filter(e => !e.entryName.startsWith('__MACOSX') && !e.entryName.startsWith('.'));
-    const rootNames = new Set(meaningful.map(e => e.entryName.split('/')[0]));
-    zip.extractAllTo(targetDir, true);
-    if (rootNames.size === 1) {
-      const rootFolder = [...rootNames][0];
-      const nested = path.join(targetDir, rootFolder);
-      if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-        fs.cpSync(nested, targetDir, { recursive: true });
-        fs.rmSync(nested, { recursive: true, force: true });
-      }
-    }
-    const macosDir = path.join(targetDir, '__MACOSX');
-    if (fs.existsSync(macosDir)) fs.rmSync(macosDir, { recursive: true });
-
-    const hDir = historyDir(req.params.id);
-    fs.mkdirSync(hDir, { recursive: true });
-    const deployId = nanoid(10);
-    const historyFilename = `${deployId}.zip`;
-    fs.copyFileSync(tmpPath, path.join(hDir, historyFilename));
-    fs.unlinkSync(tmpPath);
-
-    saveDeployment(req.params.id, historyFilename, stat.size);
-    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname, req.user?.username || 'system');
-    fireWebhooks('deploy', req.params.id, row.name, url);
+    // Non-destructive: throws before touching live dir if the zip is bad.
+    const { fileCount } = atomicExtract(tmpPath, targetDir);
 
     const site = { ...row, spa_mode: !!row.spa_mode, cache_enabled: !!row.cache_enabled, maintenance_mode: !!row.maintenance_mode, ssl_enabled: !!row.ssl_enabled, custom_headers: row.custom_headers || '[]', redirects: row.redirects || '[]' };
     if (isAppRuntime && row.build_cmd) await runBuildStep(site);
@@ -328,12 +240,23 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
       db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(urlDeployContainerId, req.params.id);
     }
 
-    res.json({ ok: true, files: fs.readdirSync(targetDir).length });
+    // Success — now persist history + notify.
+    const hDir = historyDir(req.params.id);
+    fs.mkdirSync(hDir, { recursive: true });
+    const historyFilename = `${nanoid(10)}.zip`;
+    fs.copyFileSync(tmpPath, path.join(hDir, historyFilename));
+    fs.unlinkSync(tmpPath);
+
+    saveDeployment(req.params.id, historyFilename, stat.size);
+    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname, req.user?.username || 'system');
+    fireWebhooks('deploy', req.params.id, row.name, url);
+
+    res.json({ ok: true, files: fileCount });
   } catch (err) {
     try { fs.unlinkSync(tmpPath); } catch {}
     console.error('URL deploy error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 module.exports = router;

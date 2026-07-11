@@ -4,6 +4,12 @@ const db = require('./db');
 const { sessionMiddleware, requireAuth } = require('./auth');
 const { version: VERSION } = require('../package.json');
 
+if (process.env.NODE_ENV === 'production' &&
+    (!process.env.SUPERVISOR_SECRET || process.env.SUPERVISOR_SECRET === 'changeme')) {
+  console.error('FATAL: SUPERVISOR_SECRET must be set to a strong value in production.');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = 3000;
 
@@ -85,15 +91,20 @@ app.get('/api/debug/status', requireAuth, requireRole('admin'), async (req, res)
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
 app.use('/api/deploy',   requireAuth, require('./routes/deploy'));
-app.use('/api/settings', requireAuth, require('./routes/settings'));
+app.use('/api/settings/webhooks', requireAuth, requireRole('admin'), require('./routes/webhooks'));
+app.use('/api/settings', requireAuth, requireRole('admin'), require('./routes/settings'));
 app.use('/api/dns',       requireAuth, require('./routes/dns'));
 app.use('/api/analytics', requireAuth, require('./routes/analytics'));
 app.use('/api/uptime',          requireAuth, require('./routes/uptime'));
+// NOT gated requireRole('admin') at the mount: public/index.html shows the
+// Activity nav-item and the notification bell to every role (no nav-admin /
+// admin-only class), so editors/viewers use both. Each router instead
+// enforces per-route/per-row authorization internally — see the comments
+// at the top of routes/activity.js and routes/notifications.js.
 app.use('/api/activity',        requireAuth, require('./routes/activity'));
 app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
-app.use('/api/settings/webhooks', requireAuth, require('./routes/webhooks'));
 app.use('/api/users',           requireAuth, require('./routes/users'));
-app.use('/api/update',          requireAuth, require('./routes/update'));
+app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
 
 // ── Static files ───────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));

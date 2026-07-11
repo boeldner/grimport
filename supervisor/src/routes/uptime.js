@@ -1,10 +1,11 @@
 const { Router } = require('express');
 const db = require('../db');
+const { requireSiteAccess } = require('../auth');
 
 const router = Router();
 
 // GET /api/uptime/:id?period=24h|7d|30d
-router.get('/:id', (req, res) => {
+router.get('/:id', requireSiteAccess(), (req, res) => {
   const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -34,9 +35,14 @@ router.get('/:id', (req, res) => {
   res.json({ uptime, avgLatency, total, strip, currentStatus, period });
 });
 
-// GET /api/uptime — summary for all sites
+// GET /api/uptime — summary for all sites (filtered by permission for non-admins)
 router.get('/', (req, res) => {
-  const sites = db.prepare('SELECT id FROM sites').all();
+  const sites = req.user?.role === 'admin'
+    ? db.prepare('SELECT id FROM sites').all()
+    : db.prepare(
+        `SELECT s.id FROM sites s
+         INNER JOIN site_permissions sp ON sp.site_id = s.id AND sp.user_id = ?`
+      ).all(req.user?.id);
   const since = Math.floor(Date.now() / 1000) - 24 * 3600;
   const result = {};
   for (const site of sites) {

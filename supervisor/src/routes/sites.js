@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { isValidHostname, sanitizeHeaderName, sanitizeRedirectField } = require('../validate');
 const {
   createSiteContainer,
   createPreviewContainer,
@@ -16,6 +17,7 @@ const {
 } = require('../docker');
 const { fireWebhooks } = require('../webhooks');
 const { requireRole, requireSiteAccess } = require('../auth');
+const { asyncHandler } = require('../async-handler');
 const fs = require('fs');
 
 const router = Router();
@@ -42,7 +44,7 @@ function parseSite(row) {
 }
 
 // GET /api/sites — list sites (filtered by permissions for non-admins)
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   let rows;
   if (req.user?.role === 'admin') {
     rows = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
@@ -65,10 +67,10 @@ router.get('/', async (req, res) => {
     })
   );
   res.json(sites);
-});
+}));
 
 // GET /api/sites/:id
-router.get('/:id', requireSiteAccess(), async (req, res) => {
+router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   const site = parseSite(row);
@@ -76,12 +78,15 @@ router.get('/:id', requireSiteAccess(), async (req, res) => {
     site.container = await containerStatus(site.container_id);
   }
   res.json(site);
-});
+}));
 
 // POST /api/sites — create a new site (admin only)
-router.post('/', requireRole('admin'), async (req, res) => {
+router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
   const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
   if (!name || !domain) return res.status(400).json({ error: 'name and domain are required' });
+
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!isValidHostname(normalizedDomain)) return res.status(400).json({ error: 'Invalid domain' });
 
   const id = nanoid(10);
   const siteRuntime = runtime || 'static';
@@ -90,7 +95,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
       `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, name.trim(), domain.trim().toLowerCase(),
+      id, name.trim(), normalizedDomain,
       spa_mode ? 1 : 0, cache_enabled !== false ? 1 : 0,
       siteRuntime, build_cmd || null, start_cmd || null, app_port || null
     );
@@ -100,7 +105,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(containerId, id);
     site.container_id = containerId;
     site.container = await containerStatus(containerId);
-    logActivity(id, name.trim(), 'created', domain.trim().toLowerCase(), req.user?.username || 'system');
+    logActivity(id, name.trim(), 'created', normalizedDomain, req.user?.username || 'system');
     res.status(201).json(site);
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -109,10 +114,10 @@ router.post('/', requireRole('admin'), async (req, res) => {
     console.error('Create site error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // PUT /api/sites/:id — update settings (editor or admin with site access)
-router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -121,6 +126,25 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
     ssl_enabled, basic_auth, custom_headers, redirects,
     runtime, build_cmd, start_cmd, app_port, env_vars,
   } = req.body;
+
+  let domainValue = domain;
+  if (domain !== undefined) {
+    domainValue = String(domain).trim().toLowerCase();
+    if (!isValidHostname(domainValue)) return res.status(400).json({ error: 'Invalid domain' });
+  }
+
+  if (custom_headers !== undefined) {
+    try {
+      const list = typeof custom_headers === 'string' ? JSON.parse(custom_headers) : custom_headers;
+      for (const h of list) sanitizeHeaderName(h.name);
+    } catch (e) { return res.status(400).json({ error: `Invalid custom header: ${e.message}` }); }
+  }
+  if (redirects !== undefined) {
+    try {
+      const list = typeof redirects === 'string' ? JSON.parse(redirects) : redirects;
+      for (const r of list) { sanitizeRedirectField(r.from); sanitizeRedirectField(r.to); }
+    } catch (e) { return res.status(400).json({ error: `Invalid redirect: ${e.message}` }); }
+  }
 
   db.prepare(
     `UPDATE sites SET
@@ -141,7 +165,7 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
     WHERE id = ?`
   ).run(
     name ?? null,
-    domain ? domain.trim().toLowerCase() : null,
+    domain ? domainValue : null,
     spa_mode !== undefined ? (spa_mode ? 1 : 0) : null,
     cache_enabled !== undefined ? (cache_enabled ? 1 : 0) : null,
     maintenance_mode !== undefined ? (maintenance_mode ? 1 : 0) : null,
@@ -173,28 +197,28 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), async (r
   }
   logActivity(req.params.id, updated.name, 'settings_changed', null, req.user?.username || 'system');
   res.json(updated);
-});
+}));
 
 // POST /api/sites/:id/start
-router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await startSiteContainer(row.container_id);
   logActivity(req.params.id, row.name, 'started', null, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // POST /api/sites/:id/stop
-router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), async (req, res) => {
+router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await stopSiteContainer(row.container_id);
   logActivity(req.params.id, row.name, 'stopped', null, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // DELETE /api/sites/:id — stop + remove container, delete files (admin only)
-router.delete('/:id', requireRole('admin'), async (req, res) => {
+router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -208,7 +232,7 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
   logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system');
   res.json({ ok: true });
-});
+}));
 
 // GET /api/sites/:id/users — get user IDs with access (admin only)
 router.get('/:id/users', requireRole('admin'), (req, res) => {
@@ -238,7 +262,7 @@ router.put('/:id/users', requireRole('admin'), (req, res) => {
 });
 
 // GET /api/sites/:id/logs
-router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
+router.get('/:id/logs', requireSiteAccess(), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   try {
@@ -247,12 +271,12 @@ router.get('/:id/logs', requireSiteAccess(), async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ── Blue-green preview ─────────────────────────────────────
 
 // POST /api/sites/:id/preview — create preview container
-router.post('/:id/preview', async (req, res) => {
+router.post('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.preview_container_id) return res.status(409).json({ error: 'Preview already exists' });
@@ -272,10 +296,10 @@ router.post('/:id/preview', async (req, res) => {
   db.prepare('UPDATE sites SET preview_container_id = ? WHERE id = ?').run(containerId, row.id);
   logActivity(row.id, row.name, 'preview_created', preview_domain.trim());
   res.json({ ok: true, preview_container_id: containerId });
-});
+}));
 
 // POST /api/sites/:id/preview/swap — go live (swap preview → production)
-router.post('/:id/preview/swap', async (req, res) => {
+router.post('/:id/preview/swap', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (!row.preview_container_id) return res.status(404).json({ error: 'No preview to swap' });
@@ -285,10 +309,10 @@ router.post('/:id/preview/swap', async (req, res) => {
   logActivity(row.id, row.name, 'preview_swapped', `${row.preview_domain} → ${row.domain}`);
   fireWebhooks('deploy', row.id, row.name, `Live swap from ${row.preview_domain}`);
   res.json({ ok: true });
-});
+}));
 
 // DELETE /api/sites/:id/preview — discard preview
-router.delete('/:id/preview', async (req, res) => {
+router.delete('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -297,6 +321,6 @@ router.delete('/:id/preview', async (req, res) => {
   db.prepare('UPDATE sites SET preview_container_id = NULL, preview_domain = NULL WHERE id = ?').run(row.id);
   logActivity(row.id, row.name, 'preview_removed', null);
   res.json({ ok: true });
-});
+}));
 
 module.exports = router;

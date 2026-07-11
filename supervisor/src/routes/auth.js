@@ -37,14 +37,20 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  req.session.authenticated = true; // kept for backward compat
-  req.session.userId = user.id;
-  req.session.role = user.role;
-  req.session.username = user.username;
-  req.session.save(err => {
+  req.session.regenerate(err => {
     if (err) return res.status(500).json({ error: 'Session error' });
-    logAudit({ fn: 'login', level: 'info', detail: `Login successful (${user.role})`, actor: user.username });
-    res.json({ ok: true, role: user.role, username: user.username });
+    // Legacy flag: only set for admins. requireAuth's legacy branch grants
+    // whoever holds `session.authenticated` the first admin account found —
+    // so it must never be set for editor/viewer logins.
+    if (user.role === 'admin') req.session.authenticated = true;
+    req.session.userId = user.id;
+    req.session.role = user.role;
+    req.session.username = user.username;
+    req.session.save(err2 => {
+      if (err2) return res.status(500).json({ error: 'Session error' });
+      logAudit({ fn: 'login', level: 'info', detail: `Login successful (${user.role})`, actor: user.username });
+      res.json({ ok: true, role: user.role, username: user.username });
+    });
   });
 });
 
