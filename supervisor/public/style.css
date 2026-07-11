@@ -1880,3 +1880,410 @@ code {
 }
 .theme-toggle:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 [data-theme="light"] .theme-toggle:hover { background: rgba(0,0,0,0.06); }
+
+/* ══════════════════════════════════════════════════════════════
+   Component layer — v0.9.5 redesign (task A2)
+   New reusable classes built directly on the token layer above
+   (docs/design/design-system.md). These are ADDITIVE: existing
+   view-specific rules elsewhere in this file are left untouched
+   so the app keeps rendering; screens are migrated onto this
+   layer by later tasks (B/C/D…). Names were chosen to avoid
+   colliding with existing classes (.btn, .tag, .status-dot,
+   .icon-btn, .modal-tab, .settings-ptab, .role-badge,
+   .runtime-badge, .search-input, .select-input, …).
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Focus rings (accent, visible-only) ─────────────────────── */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.g-btn:focus-visible,
+.g-input:focus-visible,
+.g-select:focus-visible,
+.g-textarea:focus-visible,
+.search-input:focus-visible,
+.g-toggle input:focus-visible + .g-toggle-track,
+.g-checkbox input:focus-visible + .g-checkbox-box,
+.seg-ctl button:focus-visible,
+.tabs .tab:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accSoft);
+  border-color: var(--acc);
+}
+
+/* ── Buttons (busy state — additive to existing .btn/.btn-primary/.btn-danger) ── */
+.btn-secondary { background: var(--panel2); border-color: var(--line); color: var(--tx); }
+.btn[data-busy="true"],
+.btn.is-busy {
+  color: transparent;
+  pointer-events: none;
+  position: relative;
+}
+.btn[data-busy="true"]::after,
+.btn.is-busy::after {
+  content: "";
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  top: 50%;
+  left: 50%;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  animation: g-spin 0.7s linear infinite;
+}
+.btn:not(.btn-primary)[data-busy="true"]::after,
+.btn:not(.btn-primary).is-busy::after {
+  border: 2px solid var(--line2);
+  border-top-color: var(--tx2);
+}
+.btn-busy-label { display: inline-flex; align-items: center; gap: 6px; color: var(--tx2); }
+@keyframes g-spin { to { transform: rotate(360deg); } }
+
+/* ── Form field system (.field) ──────────────────────────────
+   <div class="field">
+     <label class="field-label">Domain</label>
+     <input class="g-input">
+     <div class="field-help ok">Domain is available</div>
+     <div class="field-help err">✕ Port 80 is reserved — choose 1024–65535</div>
+   </div>
+*/
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 13px; font-weight: 500; color: var(--tx); }
+.field-label .field-optional { font-weight: 400; color: var(--tx3); }
+.field-help { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.field-help.ok  { color: var(--ok); }
+.field-help.err { color: var(--err); }
+.field-help.warn { color: var(--warn); }
+.field-help.muted { color: var(--tx3); }
+
+.g-input, .g-select, .g-textarea {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  color: var(--tx);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.g-textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
+.g-input::placeholder, .g-textarea::placeholder { color: var(--tx3); }
+.g-input[disabled], .g-select[disabled], .g-textarea[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.field.is-invalid .g-input,
+.field.is-invalid .g-select,
+.field.is-invalid .g-textarea,
+.g-input.is-invalid, .g-select.is-invalid, .g-textarea.is-invalid {
+  border-color: var(--err);
+}
+.field.is-invalid .g-input:focus-visible,
+.g-input.is-invalid:focus-visible {
+  box-shadow: 0 0 0 3px var(--errSoft);
+  border-color: var(--err);
+}
+.field.is-valid .g-input, .g-input.is-valid { border-color: var(--ok); }
+
+/* checkbox — custom box, accent when checked */
+.g-checkbox { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--tx); cursor: pointer; }
+.g-checkbox input { position: absolute; opacity: 0; width: 16px; height: 16px; margin: 0; cursor: pointer; }
+.g-checkbox-box {
+  width: 16px; height: 16px; flex-shrink: 0;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  background: var(--panel);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--transition), border-color var(--transition);
+}
+.g-checkbox input:checked + .g-checkbox-box {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+.g-checkbox input:checked + .g-checkbox-box::after {
+  content: "";
+  width: 4px; height: 8px;
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(45deg) translate(-1px,-1px);
+}
+.g-checkbox input:disabled + .g-checkbox-box { opacity: 0.5; }
+
+/* toggle switch — on/off (HTTPS, Maintenance, SPA fallback…) */
+.g-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--tx); cursor: pointer; }
+.g-toggle input { position: absolute; opacity: 0; width: 34px; height: 20px; margin: 0; cursor: pointer; }
+.g-toggle-track {
+  width: 34px; height: 20px; flex-shrink: 0;
+  border-radius: var(--r-pill);
+  background: var(--line2);
+  position: relative;
+  transition: background var(--transition);
+}
+.g-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  transition: transform var(--transition);
+}
+.g-toggle input:checked + .g-toggle-track { background: var(--acc); }
+.g-toggle input:checked + .g-toggle-track::after { transform: translateX(14px); }
+.g-toggle input:disabled + .g-toggle-track { opacity: 0.5; cursor: not-allowed; }
+
+/* search field with ⌘K hint (distinct from the existing .search-input rule) */
+.search-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 6px 8px 6px 10px;
+  min-width: 180px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.search-field:focus-within { border-color: var(--acc); box-shadow: 0 0 0 3px var(--accSoft); }
+.search-field input {
+  border: none; background: none; outline: none; padding: 0;
+  font-size: 13px; color: var(--tx); flex: 1; min-width: 0;
+}
+.search-field input::placeholder { color: var(--tx3); }
+.search-kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx3);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+/* ── Tabs (view-level + modal) ───────────────────────────────
+   <div class="tabs" role="tablist">
+     <button class="tab is-active">General</button>
+     <button class="tab">Behaviour</button>
+   </div>
+*/
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--tx2);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 14px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.tab:hover { color: var(--tx); }
+.tab.is-active, .tab[aria-selected="true"] { color: var(--acc); border-bottom-color: var(--acc); }
+.tab-panel.hidden { display: none !important; }
+
+/* segmented control (24h/7d/30d, Static/PHP/Node/Python) */
+.seg-ctl {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  gap: 2px;
+}
+.seg-ctl button {
+  background: none;
+  border: none;
+  border-radius: calc(var(--r-control) - 2px);
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.seg-ctl button:hover { color: var(--tx); }
+.seg-ctl button.is-active {
+  background: var(--panel);
+  color: var(--tx);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+[data-theme="dark"] .seg-ctl button.is-active { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.card-title { font-size: 14px; font-weight: 600; color: var(--tx); }
+.card-body { padding: 16px; }
+.card-body + .card-body { border-top: 1px solid var(--line); }
+.card-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+/* raised/inset elevation step — lighten, never shadow */
+.card-raised { background: var(--panel2); }
+
+/* ── Dense data tables (~28px rows, 12px text) ───────────────
+   <table class="data-table">
+     <thead><tr><th class="sortable" data-dir="desc">Requests</th>…
+     <tbody><tr><td class="cell-emph err">6.4%</td>…
+*/
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tx3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line2);
+  white-space: nowrap;
+}
+.data-table th.sortable { cursor: pointer; user-select: none; }
+.data-table th.sortable:hover { color: var(--tx); }
+.data-table th.sortable::after { content: "\2191"; margin-left: 4px; opacity: 0.35; font-size: 10px; }
+.data-table th.sortable[data-dir="asc"]::after { content: "\2191"; opacity: 1; color: var(--acc); }
+.data-table th.sortable[data-dir="desc"]::after { content: "\2193"; opacity: 1; color: var(--acc); }
+.data-table td {
+  padding: 0 10px;
+  height: 28px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr.is-clickable { cursor: pointer; }
+.data-table tbody tr.is-clickable:hover td { background: var(--panel2); }
+.data-table .cell-emph { font-weight: 600; }
+.data-table .cell-emph.ok   { color: var(--ok); }
+.data-table .cell-emph.warn { color: var(--warn); }
+.data-table .cell-emph.err  { color: var(--err); }
+.data-table .cell-mono { font-family: var(--mono); font-size: 11px; color: var(--tx2); }
+
+/* ── Badges / tags (runtime, SPA, maintenance, auth, role) ───
+   Distinct from the legacy .tag / .role-badge / .runtime-badge
+   rules above — new token-driven system for the redesign.
+*/
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge-neutral  { background: var(--panel2); color: var(--tx2); border-color: var(--line); }
+.badge-accent   { background: var(--accSoft); color: var(--acc); }
+.badge-ok       { background: var(--okSoft); color: var(--ok); }
+.badge-warn     { background: var(--warnSoft); color: var(--warn); }
+.badge-err      { background: var(--errSoft); color: var(--err); }
+.badge-vio      { background: var(--vioSoft); color: var(--vio); }
+
+/* runtime tags: PHP / NODE / PYTHON share one visual family (violet-ish arcane accent) */
+.badge-runtime { background: var(--vioSoft); color: var(--vio); }
+/* behaviour tags */
+.badge-spa   { background: var(--accSoft); color: var(--acc); }
+.badge-maint { background: var(--warnSoft); color: var(--warn); }
+.badge-auth  { background: var(--panel2); color: var(--tx2); border-color: var(--line); }
+/* role tags: Admin / Editor / Viewer */
+.badge-role-admin  { background: var(--errSoft); color: var(--err); }
+.badge-role-editor { background: var(--accSoft); color: var(--acc); }
+.badge-role-viewer { background: var(--okSoft); color: var(--ok); }
+
+/* ── Status indicators — glyph + label + colour (never colour alone) ──
+   <span class="status status-ok"><span class="status-glyph">●</span>Running</span>
+*/
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.status-glyph { font-size: 10px; line-height: 1; flex-shrink: 0; }
+.status-ok     { color: var(--ok); }
+.status-warn   { color: var(--warn); }
+.status-err    { color: var(--err); }
+.status-muted  { color: var(--tx3); }
+.status-accent { color: var(--acc); }
+
+/* container lifecycle: Running / Stopped / Starting… / Restarting / Paused / Missing / No container / ? Unknown */
+.status-running     { color: var(--ok); }
+.status-running .status-glyph { animation: g-pulse 2.5s cubic-bezier(.4,0,.6,1) infinite; }
+.status-stopped      { color: var(--tx3); }
+.status-starting     { color: var(--warn); }
+.status-starting .status-glyph { animation: g-pulse 1.2s cubic-bezier(.4,0,.6,1) infinite; }
+.status-restarting   { color: var(--warn); }
+.status-paused       { color: var(--tx2); }
+.status-missing      { color: var(--err); }
+.status-no-container { color: var(--tx3); }
+.status-unknown       { color: var(--tx3); }
+@keyframes g-pulse {
+  0%   { opacity: 1; }
+  60%  { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-running .status-glyph, .status-starting .status-glyph { animation: none; }
+}
+
+/* live/uptime: UP (ok) / DOWN (err) / ? — (unknown); percentage bands */
+.status-up   { color: var(--ok); }
+.status-down { color: var(--err); }
+.pct-ok   { color: var(--ok); }   /* >=99% */
+.pct-warn { color: var(--warn); } /* >=95% */
+.pct-err  { color: var(--err); }  /* <95% */
+
+/* DNS / SSL */
+.status-dns-ok      { color: var(--ok); }
+.status-dns-wrong    { color: var(--err); }
+.status-dns-pending  { color: var(--warn); }
+.status-ssl-active   { color: var(--ok); }
+
+/* ── Skeleton loader (shimmer, respects prefers-reduced-motion) ── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel2);
+  border-radius: var(--r-control);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  animation: g-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes g-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
