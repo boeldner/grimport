@@ -2,17 +2,16 @@
 
 // ── Theme ─────────────────────────────────────────────────
 (function () {
-  const saved = localStorage.getItem('grimport-theme');
-  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  const saved = localStorage.getItem('grimport-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
 })();
 
 function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
   if (theme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
     document.getElementById('theme-icon-dark').classList.add('hidden');
     document.getElementById('theme-icon-light').classList.remove('hidden');
   } else {
-    document.documentElement.removeAttribute('data-theme');
     document.getElementById('theme-icon-dark').classList.remove('hidden');
     document.getElementById('theme-icon-light').classList.add('hidden');
   }
