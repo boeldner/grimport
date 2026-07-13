@@ -13,11 +13,22 @@ const db = require('./db');
 
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000; // matches the session cookie maxAge
 
-db.exec(`CREATE TABLE IF NOT EXISTS sessions (
-  sid     TEXT PRIMARY KEY,
-  expires INTEGER NOT NULL,
-  data    TEXT NOT NULL
-)`);
+// Migration: an older Grimport used connect-sqlite3, which created a `sessions`
+// table with columns (sid, expired, sess). Our schema is (sid, expires, data).
+// If a legacy/mismatched table exists, drop it (session data is ephemeral — the
+// only cost is that everyone re-logs in once) and recreate with our schema.
+(function ensureSessionsTable() {
+  const cols = db.prepare('PRAGMA table_info(sessions)').all();
+  const hasOurSchema = cols.some(c => c.name === 'data') && cols.some(c => c.name === 'expires');
+  if (cols.length && !hasOurSchema) {
+    db.exec('DROP TABLE sessions');
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+    sid     TEXT PRIMARY KEY,
+    expires INTEGER NOT NULL,
+    data    TEXT NOT NULL
+  )`);
+})();
 
 function expiryFromSession(sess) {
   if (sess?.cookie?.expires) {
