@@ -842,55 +842,66 @@ code {
 
 /* ── Deploy tabs ─────────────────────────────────────────── */
 .deploy-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0;
+  display: inline-flex;
+  padding: 2px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  gap: 2px;
 }
 .deploy-tab {
   background: none;
   border: none;
+  border-radius: calc(var(--r-control) - 2px);
   cursor: pointer;
-  font-size: 13px;
-  color: var(--text-muted);
-  padding: 6px 14px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color var(--transition), border-color var(--transition);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tx2);
+  padding: 5px 14px;
+  transition: background var(--transition), color var(--transition);
 }
-.deploy-tab:hover { color: var(--text); }
-.deploy-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.deploy-tab:hover { color: var(--tx); }
+.deploy-tab.active {
+  background: var(--panel);
+  color: var(--tx);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+[data-theme="dark"] .deploy-tab.active { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 
 /* ── Dropzone ────────────────────────────────────────────── */
 .dropzone {
-  border: 2px dashed var(--border-hi);
-  border-radius: var(--radius-lg);
-  padding: 32px 20px;
+  border: 1.5px dashed var(--line2);
+  background: var(--panel2);
+  border-radius: var(--r-card);
+  padding: 20px 16px;
   text-align: center;
   cursor: pointer;
   transition: border-color var(--transition), background var(--transition);
 }
 .dropzone:hover, .dropzone.dragging {
-  border-color: var(--accent);
-  background: var(--accent-dim);
+  border-color: var(--acc);
+  background: var(--accSoft);
 }
-.dropzone-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 8px; color: var(--text-muted); }
-.dropzone-icon svg { width: 28px; height: 28px; }
-.dropzone-icon--ready { color: var(--green); }
-.dropzone p { margin-bottom: 4px; }
-.dropzone small { color: var(--text-muted); }
+.dropzone.has-file {
+  border-color: var(--acc);
+  background: var(--accSoft);
+}
+.dropzone-icon { display: flex; align-items: center; justify-content: center; margin-bottom: 8px; color: var(--tx2); }
+.dropzone-icon svg { width: 24px; height: 24px; }
+.dropzone-icon--ready { color: var(--ok); }
+.dropzone p { margin-bottom: 4px; font-size: 13px; color: var(--tx); font-weight: 600; }
+.dropzone p strong { font-weight: 600; }
+.dropzone-filesize { font-family: var(--mono); font-weight: 400; color: var(--tx3); }
+.dropzone small { color: var(--tx3); font-size: 11px; }
 
-/* ── Progress bar ────────────────────────────────────────── */
-.progress-bar { height: 3px; background: var(--surface-2); border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
-  transition: width 0.25s ease;
-  border-radius: 2px;
-  width: 0%;
+/* ── Deploy progress status text ─────────────────────────── */
+.deploy-status-text {
+  color: var(--tx3);
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-top: 6px;
 }
-#deploy-status-text { color: var(--text-muted); font-size: 13px; text-align: center; }
 
 /* ── Logs ────────────────────────────────────────────────── */
 .logs-output {
@@ -2020,6 +2031,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .field-help.err { color: var(--err); }
 .field-help.warn { color: var(--warn); }
 .field-help.muted { color: var(--tx3); }
+.field-row-toggles { display: flex; gap: 16px; flex-wrap: wrap; }
+#new-site-app-opts { display: flex; flex-direction: column; gap: 14px; }
 
 .g-input, .g-select, .g-textarea {
   background: var(--panel);

@@ -644,45 +644,57 @@ systemctl start cloudflared</pre>
         <button class="modal-close" data-close="modal-new-site"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-new-site">
-        <label>Site name
-          <input type="text" name="name" placeholder="My Portfolio" required />
-        </label>
-        <label>Domain / hostname
-          <input type="text" name="domain" placeholder="portfolio.localhost" required />
-          <small>Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</small>
-        </label>
-        <label>Runtime
-          <select name="runtime" id="new-site-runtime">
-            <option value="static">Static (nginx)</option>
-            <option value="php">PHP (Apache)</option>
-            <option value="node">Node.js</option>
-            <option value="python">Python</option>
-          </select>
-        </label>
-        <div id="new-site-static-opts">
-          <label class="row">
-            <input type="checkbox" name="spa_mode" />
-            <span>SPA mode <small>(serve index.html for all 404s — for React / Vue Router)</small></span>
-          </label>
-          <label class="row">
-            <input type="checkbox" name="cache_enabled" checked />
-            <span>Cache static assets</span>
-          </label>
-        </div>
-        <div id="new-site-app-opts" class="hidden">
-          <label>Build command <small>optional — runs once after each deploy (e.g. npm install)</small>
-            <input type="text" name="build_cmd" placeholder="npm install" />
-          </label>
-          <label>Start command
-            <input type="text" name="start_cmd" placeholder="node server.js" />
-          </label>
-          <label>App port <small>(port your app listens on)</small>
-            <input type="number" name="app_port" placeholder="3000" min="1" max="65535" />
-          </label>
+        <div class="modal-body">
+          <div class="field">
+            <label class="field-label" for="new-site-name">Name</label>
+            <input class="g-input" id="new-site-name" type="text" name="name" placeholder="wedding-page" required />
+          </div>
+          <div class="field">
+            <label class="field-label" for="new-site-domain">Domain</label>
+            <input class="g-input" id="new-site-domain" type="text" name="domain" placeholder="wedding-page.grim.host" required />
+            <div class="field-help muted" id="new-site-domain-help">Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</div>
+          </div>
+          <div class="field">
+            <span class="field-label">Runtime</span>
+            <div class="seg-ctl" id="new-site-runtime-seg" role="tablist">
+              <button type="button" class="is-active" data-runtime="static">Static</button>
+              <button type="button" data-runtime="php">PHP</button>
+              <button type="button" data-runtime="node">Node</button>
+              <button type="button" data-runtime="python">Python</button>
+            </div>
+            <input type="hidden" name="runtime" id="new-site-runtime" value="static" />
+          </div>
+          <div id="new-site-static-opts" class="field-row-toggles">
+            <label class="g-toggle">
+              <input type="checkbox" name="spa_mode" />
+              <span class="g-toggle-track"></span>
+              <span>SPA fallback</span>
+            </label>
+            <label class="g-toggle">
+              <input type="checkbox" name="cache_enabled" checked />
+              <span class="g-toggle-track"></span>
+              <span>Cache assets</span>
+            </label>
+          </div>
+          <div id="new-site-app-opts" class="hidden">
+            <div class="field">
+              <label class="field-label" for="new-site-build-cmd">Build command <span class="field-optional">optional</span></label>
+              <input class="g-input" id="new-site-build-cmd" type="text" name="build_cmd" placeholder="npm install" />
+              <div class="field-help muted">Runs once after each deploy</div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="new-site-start-cmd">Start command</label>
+              <input class="g-input" id="new-site-start-cmd" type="text" name="start_cmd" placeholder="node server.js" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="new-site-app-port">Port</label>
+              <input class="g-input" id="new-site-app-port" type="number" name="app_port" placeholder="3000" min="1" max="65535" />
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button type="button" class="btn" data-close="modal-new-site">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create &amp; launch</button>
+          <button type="submit" class="btn btn-primary">Create site</button>
         </div>
       </form>
     </div>
@@ -695,32 +707,34 @@ systemctl start cloudflared</pre>
         <h2>Deploy to <span id="deploy-site-name"></span></h2>
         <button class="modal-close" data-close="modal-deploy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
-      <div class="deploy-tabs">
-        <button class="deploy-tab active" data-dtab="upload">Upload zip</button>
-        <button class="deploy-tab" data-dtab="url">From URL</button>
-      </div>
-      <!-- Upload tab -->
-      <div id="dtab-upload">
-        <div class="dropzone" id="dropzone">
-          <div class="dropzone-inner">
-            <span class="dropzone-icon">↑</span>
-            <p>Drop your <strong>.zip</strong> here, or click to browse</p>
-            <small>Supports Webflow exports, React / Vue build output, any static site</small>
-            <input type="file" id="deploy-file-input" accept=".zip" hidden />
+      <div class="modal-body">
+        <div class="deploy-tabs" role="tablist">
+          <button class="deploy-tab active" data-dtab="upload" role="tab" aria-selected="true">Upload zip</button>
+          <button class="deploy-tab" data-dtab="url" role="tab" aria-selected="false">From URL</button>
+        </div>
+        <!-- Upload tab -->
+        <div id="dtab-upload">
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-inner">
+              <span class="dropzone-icon">↑</span>
+              <p>Drop your <strong>.zip</strong> here, or click to browse</p>
+              <small>only .zip accepted · Webflow exports, React/Vue build output, any static site</small>
+              <input type="file" id="deploy-file-input" accept=".zip" hidden />
+            </div>
           </div>
         </div>
-      </div>
-      <!-- URL tab -->
-      <div id="dtab-url" class="hidden">
-        <div style="padding:16px 0 8px">
-          <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:6px">Direct URL to a .zip file</label>
-          <input type="url" id="deploy-url-input" placeholder="https://example.com/release.zip" style="width:100%" />
-          <small style="color:var(--text-subtle);margin-top:6px;display:block">Must be a public direct download link ending in .zip. GitHub release assets, CDN links, etc.</small>
+        <!-- URL tab -->
+        <div id="dtab-url" class="hidden">
+          <div class="field">
+            <label class="field-label" for="deploy-url-input">Direct URL to a .zip file</label>
+            <input class="g-input" type="url" id="deploy-url-input" placeholder="https://example.com/release.zip" />
+            <div class="field-help muted">Must be a public direct download link ending in .zip — GitHub release assets, CDN links, etc.</div>
+          </div>
         </div>
-      </div>
-      <div id="deploy-progress" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-        <p id="deploy-status-text">Uploading…</p>
+        <div id="deploy-progress" class="hidden">
+          <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+          <p class="deploy-status-text" id="deploy-status-text">Uploading…</p>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modal-deploy">Cancel</button>
@@ -1051,15 +1065,18 @@ systemctl start cloudflared</pre>
         <h2 class="modal-title">Create preview</h2>
         <button class="modal-close" data-close="modal-preview"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
-      <p class="settings-desc" style="margin-bottom:16px">
-        A preview container runs your site at a staging domain. When ready, one click swaps it live — no DNS changes, no downtime.
-      </p>
       <form id="form-create-preview">
-        <label>Preview domain
-          <input type="text" name="preview_domain" placeholder="preview.yourdomain.com" required />
-          <small>This domain must point to your server (or use <code>preview.localhost</code> locally).</small>
-        </label>
-        <div class="form-actions">
+        <div class="modal-body">
+          <p class="settings-desc">
+            Deploys the next upload to a separate preview URL. The live site stays untouched until you press <strong>Go live</strong>.
+          </p>
+          <div class="field">
+            <label class="field-label" for="preview-domain-input">Preview domain</label>
+            <input class="g-input" id="preview-domain-input" type="text" name="preview_domain" placeholder="preview-shop.grim.host" required />
+            <div class="field-help muted">Must point to your server (or use <code>preview.localhost</code> locally).</div>
+          </div>
+        </div>
+        <div class="modal-actions">
           <button type="button" class="btn" data-close="modal-preview">Cancel</button>
           <button type="submit" class="btn btn-primary">Create preview</button>
         </div>

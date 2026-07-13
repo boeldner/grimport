@@ -88,7 +88,7 @@ async function apiUpload(siteId, file, onProgress) {
     form.append('file', file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/deploy/${siteId}`);
-    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total, e.loaded, e.total);
     xhr.onload = () => {
       const data = JSON.parse(xhr.responseText || '{}');
       if (xhr.status >= 400) reject(new Error(data.error || `HTTP ${xhr.status}`));
@@ -490,12 +490,40 @@ function randomSlug(len = 10) {
   return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?(\.[a-z]{2,})$/;
+const NEW_SITE_DOMAIN_DEFAULT_HELP = 'Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.';
+
+function validateNewSiteDomain() {
+  const input = document.getElementById('new-site-domain');
+  const help = document.getElementById('new-site-domain-help');
+  const field = input.closest('.field');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain) {
+    field.classList.remove('is-invalid', 'is-valid');
+    help.className = 'field-help muted';
+    help.innerHTML = NEW_SITE_DOMAIN_DEFAULT_HELP;
+    return false;
+  }
+  const valid = DOMAIN_RE.test(domain);
+  field.classList.toggle('is-invalid', !valid);
+  field.classList.toggle('is-valid', valid);
+  help.className = valid ? 'field-help ok' : 'field-help err';
+  help.textContent = valid
+    ? 'Available — auto-suggested from base domain'
+    : 'Invalid domain — use a format like mysite.example.com or test.localhost';
+  return valid;
+}
+
+document.getElementById('new-site-domain').addEventListener('input', validateNewSiteDomain);
+
 document.getElementById('btn-new-site').addEventListener('click', async () => {
   document.getElementById('form-new-site').reset();
+  setNewSiteRuntime('static');
   if (config.siteBaseDomain) {
     document.querySelector('#form-new-site input[name="domain"]').value =
       `${randomSlug()}.${config.siteBaseDomain}`;
   }
+  validateNewSiteDomain();
   // Apply panel defaults
   try {
     const s = await api('GET', '/settings');
@@ -509,8 +537,7 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const domain = fd.get('domain').trim().toLowerCase();
-  const domainValid = /^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?(\.[a-z]{2,})$/.test(domain);
-  if (!domainValid) {
+  if (!validateNewSiteDomain()) {
     toast('Invalid domain — use a format like mysite.example.com or test.localhost', 'error');
     return;
   }
@@ -570,7 +597,7 @@ function openDeploy(site) {
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('deploy-status-text').textContent = 'Uploading…';
   document.getElementById('btn-deploy-confirm').disabled = true;
-  document.getElementById('dropzone').classList.remove('dragging');
+  document.getElementById('dropzone').classList.remove('dragging', 'has-file');
   document.getElementById('deploy-url-input').value = '';
   // Reset tabs
   document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
@@ -580,7 +607,7 @@ function openDeploy(site) {
   document.querySelector('#dropzone .dropzone-inner').innerHTML = `
     <span class="dropzone-icon">${ICON.upload}</span>
     <p>Drop your <strong>.zip</strong> here, or click to browse</p>
-    <small>Supports Webflow exports, React/Vue build output, any static site</small>
+    <small>only .zip accepted · Webflow exports, React/Vue build output, any static site</small>
     <input type="file" id="deploy-file-input" accept=".zip" hidden />
   `;
   document.getElementById('deploy-file-input').addEventListener('change', () => {
@@ -608,10 +635,11 @@ dropzone.addEventListener('drop', e => {
 function selectDeployFile(file) {
   if (!file.name.endsWith('.zip')) { toast('Only .zip files are accepted', 'error'); return; }
   selectedDeployFile = file;
+  dropzone.classList.add('has-file');
   dropzone.querySelector('.dropzone-inner').innerHTML = `
     <span class="dropzone-icon dropzone-icon--ready">${ICON.check}</span>
-    <p><strong>${esc(file.name)}</strong></p>
-    <small>${(file.size / 1024 / 1024).toFixed(1)} MB — click to change</small>
+    <p><strong>${esc(file.name)}</strong> <span class="dropzone-filesize">· ${(file.size / 1024 / 1024).toFixed(1)} MB</span></p>
+    <small>Drop another .zip to replace · only .zip accepted</small>
   `;
   document.getElementById('btn-deploy-confirm').disabled = false;
 }
@@ -635,9 +663,14 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
     } else {
       if (!selectedDeployFile) return;
       status.textContent = 'Uploading…';
-      await apiUpload(activeSiteId, selectedDeployFile, pct => {
+      await apiUpload(activeSiteId, selectedDeployFile, (pct, loaded, total) => {
         fill.style.width = `${Math.round(pct * 90)}%`;
-        status.textContent = pct < 1 ? `Uploading… ${Math.round(pct * 100)}%` : 'Extracting…';
+        if (pct < 1) {
+          const mb = n => (n / 1024 / 1024).toFixed(1);
+          status.textContent = `Uploading… ${Math.round(pct * 100)}% · ${mb(loaded)} of ${mb(total)} MB · then: extract → swap → health check`;
+        } else {
+          status.textContent = 'Extracting…';
+        }
       });
       fill.style.width = '100%';
     }
@@ -1714,10 +1747,12 @@ function openConnectDomain(domain) {
 document.getElementById('btn-connect-create').addEventListener('click', () => {
   closeModal('modal-connect-domain');
   document.getElementById('form-new-site').reset();
+  setNewSiteRuntime('static');
   const domainInput = document.querySelector('#form-new-site input[name="domain"]');
   if (domainInput) domainInput.value = connectDomain;
   const nameInput = document.querySelector('#form-new-site input[name="name"]');
   if (nameInput) nameInput.value = connectDomain.split('.')[0];
+  validateNewSiteDomain();
   openModal('modal-new-site');
 });
 
@@ -1903,12 +1938,21 @@ function applyRoleUI() {
 }
 
 // ── Runtime selector in new site modal ───────────────────
-document.getElementById('new-site-runtime').addEventListener('change', e => {
-  const runtime = e.target.value;
+function setNewSiteRuntime(runtime) {
   const isApp = runtime === 'node' || runtime === 'python';
   const isPhp = runtime === 'php';
+  document.getElementById('new-site-runtime').value = runtime;
+  document.querySelectorAll('#new-site-runtime-seg button').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.runtime === runtime);
+  });
   document.getElementById('new-site-static-opts').classList.toggle('hidden', isApp || isPhp);
   document.getElementById('new-site-app-opts').classList.toggle('hidden', !isApp);
+}
+
+document.getElementById('new-site-runtime-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-runtime]');
+  if (!btn) return;
+  setNewSiteRuntime(btn.dataset.runtime);
 });
 
 // ── Runtime selector in site settings ────────────────────
