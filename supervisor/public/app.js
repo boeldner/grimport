@@ -202,6 +202,69 @@ if (typeof window !== 'undefined') {
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
+// ── Styled confirmation dialog (Promise<boolean>) ──────────
+// confirmDialog({ title, body, confirmLabel, danger, warn, requireText })
+// Replaces native confirm() for destructive/important actions. `requireText`,
+// when set, disables the confirm button until the input matches exactly.
+function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, warn = false, requireText = null }) {
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    const btnClass = danger ? 'btn-danger' : (warn ? 'btn-warn' : 'btn-primary');
+    backdrop.innerHTML = `
+      <div class="modal confirm-dialog">
+        <div class="modal-header"><h2>${esc(title)}</h2></div>
+        <div class="confirm-body">
+          <p>${esc(body)}</p>
+          ${requireText ? `
+          <div class="type-to-confirm">
+            <label for="confirm-type-input">Type the site name to confirm</label>
+            <input type="text" id="confirm-type-input" autocomplete="off" spellcheck="false" />
+          </div>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
+          <button type="button" class="btn ${btnClass}" data-role="confirm-ok" ${requireText ? 'disabled' : ''}>${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+
+    const confirmBtn = backdrop.querySelector('[data-role="confirm-ok"]');
+    const cancelBtn = backdrop.querySelector('[data-role="confirm-cancel"]');
+    const input = backdrop.querySelector('#confirm-type-input');
+
+    function cleanup(result) {
+      document.removeEventListener('keydown', onKey);
+      backdrop.remove();
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+    }
+
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    confirmBtn.addEventListener('click', () => { if (!confirmBtn.disabled) cleanup(true); });
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(false); });
+    document.addEventListener('keydown', onKey);
+
+    if (input) {
+      input.addEventListener('input', () => {
+        const matched = input.value === requireText;
+        confirmBtn.disabled = !matched;
+        input.classList.toggle('matched', matched && input.value.length > 0);
+        input.classList.toggle('mismatch', !matched && input.value.length > 0);
+      });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !confirmBtn.disabled) cleanup(true);
+      });
+      setTimeout(() => input.focus(), 30);
+    } else {
+      confirmBtn.addEventListener('keydown', e => { if (e.key === 'Enter') cleanup(true); });
+      setTimeout(() => confirmBtn.focus(), 30);
+    }
+  });
+}
+
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => closeModal(btn.dataset.close));
 });
@@ -904,7 +967,14 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
 document.getElementById('btn-delete-site').addEventListener('click', async () => {
   const site = sites.find(s => s.id === activeSiteId);
   if (!site) return;
-  if (!confirm(`Delete "${site.name}"? This removes the container and all files. This cannot be undone.`)) return;
+  const ok = await confirmDialog({
+    title: `Delete "${site.name}"?`,
+    body: 'This permanently removes the site, its container, files and deploy history. This cannot be undone.',
+    confirmLabel: 'Delete forever',
+    danger: true,
+    requireText: site.name,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', `/sites/${activeSiteId}`);
     closeModal('modal-settings');
@@ -947,7 +1017,13 @@ document.getElementById('btn-refresh-logs').addEventListener('click', fetchModal
 async function siteAction(id, action) {
   const site = sites.find(s => s.id === id);
   if (action === 'stop' && site?.container?.running) {
-    if (!confirm(`Stop "${site.name}"? It will be unreachable until started again.`)) return;
+    const ok = await confirmDialog({
+      title: `Stop "${site.name}"?`,
+      body: 'The site goes offline until you start it again. Visitors will see the maintenance page.',
+      confirmLabel: 'Stop site',
+      warn: true,
+    });
+    if (!ok) return;
   }
 
   // Optimistic update — flip the status pill to "starting" while the
@@ -1212,7 +1288,13 @@ async function refreshHistory(siteId, siteName) {
       </div>`).join('');
     list.querySelectorAll('[data-rollback]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if (!confirm('Roll back to this deployment? Current files will be replaced.')) return;
+        const ok = await confirmDialog({
+          title: 'Roll back to this deployment?',
+          body: 'Current files will be replaced with this deployment’s files. This cannot be undone.',
+          confirmLabel: 'Roll back',
+          danger: true,
+        });
+        if (!ok) return;
         btn.disabled = true;
         btn.textContent = 'Rolling back…';
         try {
@@ -1516,7 +1598,13 @@ function renderTokens(tokens) {
     </table>`;
   list.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Revoke this token? Any scripts using it will stop working.')) return;
+      const ok = await confirmDialog({
+        title: 'Revoke this token?',
+        body: 'Any scripts using it will stop working immediately.',
+        confirmLabel: 'Revoke',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/settings/tokens/${btn.dataset.revoke}`);
       toast('Token revoked', 'success');
       loadTokens();
@@ -1687,17 +1775,27 @@ function renderNotifList(notifs) {
   list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
     try { data = JSON.parse(n.data || '{}'); } catch {}
+
+    let detailHtml = n.detail ? esc(n.detail) : '';
+    if (n.type === 'unknown_domain' && data.domain) {
+      detailHtml += `${detailHtml ? ' — ' : ''}<span class="notif-link" data-domain="${esc(data.domain)}">connect it</span>`;
+    }
+
+    const actionsHtml = (n.type === 'site_down' && data.siteId) ? `
+        <span class="notif-actions">
+          <button class="btn btn-xs btn-danger" data-open-logs="${esc(data.siteId)}">Open logs</button>
+          <button class="btn btn-xs btn-secondary" data-restart-site="${esc(data.siteId)}">Restart</button>
+        </span>` : '';
+
     return `
-      <div class="notif-item ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
+      <div class="notif-item notif-type-${esc(n.type)} ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
         <span class="notif-icon">${NOTIF_ICONS[n.type] || ICON.dot}</span>
         <div class="notif-body">
           <span class="notif-title">${esc(n.title)}</span>
-          ${n.detail ? `<span class="notif-detail">${esc(n.detail)}</span>` : ''}
-          <span class="notif-time">${timeAgo(n.created_at)}</span>
-          ${n.type === 'unknown_domain' && data.domain
-            ? `<button class="btn btn-sm notif-connect-btn" data-domain="${esc(data.domain)}">Connect to site →</button>`
-            : ''}
+          ${detailHtml ? `<span class="notif-detail">${detailHtml}</span>` : ''}
+          ${actionsHtml}
         </div>
+        <span class="notif-time">${timeAgo(n.created_at)}</span>
         <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">${ICON.x}</button>
       </div>`;
   }).join('');
@@ -1710,11 +1808,31 @@ function renderNotifList(notifs) {
     });
   });
 
-  list.querySelectorAll('.notif-connect-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+  list.querySelectorAll('.notif-link[data-domain]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
       notifDropdownOpen = false;
       notifDropdown.classList.add('hidden');
-      openConnectDomain(btn.dataset.domain);
+      openConnectDomain(el.dataset.domain);
+    });
+  });
+
+  list.querySelectorAll('[data-open-logs]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const site = sites.find(s => s.id === btn.dataset.openLogs);
+      notifDropdownOpen = false;
+      notifDropdown.classList.add('hidden');
+      if (site) openLogs(site);
+    });
+  });
+
+  list.querySelectorAll('[data-restart-site]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      notifDropdownOpen = false;
+      notifDropdown.classList.add('hidden');
+      await siteAction(btn.dataset.restartSite, 'start');
     });
   });
 
@@ -1833,7 +1951,13 @@ async function previewSwap(site) {
 }
 
 async function previewDiscard(site) {
-  if (!confirm(`Discard preview for "${site.name}"? The preview container and files will be removed.`)) return;
+  const ok = await confirmDialog({
+    title: `Discard preview for "${site.name}"?`,
+    body: 'The preview container and files will be removed. This cannot be undone.',
+    confirmLabel: 'Discard preview',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', `/sites/${site.id}/preview`);
     toast('Preview discarded', 'success');
@@ -1911,7 +2035,13 @@ function renderWebhookList(webhooks) {
 
   list.querySelectorAll('[data-delete-webhook]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Delete this webhook?')) return;
+      const ok = await confirmDialog({
+        title: 'Delete this webhook?',
+        body: 'It will stop receiving deploy and status events immediately.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/settings/webhooks/${btn.dataset.deleteWebhook}`)
         .catch(err => toast(err.message, 'error'));
       loadWebhooks();
@@ -2121,7 +2251,13 @@ function renderUserList(users) {
 
   list.querySelectorAll('[data-delete-user]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm(`Delete user "${btn.dataset.username}"?`)) return;
+      const ok = await confirmDialog({
+        title: `Delete user "${btn.dataset.username}"?`,
+        body: 'They will immediately lose access to this panel. This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/users/${btn.dataset.deleteUser}`).catch(err => toast(err.message, 'error'));
       loadUsers();
     });
@@ -2271,7 +2407,13 @@ async function loadNotifUnreadSummary() {
 }
 
 document.getElementById('btn-notif-clear-all').addEventListener('click', async () => {
-  if (!confirm('Delete all notifications? This cannot be undone.')) return;
+  const ok = await confirmDialog({
+    title: 'Delete all notifications?',
+    body: 'This clears the entire notification feed. This cannot be undone.',
+    confirmLabel: 'Clear all',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', '/notifications');
     loadNotifications();
@@ -2334,7 +2476,13 @@ function renderDeployments() {
 
   document.querySelectorAll('[data-rollback-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Roll back to this deployment? Current files will be replaced.')) return;
+      const ok = await confirmDialog({
+        title: 'Roll back to this deployment?',
+        body: 'Current files will be replaced with this deployment’s files. This cannot be undone.',
+        confirmLabel: 'Roll back',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         await api('POST', `/deploy/${btn.dataset.rollbackSite}/rollback/${btn.dataset.rollbackId}`);
         toast('Rolled back successfully', 'success');

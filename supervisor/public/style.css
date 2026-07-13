@@ -205,17 +205,14 @@ body { display: flex; }
 }
 .bell-badge.hidden { display: none; }
 
+/* Background/blur/border/shadow come from the .vibrancy class on the
+   element itself; this rule only carries layout/positioning. */
 .notif-dropdown {
   position: absolute;
   top: calc(100% + 8px);
   left: 8px;
   right: 8px;
-  background: var(--panel2);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border: 1px solid var(--line2);
   border-radius: var(--r-card);
-  box-shadow: var(--shdw);
   z-index: 200;
   overflow: hidden;
   max-height: 420px;
@@ -256,16 +253,22 @@ body { display: flex; }
   align-items: flex-start;
 }
 .notif-item:last-child { border-bottom: none; }
-.notif-item:hover { background: rgba(255,255,255,0.04); }
-.notif-item.unread { background: var(--accent-dim); }
-.notif-item.unread:hover { background: rgba(185,28,28,0.15); }
+.notif-item:hover { background: var(--line); }
+/* Read items recede; unread items get a neutral accent tint, except an
+   unread site-down alert which gets the err tint (matches canvas 6l). */
+.notif-item:not(.notif-unread) { opacity: 0.65; }
+.notif-item.notif-unread { background: var(--accSoft); opacity: 1; }
+.notif-item.notif-type-site_down.notif-unread { background: var(--errSoft); }
+.notif-item.notif-type-site_down.notif-unread .notif-title { color: var(--err); }
 .notif-icon { display: flex; align-items: center; flex-shrink: 0; margin-top: 2px; color: var(--text-muted); }
-.notif-body { flex: 1; min-width: 0; }
+.notif-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .notif-title { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.notif-detail { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.notif-time { font-size: 10px; color: var(--text-subtle); flex-shrink: 0; margin-top: 2px; }
-.notif-action { margin-top: 6px; }
-.notif-action .btn { font-size: 11px; padding: 3px 8px; }
+.notif-detail { font-size: 11px; color: var(--text-muted); }
+.notif-link { color: var(--acc); cursor: pointer; }
+.notif-link:hover { text-decoration: underline; }
+.notif-time { font-size: 10px; font-family: var(--mono); color: var(--text-subtle); flex-shrink: 0; margin-top: 2px; }
+.notif-actions { display: flex; gap: 6px; margin-top: 4px; }
+.notif-actions .btn { font-size: 10.5px; padding: 2.5px 9px; }
 .notif-dismiss {
   background: none;
   border: none;
@@ -788,6 +791,11 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 }
 .type-to-confirm input.mismatch { border-color: var(--err); }
 .type-to-confirm input.matched { border-color: var(--ok); }
+
+/* Warn-styled confirm button (e.g. "Stop site") — sits between
+   .btn-primary (accent) and .btn-danger (err) in severity. */
+.btn-warn { background: var(--warn); border-color: var(--warn); color: #fff; }
+.btn-warn:hover { opacity: 0.9; }
 
 /* ── Forms ───────────────────────────────────────────────── */
 form { display: flex; flex-direction: column; gap: 16px; }
