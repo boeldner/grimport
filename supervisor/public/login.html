@@ -7,58 +7,70 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' fill='%238f83c4' d='M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z'/%3E%3Cpath d='M24.5 34.5l6 2M38.5 34.5l-6 2' stroke='%23c9b7ff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
   <style>
-    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
 
     .login-wrap {
       width: 100%;
       max-width: 360px;
       display: flex;
       flex-direction: column;
-      gap: 28px;
-      padding: 20px;
+      gap: var(--sp-5);
+      padding: var(--sp-4);
     }
 
     .login-brand {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: var(--sp-2);
       text-align: center;
     }
+    .login-brand svg { color: var(--vio); }
     .login-brand-name {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
       letter-spacing: -0.025em;
-      color: var(--text);
+      color: var(--tx);
     }
     .login-brand-sub {
       font-size: 13px;
-      color: var(--text-muted);
+      color: var(--tx2);
     }
 
     .login-card {
-      background: var(--surface);
-      border: 1px solid var(--border-hi);
-      border-radius: var(--radius-xl);
-      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line2);
+      border-radius: var(--r-card);
+      padding: var(--sp-5);
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: var(--sp-4);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.05),
-        0 24px 48px rgba(0,0,0,0.5);
+        var(--shdw);
     }
 
-    .login-card form { gap: 14px; }
-    .login-card .btn { width: 100%; padding: 9px; font-size: 14px; }
+    .login-card form { display: flex; flex-direction: column; gap: var(--sp-4); }
+    .login-card .g-input { width: 100%; box-sizing: border-box; }
+    .login-card .btn-primary { width: 100%; padding: 9px; font-size: 14px; margin-top: var(--sp-1); }
 
     .login-error {
-      color: var(--red);
+      color: var(--err);
       font-size: 13px;
+      line-height: 1.4;
       padding: 8px 11px;
-      background: var(--red-dim);
-      border: 1px solid rgba(248,113,113,0.25);
-      border-radius: var(--radius);
+      background: var(--errSoft);
+      border: 1px solid rgba(208,52,44,0.3);
+      border-radius: var(--r-control);
       display: none;
     }
     .login-error.visible { display: block; }
@@ -66,7 +78,7 @@
     .login-footer {
       text-align: center;
       font-size: 11px;
-      color: var(--text-subtle);
+      color: var(--tx3);
     }
   </style>
 </head>
@@ -79,33 +91,35 @@
       </svg>
       <div>
         <div class="login-brand-name">Grimport</div>
-        <div class="login-brand-sub">Static site hosting panel</div>
+        <div class="login-brand-sub">Your sites, on your server.</div>
       </div>
     </div>
 
     <div class="login-card">
       <form id="login-form">
-        <label>Username
-          <input type="text" name="username" id="username-input"
+        <div class="field">
+          <label class="field-label" for="username-input">Username</label>
+          <input type="text" name="username" id="username-input" class="g-input"
             autocomplete="username" required autofocus
             placeholder="admin" />
-        </label>
-        <label>Password
-          <input type="password" name="password" id="password-input"
+        </div>
+        <div class="field">
+          <label class="field-label" for="password-input">Password</label>
+          <input type="password" name="password" id="password-input" class="g-input"
             autocomplete="current-password" required
             placeholder="Enter your password" />
-        </label>
+        </div>
         <p class="login-error" id="login-error"></p>
         <button type="submit" class="btn btn-primary" id="btn-login">Sign in</button>
       </form>
     </div>
 
-    <div class="login-footer" id="login-footer-version">Grimport</div>
+    <div class="login-footer" id="login-footer-version">Grimport · self-hosted</div>
   </div>
 
   <script>
     fetch('/api/config').then(r => r.json()).then(d => {
-      if (d.version) document.getElementById('login-footer-version').textContent = `Grimport v${d.version}`;
+      if (d.version) document.getElementById('login-footer-version').textContent = `Grimport v${d.version} · self-hosted`;
     }).catch(() => {});
 
     document.getElementById('login-form').addEventListener('submit', async e => {
