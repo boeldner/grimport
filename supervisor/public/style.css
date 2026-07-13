@@ -1660,6 +1660,59 @@ code {
 }
 .env-var-row input { margin: 0; }
 
+/* ── Panel-restart / reconnect banner (canvas 7c "panel-restart") ──
+   Slim, non-intrusive top bar — sits above everything including the
+   toast stack so it's never missed while the panel is unreachable. */
+.panel-restart-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--warnSoft);
+  color: var(--warn);
+  border-bottom: 1px solid var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+}
+.panel-restart-banner.hidden { display: none; }
+.panel-restart-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: g-spin 0.8s linear infinite;
+}
+@keyframes g-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .panel-restart-spinner { animation: none; }
+}
+
+/* ── View-error card (canvas 7c "view-error") ──────────────────────
+   Consistent inline error state for any view/table/list loader that
+   fails — replaces blank or partial UI with a message + retry action. */
+.view-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 20px;
+  background: var(--errSoft);
+  border: 1px solid var(--err);
+  border-radius: var(--r-card);
+  color: var(--tx2);
+}
+.view-error-icon { color: var(--err); }
+.view-error-title { color: var(--err); font-size: 14px; }
+.view-error-body { font-size: 12px; color: var(--tx2); margin: 0; }
+.view-error-retry { margin-top: 4px; }
+
 /* ── Update banner ───────────────────────────────────────── */
 .update-banner {
   margin: 8px 12px;

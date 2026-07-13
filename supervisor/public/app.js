@@ -76,7 +76,19 @@ let cachedUpdateData = null; // latest update check result
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetch('/api' + path, opts);
+  let res;
+  try {
+    res = await fetch('/api' + path, opts);
+  } catch (networkErr) {
+    // fetch() itself threw — actual connectivity failure (panel restarting,
+    // DNS hiccup, etc), as opposed to an HTTP error response below. Same
+    // error is rethrown unchanged so every existing caller's catch block
+    // behaves exactly as before; we just also feed the panel-restart
+    // detector (see "Panel-restart / reconnect banner" section).
+    _onApiNetworkFailure();
+    throw networkErr;
+  }
+  _onApiSuccess();
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -157,6 +169,128 @@ function toast(a, b) {
 if (typeof window !== 'undefined') {
   window.toast = toast;
   window.showToast = toast;
+}
+
+// ── System states: skeletons ───────────────────────────────
+// Matches the static skeleton markup already used for the Sites view /
+// Overview / Deployments / Domains loading placeholders (phase C1) so any
+// view can show/reset the same look before a fetch runs (including on a
+// retry after a view-error, which needs to rebuild the skeleton itself
+// since the error card overwrote the container's innerHTML).
+function skeletonBlock(rows = 3, rowHeight = 28) {
+  return Array.from({ length: rows }, (_, i) =>
+    `<div class="skeleton" style="height:${i === 0 ? rowHeight + 4 : rowHeight}px;margin-bottom:${i === rows - 1 ? 0 : 6}px;border-radius:var(--r-control)"></div>`
+  ).join('');
+}
+
+// Skeleton <tr> rows for table-based views (n rows × cols placeholder cells).
+function skeletonRows(n, cols) {
+  return Array.from({ length: n }, () =>
+    `<tr>${Array.from({ length: cols }, () => `<td><span class="skeleton" style="display:inline-block;width:80%;height:14px;border-radius:4px"></span></td>`).join('')}</tr>`
+  ).join('');
+}
+
+// ── System states: view-error ──────────────────────────────
+// Consistent inline "couldn't load this view" card with a retry button,
+// used in place of blank/broken UI in list-style view loaders. `message`
+// is the full sentence(s) to show — the first sentence (up to the first
+// ". ") is rendered as the bold heading (e.g. "Couldn't load activity."),
+// anything after that as supporting body text.
+function viewError(container, message, retryFn) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  if (!el) return;
+  const parts = String(message).split(/\.\s+/).filter(Boolean);
+  const heading = (parts.shift() || 'Something went wrong') + '.';
+  const body = parts.join('. ');
+  el.innerHTML = `
+    <div class="view-error">
+      <span class="view-error-icon">${ICON.warning}</span>
+      <strong class="view-error-title">${esc(heading)}</strong>
+      ${body ? `<p class="view-error-body">${esc(body)}</p>` : ''}
+      <button type="button" class="btn btn-secondary btn-sm view-error-retry">Try again</button>
+    </div>`;
+  const btn = el.querySelector('.view-error-retry');
+  if (btn && retryFn) btn.addEventListener('click', () => retryFn());
+}
+
+// Turns an error (thrown by api()) into the "The API returned 502." /
+// "Something went wrong." detail fragment used inside viewError() messages.
+function apiErrorDetail(err) {
+  const m = err && err.message ? String(err.message) : '';
+  const httpMatch = m.match(/^HTTP (\d+)/);
+  if (httpMatch) return `The API returned ${httpMatch[1]}.`;
+  if (m) return m.endsWith('.') ? m : `${m}.`;
+  return 'Something went wrong.';
+}
+
+function viewErrorMessage(viewLabel, err) {
+  return `Couldn't load ${viewLabel}. ${apiErrorDetail(err)} Your sites keep running — only this view is affected.`;
+}
+
+// ── System states: panel-restart banner ────────────────────
+// Distinguishes real connectivity loss (fetch() throwing — panel process
+// restarting, network blip) from ordinary HTTP error responses, which stay
+// on the per-view viewError() path above. Requires 2 consecutive network
+// failures (across any api() call) before showing the banner, to avoid
+// flashing it on a single blip. Reuses the same /api/health endpoint the
+// update flow (pollUpdateStatus, below) already polls to detect the panel
+// coming back — while an intentional update is running, _updateFlowActive
+// suppresses this banner so the two mechanisms never fight over the UI;
+// the update modal's own "Panel restarting…" step covers that case.
+const PANEL_RESTART_FAILURE_THRESHOLD = 2;
+const PANEL_RESTART_POLL_MS = 2500;
+let _networkFailStreak = 0;
+let _panelRestartBannerShown = false;
+let _panelRestartPollTimer = null;
+let _updateFlowActive = false;
+
+function _onApiNetworkFailure() {
+  _networkFailStreak++;
+  if (_networkFailStreak >= PANEL_RESTART_FAILURE_THRESHOLD && !_panelRestartBannerShown && !_updateFlowActive) {
+    showPanelRestartBanner();
+  }
+}
+function _onApiSuccess() {
+  _networkFailStreak = 0;
+}
+
+function showPanelRestartBanner() {
+  _panelRestartBannerShown = true;
+  document.getElementById('panel-restart-banner')?.classList.remove('hidden');
+  startPanelRestartPolling();
+}
+
+function hidePanelRestartBanner() {
+  _panelRestartBannerShown = false;
+  document.getElementById('panel-restart-banner')?.classList.add('hidden');
+  if (_panelRestartPollTimer) { clearInterval(_panelRestartPollTimer); _panelRestartPollTimer = null; }
+}
+
+function startPanelRestartPolling() {
+  if (_panelRestartPollTimer) return;
+  _panelRestartPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        hidePanelRestartBanner();
+        _networkFailStreak = 0;
+        refreshActiveView();
+      }
+    } catch { /* still down — keep polling */ }
+  }, PANEL_RESTART_POLL_MS);
+}
+
+// Re-runs whichever loader corresponds to the currently visible view, so
+// data is fresh once the panel comes back up after a restart.
+function refreshActiveView() {
+  const view = document.querySelector('.nav-item.active')?.dataset.view;
+  if (view === 'overview') loadOverview();
+  else if (view === 'activity') loadActivity();
+  else if (view === 'deployments') loadDeployments();
+  else if (view === 'domains') loadDomains();
+  else if (view === 'logs') loadLogsView();
+  else if (view === 'panel-settings') loadPanelSettings();
+  else loadSites();
 }
 
 // ── Copy to clipboard ───────────────────────────────────────
@@ -1071,16 +1205,18 @@ async function openAnalytics(site) {
 
 async function loadAnalytics() {
   if (!activeAnalyticsSiteId) return;
-  document.getElementById('analytics-loading').classList.remove('hidden');
-  document.getElementById('analytics-body').classList.add('hidden');
+  const loadingEl = document.getElementById('analytics-loading');
+  const bodyEl = document.getElementById('analytics-body');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
+  bodyEl.classList.add('hidden');
   try {
     const data = await api('GET', `/analytics/${activeAnalyticsSiteId}?period=${activeAnalyticsPeriod}`);
     renderAnalytics(data);
+    loadingEl.classList.add('hidden');
+    bodyEl.classList.remove('hidden');
   } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    document.getElementById('analytics-loading').classList.add('hidden');
-    document.getElementById('analytics-body').classList.remove('hidden');
+    viewError(loadingEl, viewErrorMessage('analytics', err), loadAnalytics);
   }
 }
 
@@ -1380,6 +1516,9 @@ async function loadActivity() {
   if (activitySiteFilter) url += `&site_id=${activitySiteFilter}`;
   if (activityLevelFilter) url += `&level=${activityLevelFilter}`;
 
+  const feedEl = document.getElementById('activity-feed');
+  if (feedEl) feedEl.innerHTML = skeletonBlock(4, 56);
+
   try {
     const events = await api('GET', url);
     const feed = document.getElementById('activity-feed');
@@ -1430,9 +1569,7 @@ async function loadActivity() {
         </div>`;
     }).join('');
   } catch (err) {
-    const feed = document.getElementById('activity-feed');
-    if (feed) feed.innerHTML = '<div class="activity-empty">Failed to load activity.</div>';
-    toast(err.message, 'error');
+    if (feedEl) viewError(feedEl, viewErrorMessage('activity', err), loadActivity);
   }
 }
 
@@ -1566,10 +1703,14 @@ async function loadServerInfo() {
 
 // ── API Tokens ────────────────────────────────────────────
 async function loadTokens() {
+  const list = document.getElementById('tokens-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
     const tokens = await api('GET', '/settings/tokens');
     renderTokens(tokens);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('API tokens', err), loadTokens);
+  }
 }
 
 function renderTokens(tokens) {
@@ -1803,7 +1944,7 @@ function renderNotifList(notifs) {
   list.querySelectorAll('[data-dismiss]').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
-      await api('DELETE', `/notifications/${btn.dataset.dismiss}`).catch(() => {});
+      await api('DELETE', `/notifications/${btn.dataset.dismiss}`).catch(err => toast(err.message, 'error'));
       loadNotifications();
     });
   });
@@ -1859,7 +2000,7 @@ function renderNotifList(notifs) {
 }
 
 document.getElementById('btn-notif-read-all').addEventListener('click', async () => {
-  await api('POST', '/notifications/read-all').catch(() => {});
+  await api('POST', '/notifications/read-all').catch(err => toast(err.message, 'error'));
   loadNotifications();
 });
 
@@ -1969,10 +2110,14 @@ async function previewDiscard(site) {
 
 // ── Webhooks settings ─────────────────────────────────────
 async function loadWebhooks() {
+  const list = document.getElementById('webhooks-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 5)}</tbody></table>`;
   try {
     const webhooks = await api('GET', '/settings/webhooks');
     renderWebhookList(webhooks);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('webhooks', err), loadWebhooks);
+  }
 }
 
 function renderWebhookList(webhooks) {
@@ -2202,10 +2347,14 @@ function populateAppConfigTab(site) {
 
 // ── Users management ──────────────────────────────────────
 async function loadUsers() {
+  const list = document.getElementById('users-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
     const users = await api('GET', '/users');
     renderUserList(users);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('users', err), loadUsers);
+  }
 }
 
 function renderUserList(users) {
@@ -2426,7 +2575,9 @@ document.getElementById('btn-notif-clear-all').addEventListener('click', async (
 let allDeployments = [];
 
 async function loadDeployments() {
-  document.getElementById('deployments-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('deployments-loading');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
   document.getElementById('deployments-table-wrap').classList.add('hidden');
   try {
     allDeployments = await api('GET', '/deploy');
@@ -2442,8 +2593,8 @@ async function loadDeployments() {
     const subtitle = document.getElementById('deployments-subtitle');
     if (subtitle) subtitle.textContent = `${allDeployments.length} deploy${allDeployments.length !== 1 ? 's' : ''} total`;
     renderDeployments();
-  } catch {
-    document.getElementById('deployments-loading').textContent = 'Failed to load deployments.';
+  } catch (err) {
+    viewError(loadingEl, viewErrorMessage('deployments', err), loadDeployments);
   }
 }
 
@@ -2561,7 +2712,9 @@ document.getElementById('logs-auto-refresh').addEventListener('click', e => {
 
 // ── Domains view ──────────────────────────────────────────
 async function loadDomains() {
-  document.getElementById('domains-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('domains-loading');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
   document.getElementById('domains-table-wrap').classList.add('hidden');
   try {
     const data = await api('GET', '/sites');
@@ -2590,8 +2743,8 @@ async function loadDomains() {
 
     document.getElementById('domains-loading').classList.add('hidden');
     document.getElementById('domains-table-wrap').classList.remove('hidden');
-  } catch {
-    document.getElementById('domains-loading').textContent = 'Failed to load domains.';
+  } catch (err) {
+    viewError(loadingEl, viewErrorMessage('domains', err), loadDomains);
   }
 }
 
@@ -2604,7 +2757,9 @@ let overviewRefreshedAt = null;
 let overviewRefreshedTimer = null;
 
 async function loadOverview() {
-  document.getElementById('overview-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('overview-loading');
+  loadingEl.innerHTML = skeletonBlock(4);
+  loadingEl.classList.remove('hidden');
   document.getElementById('overview-table-wrap').classList.add('hidden');
   try {
     overviewData = await api('GET', `/analytics/overview?period=${overviewPeriod}`);
@@ -2612,7 +2767,7 @@ async function loadOverview() {
     renderOverview();
     tickOverviewRefreshed();
   } catch (err) {
-    document.getElementById('overview-loading').textContent = 'Failed to load overview.';
+    viewError(loadingEl, viewErrorMessage('overview', err), loadOverview);
   }
 }
 
@@ -2812,6 +2967,11 @@ document.getElementById('btn-update-now').addEventListener('click', () => {
 });
 
 async function startUpdateFlow() {
+  // Mark the update flow active so the global panel-restart banner (which
+  // reacts to any repeated network failure) steps aside — the update
+  // modal's own "Panel restarting…" step already covers this case, and
+  // showing both would be a confusing double-message.
+  _updateFlowActive = true;
   // Show release notes + target version in modal if available
   try {
     const data = await api('GET', '/update/check');
@@ -2857,6 +3017,8 @@ async function pollUpdateStatus() {
 
   const finish = (health) => {
     clearInterval(pollInterval);
+    _updateFlowActive = false;
+    _networkFailStreak = 0;
     setUpdateStep('done');
     const doneIcon = document.getElementById('ustep-done-icon');
     if (doneIcon) doneIcon.innerHTML = ICON.check;
@@ -2913,6 +3075,7 @@ async function pollUpdateStatus() {
 
       if (status.status === 'error') {
         clearInterval(pollInterval);
+        _updateFlowActive = false;
         document.getElementById('update-status-msg').textContent = `Error: ${status.message}`;
         setUpdateStep('pulling');
         return;

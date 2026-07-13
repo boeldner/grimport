@@ -8,6 +8,13 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <!-- Global panel-restart / reconnect banner (canvas 7c "panel-restart") —
+       shown by app.js after 2+ consecutive network failures, hidden again
+       once /api/health responds. Hidden by default. -->
+  <div id="panel-restart-banner" class="panel-restart-banner hidden" role="status" aria-live="polite">
+    <span class="panel-restart-spinner" aria-hidden="true"></span>
+    <span>Panel is restarting — reconnecting automatically…</span>
+  </div>
   <aside class="sidebar vibrancy">
     <div class="logo">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="22" height="22" fill="none" aria-hidden="true">
