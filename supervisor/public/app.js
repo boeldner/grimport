@@ -2187,20 +2187,27 @@ async function loadDomains() {
   document.getElementById('domains-table-wrap').classList.add('hidden');
   try {
     const data = await api('GET', '/sites');
-    const statusDot = s =>
-      s?.running ? '<span class="ov-dot ov-dot-up" title="Running"></span>' :
-      s?.status === 'none' ? '<span class="ov-dot ov-dot-unknown" title="No container"></span>' :
-      '<span class="ov-dot ov-dot-down" title="Stopped"></span>';
+    const wildcard = config.siteBaseDomain ? ` · wildcard *.${esc(config.siteBaseDomain)} active` : '';
+    document.getElementById('domains-count').textContent =
+      `${data.length} domain${data.length !== 1 ? 's' : ''}${wildcard}`;
+
+    const containerStatus = s => {
+      if (s?.running) return '<span class="status status-running"><span class="status-glyph">●</span>Running</span>';
+      if (!s || s.status === 'none') return '<span class="status status-no-container"><span class="status-glyph">●</span>No container</span>';
+      if (s.status === 'restarting') return '<span class="status status-restarting"><span class="status-glyph">●</span>Restarting</span>';
+      if (s.status === 'paused') return '<span class="status status-paused"><span class="status-glyph">●</span>Paused</span>';
+      return '<span class="status status-stopped"><span class="status-glyph">●</span>Exited</span>';
+    };
 
     document.getElementById('domains-tbody').innerHTML = data.length === 0
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No sites yet</td></tr>`
+      ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No sites yet</td></tr>`
       : data.map(s => `
       <tr>
-        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none">${esc(s.domain)}</a></td>
-        <td style="color:var(--text-muted)">${esc(s.name)}</td>
-        <td><span class="runtime-badge">${esc(s.runtime || 'static')}</span></td>
-        <td>${s.ssl_enabled ? '<span class="ov-good">✓ SSL</span>' : '<span style="color:var(--text-subtle)">—</span>'}</td>
-        <td>${statusDot(s.container)}</td>
+        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx);text-decoration:none">${esc(s.domain)} ↗</a></td>
+        <td style="color:var(--tx2)">${esc(s.name)}</td>
+        <td><span class="badge badge-runtime">${esc((s.runtime || 'static').toUpperCase())}</span></td>
+        <td>${s.ssl_enabled ? '<span class="status status-ssl-active"><span class="status-glyph">●</span>On</span>' : '<span class="status status-muted"><span class="status-glyph">●</span>Off</span>'}</td>
+        <td>${containerStatus(s.container)}</td>
       </tr>`).join('');
 
     document.getElementById('domains-loading').classList.add('hidden');
@@ -2214,63 +2221,96 @@ async function loadDomains() {
 let overviewPeriod = '24h';
 let overviewData = null;
 let overviewSort = 'requests';
+let overviewSortDir = 'desc';
+let overviewRefreshedAt = null;
+let overviewRefreshedTimer = null;
 
 async function loadOverview() {
   document.getElementById('overview-loading').classList.remove('hidden');
   document.getElementById('overview-table-wrap').classList.add('hidden');
   try {
     overviewData = await api('GET', `/analytics/overview?period=${overviewPeriod}`);
+    overviewRefreshedAt = Date.now();
     renderOverview();
+    tickOverviewRefreshed();
   } catch (err) {
     document.getElementById('overview-loading').textContent = 'Failed to load overview.';
   }
 }
 
+function tickOverviewRefreshed() {
+  clearInterval(overviewRefreshedTimer);
+  const el = document.getElementById('overview-refreshed');
+  const update = () => {
+    if (!el || !overviewRefreshedAt) return;
+    const secs = Math.max(0, Math.round((Date.now() - overviewRefreshedAt) / 1000));
+    el.textContent = secs < 1 ? 'refreshed just now' : `refreshed ${secs}s ago`;
+  };
+  update();
+  overviewRefreshedTimer = setInterval(update, 1000);
+}
+
+const PERIOD_DAYS = { '24h': 1, '7d': 7, '30d': 30 };
+
 function renderOverview() {
   if (!overviewData) return;
   const { sites, grand } = overviewData;
+  const total = sites.length;
 
   // Grand totals
   document.getElementById('ov-requests').textContent = fmtNum(grand.requests);
+  document.getElementById('ov-requests-sub').textContent = `over last ${overviewPeriod}`;
+
   document.getElementById('ov-bytes').textContent = fmtBytes(grand.bytes);
-  document.getElementById('ov-errors').textContent = fmtNum(grand.client_err + grand.server_err);
-  document.getElementById('ov-sites-up').textContent = grand.sitesUp;
+  const perDay = grand.bytes / (PERIOD_DAYS[overviewPeriod] || 1);
+  document.getElementById('ov-bytes-sub').textContent = `${fmtBytes(perDay)}/day avg`;
+
+  document.getElementById('ov-errors').textContent = fmtNum(grand.server_err);
+  const errPct = grand.requests > 0 ? ((grand.server_err / grand.requests) * 100).toFixed(2) : '0.00';
+  document.getElementById('ov-errors-sub').textContent = `${errPct}% of requests`;
+
+  document.getElementById('ov-sites-up').textContent = `${grand.sitesUp} / ${total}`;
+
   document.getElementById('ov-sites-down').textContent = grand.sitesDown;
+  const downNames = sites.filter(s => s.currentStatus === 'down').map(s => s.name);
+  document.getElementById('ov-sites-down-sub').textContent = downNames.length ? downNames.join(', ') : 'none';
 
   // Sort
+  const dir = overviewSortDir === 'asc' ? 1 : -1;
   const sorted = [...sites].sort((a, b) => {
-    if (overviewSort === 'requests') return b.requests - a.requests;
-    if (overviewSort === 'bytes')    return b.bytes - a.bytes;
-    if (overviewSort === 'errors')   return (b.client_err + b.server_err) - (a.client_err + a.server_err);
-    if (overviewSort === 'uptime')   return (parseFloat(b.uptime) || 0) - (parseFloat(a.uptime) || 0);
-    if (overviewSort === 'latency')  return (a.avgLatency ?? 99999) - (b.avgLatency ?? 99999);
-    if (overviewSort === 'name')     return a.name.localeCompare(b.name);
+    if (overviewSort === 'requests') return dir * (a.requests - b.requests);
+    if (overviewSort === 'bytes')    return dir * (a.bytes - b.bytes);
+    if (overviewSort === 'uptime')   return dir * ((parseFloat(a.uptime) || 0) - (parseFloat(b.uptime) || 0));
+    if (overviewSort === 'latency')  return dir * ((a.avgLatency ?? 99999) - (b.avgLatency ?? 99999));
+    if (overviewSort === 'name')     return dir * a.name.localeCompare(b.name);
     return 0;
   });
 
-  const statusDot = s =>
-    s === 'up'   ? '<span class="ov-dot ov-dot-up" title="Up"></span>' :
-    s === 'down' ? '<span class="ov-dot ov-dot-down" title="Down"></span>' :
-                   '<span class="ov-dot ov-dot-unknown" title="Unknown"></span>';
+  const statusBadge = s =>
+    s === 'up'   ? '<span class="status status-ok"><span class="status-glyph">●</span>Up</span>' :
+    s === 'down' ? '<span class="status status-err"><span class="status-glyph">●</span>Down</span>' :
+                   '<span class="status status-muted"><span class="status-glyph">●</span>Unknown</span>';
 
-  const uptimeClass = u =>
-    u === null ? '' : parseFloat(u) >= 99 ? 'ov-good' : parseFloat(u) >= 95 ? 'ov-warn' : 'ov-bad';
+  const pctClass = u =>
+    u === null ? '' : parseFloat(u) >= 99 ? 'pct-ok' : parseFloat(u) >= 95 ? 'pct-warn' : 'pct-err';
 
   document.getElementById('overview-tbody').innerHTML = sorted.map(s => `
-    <tr class="ov-row" data-id="${esc(s.id)}">
-      <td class="ov-site-cell">
-        <span class="ov-site-name">${esc(s.name)}</span>
-        <span class="ov-site-domain">${esc(s.domain)}</span>
+    <tr class="ov-row is-clickable" data-id="${esc(s.id)}">
+      <td>
+        <div class="ov-site-cell">
+          <span class="ov-site-name">${esc(s.name)}</span>
+          <span class="ov-site-domain">${esc(s.domain)}</span>
+        </div>
       </td>
       <td class="num">${fmtNum(s.requests)}</td>
       <td class="num">${fmtBytes(s.bytes)}</td>
-      <td class="num ov-good">${fmtNum(s.ok)}</td>
+      <td class="num">${fmtNum(s.ok)}</td>
       <td class="num">${fmtNum(s.redirects)}</td>
-      <td class="num ${s.client_err > 0 ? 'ov-warn' : ''}">${fmtNum(s.client_err)}</td>
-      <td class="num ${s.server_err > 0 ? 'ov-bad' : ''}">${fmtNum(s.server_err)}</td>
-      <td class="num ${uptimeClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
+      <td class="num cell-emph ${s.client_err > 0 ? 'warn' : ''}">${fmtNum(s.client_err)}</td>
+      <td class="num cell-emph ${s.server_err > 0 ? 'err' : ''}">${fmtNum(s.server_err)}</td>
+      <td class="num ${pctClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
       <td class="num">${s.avgLatency !== null ? s.avgLatency + ' ms' : '—'}</td>
-      <td class="num">${statusDot(s.currentStatus)}</td>
+      <td>${statusBadge(s.currentStatus)}</td>
     </tr>
   `).join('');
 
@@ -2286,20 +2326,26 @@ function renderOverview() {
   });
 }
 
-document.querySelectorAll('#overview-period-btns .period-btn').forEach(btn => {
+document.querySelectorAll('#overview-period-btns button').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('#overview-period-btns .period-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    document.querySelectorAll('#overview-period-btns button').forEach(b => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
     overviewPeriod = btn.dataset.period;
     loadOverview();
   });
 });
 
-document.querySelectorAll('.sort-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    overviewSort = btn.dataset.sort;
+document.querySelectorAll('#overview-table th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (overviewSort === key) {
+      overviewSortDir = overviewSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      overviewSort = key;
+      overviewSortDir = key === 'name' ? 'asc' : 'desc';
+    }
+    document.querySelectorAll('#overview-table th.sortable').forEach(h => h.removeAttribute('data-dir'));
+    th.setAttribute('data-dir', overviewSortDir);
     renderOverview();
   });
 });

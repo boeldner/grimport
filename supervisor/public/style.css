@@ -1845,84 +1845,59 @@ code {
   transition: width 1s linear;
 }
 
-/* ── Overview ────────────────────────────────────────────── */
-.overview-grand {
+/* ── Overview (task C2 — canvas 3a) ─────────────────────────
+   Grand-total stat tiles + .data-table for the sortable site
+   table; column-header sort per data-table's th.sortable rules. */
+.stat-tiles {
   display: flex;
-  gap: 12px;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
-.overview-stat {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px 20px;
+.stat-tile {
+  background: var(--panel);
+  padding: 14px 18px;
   flex: 1;
-  min-width: 120px;
+  min-width: 140px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
-.overview-stat-val {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1;
-}
-.overview-stat-lbl {
+.stat-tile-label {
   font-size: 11px;
-  color: var(--text-subtle);
+  color: var(--tx3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.overview-sortbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+.stat-tile-val {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--tx);
+  line-height: 1.2;
 }
-.overview-sortbar-label {
-  font-size: 11px;
-  color: var(--text-subtle);
-  margin-right: 4px;
-}
-.sort-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-.sort-btn:hover { background: var(--surface-hover); color: var(--text); }
-.sort-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.period-btns { display: flex; gap: 4px; }
-.period-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-.period-btn:hover { background: var(--surface-hover); color: var(--text); }
-.period-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stat-tile-sub { font-size: 11px; color: var(--tx2); }
+
 .overview-loading {
-  color: var(--text-subtle);
+  color: var(--tx3);
   font-size: 13px;
-  padding: 32px 0;
-  text-align: center;
+  padding: 8px 0;
 }
-.overview-table-wrap, #overview-table-wrap {
+#overview-table-wrap, #domains-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
 }
+.ov-site-cell { display: flex; flex-direction: column; gap: 2px; }
+.ov-site-name { font-weight: 600; color: var(--tx); }
+.ov-site-domain { font-size: 11px; color: var(--tx3); font-family: var(--mono); }
+
+/* .overview-table — legacy table skin still used by Deployments (out of
+   scope for C2); kept so that view doesn't regress. */
 .overview-table {
   width: 100%;
   border-collapse: collapse;
@@ -1950,21 +1925,6 @@ code {
 .overview-table tbody tr.ov-row:hover { background: var(--surface-hover); }
 .overview-table td { padding: 10px 14px; color: var(--text-muted); white-space: nowrap; }
 .overview-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.ov-site-cell { display: flex; flex-direction: column; gap: 2px; }
-.ov-site-name { font-weight: 600; color: var(--text); }
-.ov-site-domain { font-size: 11px; color: var(--text-subtle); }
-.ov-good { color: #4ade80; }
-.ov-warn { color: #fbbf24; }
-.ov-bad  { color: var(--red); }
-.ov-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  vertical-align: middle;
-}
-.ov-dot-up      { background: #4ade80; box-shadow: 0 0 6px #4ade8066; }
-.ov-dot-down    { background: var(--red); box-shadow: 0 0 6px #b91c1c66; }
-.ov-dot-unknown { background: var(--text-subtle); }
 
 /* ── Logs view ───────────────────────────────────────────── */
 .logs-output {
