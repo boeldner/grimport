@@ -1213,6 +1213,22 @@ systemctl start cloudflared</pre>
     </div>
   </div>
 
+  <!-- ── Command Palette (⌘K) ──────────────────────── -->
+  <div id="cmdk-backdrop" class="modal-backdrop cmdk-backdrop hidden">
+    <div class="cmdk vibrancy" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="cmdk-input-row">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="cmdk-search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="cmdk-input" class="cmdk-input" placeholder="Type a command or search sites…" autocomplete="off" spellcheck="false" />
+        <kbd class="cmdk-esc-kbd">esc</kbd>
+      </div>
+      <div id="cmdk-results" class="cmdk-results"></div>
+      <div class="cmdk-footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> open</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast ──────────────────────────────────────── -->
   <div id="toast-container"></div>
 

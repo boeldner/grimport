@@ -2937,3 +2937,158 @@ async function pollUpdateStatus() {
   setUpdateStep('pulling');
   pollInterval = setInterval(check, 1500);
 }
+
+// ── Command Palette (⌘K) ──────────────────────────────────
+// Thin launcher over existing nav/modal functions (canvas 6j). Does not
+// duplicate any logic — every result just calls a function/handler that
+// already exists elsewhere in this file.
+(function () {
+  const backdrop = document.getElementById('cmdk-backdrop');
+  const input = document.getElementById('cmdk-input');
+  const resultsEl = document.getElementById('cmdk-results');
+  if (!backdrop || !input || !resultsEl) return;
+
+  let flatItems = []; // currently rendered, keyboard-navigable items
+  let activeIndex = 0;
+
+  function gotoView(view) {
+    const nav = document.querySelector(`.nav-item[data-view="${view}"]`);
+    if (nav) nav.click();
+  }
+
+  function actionDefs() {
+    const isAdmin = currentUser.role === 'admin';
+    const isViewer = currentUser.role === 'viewer';
+    const defs = [
+      { label: 'Overview', desc: 'Jump to Overview', run: () => gotoView('overview') },
+      { label: 'Activity', desc: 'Jump to Activity', run: () => gotoView('activity') },
+    ];
+    if (!isViewer) {
+      defs.push({ label: 'Deployments — open history', desc: 'Jump to Deployments', run: () => gotoView('deployments') });
+      defs.push({ label: 'Logs', desc: 'Jump to Logs', run: () => gotoView('logs') });
+    }
+    if (isAdmin) {
+      defs.push({ label: 'Domains', desc: 'Jump to Domains', run: () => gotoView('domains') });
+      defs.push({ label: 'Settings', desc: 'Panel settings', run: () => gotoView('panel-settings') });
+      defs.push({ label: 'New site', desc: 'Create a new site', run: () => { gotoView('sites'); document.getElementById('btn-new-site')?.click(); } });
+    }
+    defs.push({ label: 'Deploy to a site…', desc: 'Type a site name below, then ↵', run: () => { gotoView('sites'); input.value = ''; renderResults(); input.focus(); } });
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    defs.push({ label: isLight ? 'Switch to dark theme' : 'Switch to light theme', desc: 'Toggle appearance', run: () => document.getElementById('btn-theme')?.click() });
+    return defs;
+  }
+
+  function siteMatches(site, q) {
+    if (!q) return true;
+    return site.name.toLowerCase().includes(q) || (site.domain || '').toLowerCase().includes(q);
+  }
+
+  function renderResults() {
+    const q = input.value.trim().toLowerCase();
+
+    const actions = actionDefs().filter(a => !q || a.label.toLowerCase().includes(q));
+    const siteList = sites.filter(s => siteMatches(s, q));
+
+    flatItems = [];
+    let html = '';
+
+    if (actions.length) {
+      html += '<div class="cmdk-group"><div class="cmdk-group-label">Actions</div>';
+      actions.forEach(a => {
+        const idx = flatItems.length;
+        flatItems.push({ type: 'action', run: a.run });
+        html += `<div class="cmdk-item" data-idx="${idx}"><span class="cmdk-item-main">${esc(a.label)}</span><span class="cmdk-item-sub">${esc(a.desc)}</span></div>`;
+      });
+      html += '</div>';
+    }
+
+    if (siteList.length) {
+      html += '<div class="cmdk-group"><div class="cmdk-group-label">Sites</div>';
+      siteList.forEach(s => {
+        const idx = flatItems.length;
+        const { cls, label } = statusInfo(s.container);
+        flatItems.push({ type: 'site', run: () => { gotoView('sites'); openDeploy(s); } });
+        html += `<div class="cmdk-item" data-idx="${idx}">
+          <span class="cmdk-item-main">${esc(s.name)} <span class="cmdk-item-sub-inline">— deploy, logs, settings</span></span>
+          <span class="status status-${cls} cmdk-item-status"><span class="status-glyph">●</span><span class="status-label">${esc(label)}</span></span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    if (!flatItems.length) {
+      html = `<div class="cmdk-empty">No matches for "${esc(input.value)}"</div>`;
+    }
+
+    resultsEl.innerHTML = html;
+    activeIndex = 0;
+    highlightActive();
+
+    resultsEl.querySelectorAll('.cmdk-item').forEach(el => {
+      el.addEventListener('mouseenter', () => { activeIndex = Number(el.dataset.idx); highlightActive(); });
+      el.addEventListener('click', () => runActive());
+    });
+  }
+
+  function highlightActive() {
+    resultsEl.querySelectorAll('.cmdk-item').forEach(el => {
+      el.classList.toggle('is-active', Number(el.dataset.idx) === activeIndex);
+    });
+    const active = resultsEl.querySelector('.cmdk-item.is-active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function moveActive(delta) {
+    if (!flatItems.length) return;
+    activeIndex = (activeIndex + delta + flatItems.length) % flatItems.length;
+    highlightActive();
+  }
+
+  function runActive() {
+    const item = flatItems[activeIndex];
+    if (!item) return;
+    closePalette();
+    item.run();
+  }
+
+  function openPalette() {
+    // Close any other open modal/overflow menu first — palette is exclusive.
+    document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => { if (m !== backdrop) m.classList.add('hidden'); });
+    document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    input.value = '';
+    backdrop.classList.remove('hidden');
+    renderResults();
+    setTimeout(() => input.focus(), 20);
+  }
+
+  function closePalette() {
+    backdrop.classList.add('hidden');
+  }
+
+  function isPaletteOpen() {
+    return !backdrop.classList.contains('hidden');
+  }
+
+  document.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && key === 'k') {
+      e.preventDefault();
+      isPaletteOpen() ? closePalette() : openPalette();
+    }
+  });
+
+  document.querySelector('.search-kbd')?.addEventListener('click', e => {
+    e.preventDefault();
+    openPalette();
+  });
+
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closePalette(); });
+
+  input.addEventListener('input', renderResults);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1); return; }
+    if (e.key === 'Enter') { e.preventDefault(); runActive(); return; }
+  });
+})();
