@@ -1660,23 +1660,14 @@ code {
   flex: 1;
   min-width: 120px;
 }
-.users-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-.users-table th, .users-table td {
-  padding: 8px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
+.table-user { display: flex; align-items: center; gap: 8px; }
+.table-avatar {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accSoft); color: var(--acc);
+  font-size: 9px; font-weight: 700; letter-spacing: 0;
+  display: flex; align-items: center; justify-content: center;
 }
-.users-table th { color: var(--text-muted); font-weight: 500; }
-.user-sites-chips { display: flex; gap: 4px; flex-wrap: wrap; }
-.user-site-chip {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-}
+.chip-wrap { display: flex; gap: 4px; flex-wrap: wrap; }
 
 /* ── Env var editor ──────────────────────────────────────── */
 .env-var-row {

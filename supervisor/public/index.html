@@ -553,51 +553,61 @@ systemctl start cloudflared</pre>
 
         <!-- Notifications -->
         <div id="spanel-notifications" class="tab-panel hidden">
-          <section class="settings-section">
-            <h3>Bell notifications</h3>
-            <p class="settings-desc">Choose which events appear in the notification bell.</p>
-            <form id="form-notif-settings">
-              <label class="checkbox-label">
-                <input type="checkbox" name="notif_unknown_domain" value="1" />
-                Unknown domain detected (visitor hits an unmapped domain)
-              </label>
-              <label class="checkbox-label">
-                <input type="checkbox" name="notif_site_down" value="1" />
-                Site goes down
-              </label>
-              <label class="checkbox-label">
-                <input type="checkbox" name="notif_site_up" value="1" />
-                Site recovers (comes back up)
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save</button>
-              </div>
-            </form>
-          </section>
-          <section class="settings-section">
-            <h3>Clear notifications</h3>
-            <p class="settings-desc">Permanently delete all notifications from the bell feed.</p>
-            <button class="btn btn-danger" id="btn-notif-clear-all">Clear all notifications</button>
-          </section>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Bell notifications</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Choose which events appear in the notification bell.</p>
+              <form id="form-notif-settings" class="settings-form">
+                <label class="g-checkbox">
+                  <input type="checkbox" name="notif_unknown_domain" value="1" />
+                  <span class="g-checkbox-box"></span>
+                  Unknown domain hits the server
+                </label>
+                <label class="g-checkbox">
+                  <input type="checkbox" name="notif_site_down" value="1" />
+                  <span class="g-checkbox-box"></span>
+                  A site goes down
+                </label>
+                <label class="g-checkbox">
+                  <input type="checkbox" name="notif_site_up" value="1" />
+                  <span class="g-checkbox-box"></span>
+                  A site recovers
+                </label>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Notification feed</span></div>
+            <div class="card-body">
+              <p class="settings-desc" id="notif-unread-summary">— unread notifications</p>
+              <button class="btn btn-danger" id="btn-notif-clear-all">Clear all notifications…</button>
+            </div>
+          </div>
         </div>
 
         <!-- Users -->
         <div id="spanel-users" class="tab-panel hidden admin-only">
-          <section class="settings-section">
-            <h3>User accounts</h3>
-            <p class="settings-desc">Manage who can access this Grimport instance. <strong>Admins</strong> have full access. <strong>Editors</strong> can deploy and manage their assigned sites. <strong>Viewers</strong> have read-only access to their assigned sites.</p>
-            <div id="users-list"></div>
-            <form id="form-create-user" class="user-create-form">
-              <input type="text" name="username" placeholder="Username" autocomplete="off" required />
-              <input type="password" name="password" placeholder="Password (min 8 chars)" autocomplete="new-password" required />
-              <select name="role">
-                <option value="editor">Editor</option>
-                <option value="viewer">Viewer</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button type="submit" class="btn btn-primary">Add user</button>
-            </form>
-          </section>
+          <div class="card">
+            <div class="card-header"><span class="card-title">User accounts</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Admin manages everything · Editor deploys &amp; manages assigned sites · Viewer monitors assigned sites, read-only.</p>
+              <div id="users-list"></div>
+              <form id="form-create-user" class="user-create-form">
+                <input class="g-input" type="text" name="username" placeholder="Username" autocomplete="off" required />
+                <input class="g-input" type="password" name="password" placeholder="Password (min 8 chars)" autocomplete="new-password" required />
+                <select class="g-select" name="role">
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button type="submit" class="btn btn-primary">Create user</button>
+              </form>
+            </div>
+          </div>
         </div>
 
         <!-- Security -->

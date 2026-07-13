@@ -1334,7 +1334,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
     if (tab.dataset.stab === 'server')        loadServerInfo();
     if (tab.dataset.stab === 'tokens')        loadTokens();
     if (tab.dataset.stab === 'webhooks')      loadWebhooks();
-    if (tab.dataset.stab === 'notifications') loadNotifSettings();
+    if (tab.dataset.stab === 'notifications') { loadNotifSettings(); loadNotifUnreadSummary(); }
   });
 });
 
@@ -1996,25 +1996,41 @@ async function loadUsers() {
 function renderUserList(users) {
   const list = document.getElementById('users-list');
   if (!users.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No users yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.user}</div>
+        <h3>No users yet.</h3>
+        <p>Create one below to grant access.</p>
+      </div>`;
     return;
   }
   list.innerHTML = `
-    <table class="users-table">
-      <thead><tr><th>Username</th><th>Role</th><th>Sites</th><th></th></tr></thead>
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Role</th><th>Site access</th><th></th></tr></thead>
       <tbody>
-        ${users.map(u => `
+        ${users.map(u => {
+          const isSelf = u.id === currentUser.id;
+          const initials = (u.username || '?').slice(0, 2).toUpperCase();
+          return `
           <tr>
-            <td>${esc(u.username)}${u.id === currentUser.id ? ' <span style="color:var(--text-muted)">(you)</span>' : ''}</td>
-            <td><span class="role-badge" data-role="${u.role}">${u.role}</span></td>
+            <td>
+              <div class="table-user">
+                <span class="table-avatar">${esc(initials)}</span>
+                <span>${esc(u.username)}</span>
+                ${isSelf ? '<span class="badge badge-neutral">YOU</span>' : ''}
+              </div>
+            </td>
+            <td><span class="badge badge-role-${esc(u.role)}">${esc(u.role)}</span></td>
             <td>${renderUserSites(u)}</td>
             <td>
-              ${u.id !== currentUser.id ? `
-                <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
-                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}" title="Delete user">${ICON.trash}</button>
-              ` : ''}
+              ${!isSelf ? `
+                <div style="display:flex;gap:6px;justify-content:flex-end">
+                  <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">Delete…</button>
+                </div>` : ''}
             </td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 
@@ -2032,13 +2048,13 @@ function renderUserList(users) {
 }
 
 function renderUserSites(u) {
-  if (u.role === 'admin' || u.sites === 'all') return '<span style="color:var(--text-muted)">All</span>';
-  if (!u.sites?.length) return '<span style="color:var(--text-subtle)">None</span>';
-  const siteNames = u.sites.map(sid => {
+  if (u.role === 'admin' || u.sites === 'all') return '<span class="badge badge-accent">All sites</span>';
+  if (!u.sites?.length) return '<span style="color:var(--tx3)">None</span>';
+  const chips = u.sites.map(sid => {
     const s = sites.find(x => x.id === sid);
-    return s ? `<span class="user-site-chip">${esc(s.name)}</span>` : '';
+    return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
   }).filter(Boolean).join('');
-  return `<div class="user-sites-chips">${siteNames}</div>`;
+  return `<div class="chip-wrap">${chips}</div>`;
 }
 
 async function openEditUser(userId, username, role) {
@@ -2149,11 +2165,23 @@ document.getElementById('form-notif-settings').addEventListener('submit', async 
   } catch (err) { toast(err.message, 'error'); }
 });
 
+async function loadNotifUnreadSummary() {
+  const el = document.getElementById('notif-unread-summary');
+  if (!el) return;
+  try {
+    const { unread } = await api('GET', '/notifications');
+    el.textContent = `${unread} unread notification${unread === 1 ? '' : 's'}`;
+  } catch {
+    el.textContent = '— unread notifications';
+  }
+}
+
 document.getElementById('btn-notif-clear-all').addEventListener('click', async () => {
   if (!confirm('Delete all notifications? This cannot be undone.')) return;
   try {
     await api('DELETE', '/notifications');
     loadNotifications();
+    loadNotifUnreadSummary();
     toast('All notifications cleared', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
