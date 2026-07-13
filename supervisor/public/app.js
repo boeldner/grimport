@@ -687,12 +687,17 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
 });
 
 // ── Settings modal ────────────────────────────────────────
-// Tab switching
-document.querySelectorAll('.modal-tab').forEach(tab => {
+// Tab switching (scoped to #modal-settings — the panel-level Settings
+// view has its own identically-shaped .tab/.tab-panel group)
+document.querySelectorAll('#modal-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    document.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('#modal-settings .tab').forEach(t => {
+      t.classList.remove('is-active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('is-active');
+    tab.setAttribute('aria-selected', 'true');
+    document.querySelectorAll('#modal-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`stab-${tab.dataset.stab}`).classList.remove('hidden');
     if (tab.dataset.stab === 'access' && currentUser.role === 'admin') loadSiteAccessUsers();
   });
@@ -708,14 +713,15 @@ async function loadSiteAccessUsers() {
     ]);
     const nonAdmins = allUsers.filter(u => u.role !== 'admin');
     if (!nonAdmins.length) {
-      wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No editor or viewer users exist yet.</p>';
+      wrap.innerHTML = '<p class="settings-desc">No editor or viewer users exist yet.</p>';
       return;
     }
     wrap.innerHTML = nonAdmins.map(u => `
-      <label class="checkbox-label">
+      <label class="g-checkbox" style="display:flex;margin-bottom:8px">
         <input type="checkbox" class="site-user-access-cb" data-uid="${u.id}"
           ${siteUsers.user_ids.includes(u.id) ? 'checked' : ''} />
-        ${esc(u.username)} <span class="role-badge" data-role="${u.role}" style="margin-left:4px">${u.role}</span>
+        <span class="g-checkbox-box"></span>
+        ${esc(u.username)} <span class="badge badge-role-${esc(u.role)}" style="margin-left:4px">${esc(u.role)}</span>
       </label>
     `).join('');
 
@@ -736,8 +742,11 @@ function openSettings(site) {
   document.getElementById('settings-site-name').textContent = site.name;
 
   // Reset to General tab
-  document.querySelectorAll('.modal-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
-  document.querySelectorAll('.modal-tab-panel').forEach((p, i) => p.classList.toggle('hidden', i !== 0));
+  document.querySelectorAll('#modal-settings .tab').forEach((t, i) => {
+    t.classList.toggle('is-active', i === 0);
+    t.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+  });
+  document.querySelectorAll('#modal-settings .tab-panel').forEach((p, i) => p.classList.toggle('hidden', i !== 0));
 
   const form = document.getElementById('form-settings');
   form.elements['id'].value = site.id;
@@ -775,8 +784,8 @@ function renderHeadersList(headers) {
   const list = document.getElementById('headers-list');
   list.innerHTML = headers.map((h, i) => `
     <div class="header-row">
-      <input type="text" placeholder="Header-Name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
-      <input type="text" placeholder="value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Header name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-header="${i}" title="Remove">${ICON.x}</button>
     </div>
   `).join('');
@@ -803,10 +812,11 @@ function renderRedirectsList(redirects) {
   const list = document.getElementById('redirects-list');
   list.innerHTML = redirects.map((r, i) => `
     <div class="redirect-row">
-      <input type="text" placeholder="/old-path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
-      <input type="text" placeholder="/new-path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
-      <label class="redirect-permanent">
+      <input class="g-input" type="text" placeholder="/old-path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="/new-path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
+      <label class="g-checkbox redirect-permanent">
         <input type="checkbox" data-redirect-permanent data-idx="${i}" ${r.permanent ? 'checked' : ''} />
+        <span class="g-checkbox-box"></span>
         301
       </label>
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-redirect="${i}" title="Remove">${ICON.x}</button>
@@ -1956,9 +1966,19 @@ document.getElementById('new-site-runtime-seg').addEventListener('click', e => {
 });
 
 // ── Runtime selector in site settings ────────────────────
-document.getElementById('settings-runtime').addEventListener('change', e => {
-  const isApp = ['node', 'python'].includes(e.target.value);
+function setSettingsRuntime(runtime) {
+  const isApp = runtime === 'node' || runtime === 'python';
+  document.getElementById('settings-runtime').value = runtime;
+  document.querySelectorAll('#settings-runtime-seg button').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.runtime === runtime);
+  });
   document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+}
+
+document.getElementById('settings-runtime-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-runtime]');
+  if (!btn) return;
+  setSettingsRuntime(btn.dataset.runtime);
 });
 
 // ── App Config tab: env vars ──────────────────────────────
@@ -1966,13 +1986,13 @@ function renderEnvVarList(envVars) {
   const list = document.getElementById('env-vars-list');
   const entries = Object.entries(envVars);
   if (!entries.length) {
-    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-bottom:8px">No variables yet.</p>';
+    list.innerHTML = '<p class="settings-desc" style="margin-bottom:8px">No variables yet.</p>';
     return;
   }
   list.innerHTML = entries.map(([k, v], i) => `
     <div class="env-var-row">
-      <input type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
-      <input type="text" placeholder="value" value="${esc(v)}" data-env-val data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Value" value="${esc(v)}" data-env-val data-idx="${i}" />
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-env="${i}" title="Remove">${ICON.x}</button>
     </div>`).join('');
   list.querySelectorAll('[data-remove-env]').forEach(btn => {
@@ -2008,10 +2028,7 @@ document.getElementById('btn-add-env-var').addEventListener('click', () => {
 // ── App Config tab population (called from openSettings) ─
 function populateAppConfigTab(site) {
   const runtime = site.runtime || 'static';
-  const settingsRuntime = document.getElementById('settings-runtime');
-  settingsRuntime.value = runtime;
-  const isApp = runtime === 'node' || runtime === 'python';
-  document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+  setSettingsRuntime(runtime);
   const form = document.getElementById('form-settings');
   if (form.elements['build_cmd']) form.elements['build_cmd'].value = site.build_cmd || '';
   if (form.elements['start_cmd']) form.elements['start_cmd'].value = site.start_cmd || '';
@@ -2101,10 +2118,18 @@ function renderUserSites(u) {
   return `<div class="chip-wrap">${chips}</div>`;
 }
 
+function setEditUserRole(role) {
+  document.querySelectorAll('#edit-user-role-list input[name="role"]').forEach(input => {
+    input.checked = input.value === role;
+    input.closest('.role-select-opt').classList.toggle('is-active', input.value === role);
+  });
+  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
+}
+
 async function openEditUser(userId, username, role) {
   document.getElementById('edit-user-id').value = userId;
   document.getElementById('edit-user-name').textContent = username;
-  document.getElementById('edit-user-role').value = role;
+  setEditUserRole(role);
 
   // Load current site assignments for this user
   const [siteData] = await Promise.all([
@@ -2112,27 +2137,28 @@ async function openEditUser(userId, username, role) {
   ]);
 
   renderEditUserSites(siteData);
-
-  // Role change hides/shows site list
-  document.getElementById('edit-user-role').onchange = function() {
-    document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', this.value === 'admin');
-  };
-  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
-
   openModal('modal-edit-user');
 }
+
+// Role change hides/shows site list (delegated — radios are re-rendered per open)
+document.getElementById('edit-user-role-list').addEventListener('change', e => {
+  const input = e.target.closest('input[name="role"]');
+  if (!input) return;
+  setEditUserRole(input.value);
+});
 
 function renderEditUserSites(siteData) {
   const wrap = document.getElementById('edit-user-sites-list');
   if (!sites.length) {
-    wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No sites created yet.</p>';
+    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
     return;
   }
   wrap.innerHTML = sites.map(s => `
-    <label class="checkbox-label">
+    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
       <input type="checkbox" name="site_access" value="${s.id}"
         ${siteData.all || (siteData.sites || []).includes(s.id) ? 'checked' : ''} />
-      ${esc(s.name)} <span style="color:var(--text-muted);font-size:11px">${esc(s.domain)}</span>
+      <span class="g-checkbox-box"></span>
+      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
     </label>
   `).join('');
 }
@@ -2140,7 +2166,7 @@ function renderEditUserSites(siteData) {
 document.getElementById('form-edit-user').addEventListener('submit', async e => {
   e.preventDefault();
   const userId = document.getElementById('edit-user-id').value;
-  const newRole = document.getElementById('edit-user-role').value;
+  const newRole = document.querySelector('#edit-user-role-list input[name="role"]:checked')?.value;
 
   try {
     await api('PATCH', `/users/${userId}`, { role: newRole });

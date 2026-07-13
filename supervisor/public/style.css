@@ -624,17 +624,6 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 .btn-sm { padding: 5px 9px; font-size: 12px; }
 .btn-xs { padding: 2px 7px; font-size: 11px; font-weight: 600; }
 
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-  cursor: pointer;
-  margin-bottom: 8px;
-}
-.checkbox-label input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); flex-shrink: 0; }
-
 /* ── Modals (standard + wide; --shdw float only, radius 10, --panel/--line) ── */
 .modal-backdrop {
   position: fixed;
@@ -1313,31 +1302,6 @@ code {
 .icon-btn:hover { background: rgba(255,255,255,0.06); border-color: var(--border-hi); color: var(--text); }
 .icon-btn:active { transform: translateY(1px); box-shadow: none; }
 .site-action-icons { display: flex; gap: 5px; }
-
-/* ── Modal tabs (settings modal) ─────────────────────────── */
-.modal-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  margin: -4px 0 0;
-  gap: 0;
-}
-.modal-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 10px 16px;
-  cursor: pointer;
-  margin-bottom: -1px;
-  transition: color var(--transition), border-color var(--transition);
-}
-.modal-tab:hover { color: var(--text); }
-.modal-tab.active { color: var(--accent-hi); border-bottom-color: var(--accent); }
-
-.modal-tab-panel { display: flex; flex-direction: column; gap: 16px; }
-.modal-tab-panel.hidden { display: none !important; }
 
 /* ── Settings subsection (within tabs) ───────────────────── */
 .settings-subsection {
@@ -2190,6 +2154,26 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 [data-theme="dark"] .seg-ctl button.is-active { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
+/* role selector — radio cards w/ per-role description (Edit User, canvas 6i) */
+.role-select-list { display: flex; flex-direction: column; gap: 8px; }
+.role-select-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.role-select-opt:hover { border-color: var(--line2); }
+.role-select-opt input { margin-top: 3px; accent-color: var(--acc); cursor: pointer; flex-shrink: 0; }
+.role-select-opt.is-active,
+.role-select-opt:has(input:checked) { border-color: var(--acc); background: var(--accSoft); }
+.role-select-body { display: flex; flex-direction: column; gap: 2px; }
+.role-select-name { font-size: 13px; font-weight: 600; color: var(--tx); }
+.role-select-desc { font-size: 12px; color: var(--tx2); }
 
 /* ── Cards ────────────────────────────────────────────────── */
 .card {

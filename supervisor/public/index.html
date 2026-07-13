@@ -752,45 +752,53 @@ systemctl start cloudflared</pre>
       </div>
 
       <!-- Tabs -->
-      <div class="modal-tabs">
-        <button class="modal-tab active" data-stab="general">General</button>
-        <button class="modal-tab" data-stab="behaviour">Behaviour</button>
-        <button class="modal-tab" data-stab="access">Access</button>
-        <button class="modal-tab" data-stab="app">App config</button>
+      <div class="tabs" role="tablist">
+        <button class="tab is-active" data-stab="general" role="tab" aria-selected="true">General</button>
+        <button class="tab" data-stab="behaviour" role="tab" aria-selected="false">Behaviour</button>
+        <button class="tab" data-stab="access" role="tab" aria-selected="false">Access</button>
+        <button class="tab" data-stab="app" role="tab" aria-selected="false">App config</button>
       </div>
 
       <form id="form-settings">
         <input type="hidden" name="id" />
 
         <!-- Tab: General -->
-        <div class="modal-tab-panel" id="stab-general">
-          <label>Site name
-            <input type="text" name="name" required />
-          </label>
-          <label>Domain
-            <input type="text" name="domain" required />
-            <small>Changing the domain requires a container restart — existing traffic will briefly drop.</small>
-          </label>
+        <div class="tab-panel" id="stab-general">
+          <div class="field">
+            <label class="field-label" for="settings-name">Site name</label>
+            <input class="g-input" id="settings-name" type="text" name="name" required />
+          </div>
+          <div class="field">
+            <label class="field-label" for="settings-domain">Domain</label>
+            <input class="g-input" id="settings-domain" type="text" name="domain" required />
+            <div class="field-help warn">Changing the domain requires a container restart — existing traffic will briefly drop.</div>
+          </div>
         </div>
 
         <!-- Tab: Behaviour -->
-        <div class="modal-tab-panel hidden" id="stab-behaviour">
-          <label class="row">
-            <input type="checkbox" name="spa_mode" />
-            <span>SPA mode <small>(React/Vue Router — serve index.html for all 404s)</small></span>
-          </label>
-          <label class="row">
-            <input type="checkbox" name="cache_enabled" />
-            <span>Cache static assets <small>(1-year expires + immutable for JS/CSS/images)</small></span>
-          </label>
-          <label class="row">
-            <input type="checkbox" name="maintenance_mode" />
-            <span>Maintenance mode <small>(shows maintenance page to visitors)</small></span>
-          </label>
-          <label class="row" id="ssl-toggle-row">
-            <input type="checkbox" name="ssl_enabled" />
-            <span>Enable HTTPS <small id="ssl-toggle-hint">(requires ACME_EMAIL in .env)</small></span>
-          </label>
+        <div class="tab-panel hidden" id="stab-behaviour">
+          <div class="field-row-toggles" style="flex-direction:column;align-items:flex-start;gap:12px">
+            <label class="g-toggle">
+              <input type="checkbox" name="spa_mode" />
+              <span class="g-toggle-track"></span>
+              <span>SPA fallback</span>
+            </label>
+            <label class="g-toggle">
+              <input type="checkbox" name="cache_enabled" />
+              <span class="g-toggle-track"></span>
+              <span>Cache assets</span>
+            </label>
+            <label class="g-toggle">
+              <input type="checkbox" name="maintenance_mode" />
+              <span class="g-toggle-track"></span>
+              <span>Maintenance mode</span>
+            </label>
+            <label class="g-toggle" id="ssl-toggle-row">
+              <input type="checkbox" name="ssl_enabled" />
+              <span class="g-toggle-track"></span>
+              <span>Enable HTTPS <span class="field-help muted" id="ssl-toggle-hint" style="display:inline">(set ACME_EMAIL first)</span></span>
+            </label>
+          </div>
 
           <div class="settings-subsection">
             <div class="settings-subsection-title">Custom response headers <span class="settings-subsection-hint">optional</span></div>
@@ -800,20 +808,23 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Tab: Access -->
-        <div class="modal-tab-panel hidden" id="stab-access">
+        <div class="tab-panel hidden" id="stab-access">
           <div class="settings-subsection">
             <div class="settings-subsection-title">Basic auth <span class="settings-subsection-hint">optional — password-protect this site</span></div>
             <div class="auth-grid">
-              <label>Username
-                <input type="text" name="auth_username" autocomplete="off" placeholder="admin" />
-              </label>
-              <label>Password
-                <input type="password" name="auth_password" autocomplete="new-password" placeholder="leave blank to keep current" />
-              </label>
+              <div class="field">
+                <label class="field-label" for="settings-auth-username">Username</label>
+                <input class="g-input" id="settings-auth-username" type="text" name="auth_username" autocomplete="off" placeholder="admin" />
+              </div>
+              <div class="field">
+                <label class="field-label" for="settings-auth-password">Password</label>
+                <input class="g-input" id="settings-auth-password" type="password" name="auth_password" autocomplete="new-password" placeholder="leave blank to keep current" />
+              </div>
             </div>
-            <label class="row" style="margin-top:8px">
+            <label class="g-checkbox" style="margin-top:8px">
               <input type="checkbox" name="auth_remove" />
-              <span style="color:var(--text-muted)">Remove basic auth</span>
+              <span class="g-checkbox-box"></span>
+              Remove basic auth
             </label>
           </div>
 
@@ -825,31 +836,36 @@ systemctl start cloudflared</pre>
 
           <div class="settings-subsection admin-only" id="site-access-users-wrap">
             <div class="settings-subsection-title">Panel user access <span class="settings-subsection-hint">grant editors &amp; viewers access to this site</span></div>
-            <div id="site-access-users-list"><p class="settings-desc" style="color:var(--text-subtle)">Loading…</p></div>
+            <div id="site-access-users-list"><p class="settings-desc">Loading…</p></div>
           </div>
         </div>
 
         <!-- Tab: App config -->
-        <div class="modal-tab-panel hidden" id="stab-app">
+        <div class="tab-panel hidden" id="stab-app">
           <p class="settings-desc" id="app-config-desc"></p>
-          <label>Runtime
-            <select name="runtime" id="settings-runtime">
-              <option value="static">Static (nginx)</option>
-              <option value="php">PHP (Apache)</option>
-              <option value="node">Node.js</option>
-              <option value="python">Python</option>
-            </select>
-          </label>
+          <div class="field">
+            <span class="field-label">Runtime</span>
+            <div class="seg-ctl" id="settings-runtime-seg" role="tablist">
+              <button type="button" data-runtime="static">Static</button>
+              <button type="button" data-runtime="php">PHP</button>
+              <button type="button" data-runtime="node">Node</button>
+              <button type="button" data-runtime="python">Python</button>
+            </div>
+            <input type="hidden" name="runtime" id="settings-runtime" value="static" />
+          </div>
           <div id="app-config-fields" class="hidden">
-            <label>Build command <small>optional — runs once after each deploy</small>
-              <input type="text" name="build_cmd" placeholder="npm install &amp;&amp; npm run build" />
-            </label>
-            <label>Start command
-              <input type="text" name="start_cmd" placeholder="node server.js" />
-            </label>
-            <label>Port <small>port your app listens on</small>
-              <input type="number" name="app_port" min="1" max="65535" placeholder="3000" />
-            </label>
+            <div class="field">
+              <label class="field-label" for="settings-build-cmd">Build command <span class="field-optional">optional — runs once after each deploy</span></label>
+              <input class="g-input" id="settings-build-cmd" type="text" name="build_cmd" placeholder="npm install &amp;&amp; npm run build" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="settings-start-cmd">Start command</label>
+              <input class="g-input" id="settings-start-cmd" type="text" name="start_cmd" placeholder="node server.js" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="settings-app-port">Port <span class="field-optional">port your app listens on</span></label>
+              <input class="g-input" id="settings-app-port" type="number" name="app_port" min="1" max="65535" placeholder="3000" />
+            </div>
           </div>
           <div class="settings-subsection" style="margin-top:16px">
             <div class="settings-subsection-title">Environment variables</div>
@@ -859,7 +875,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-danger" id="btn-delete-site">Delete site</button>
+          <button type="button" class="btn btn-danger" id="btn-delete-site">Delete site…</button>
           <div style="flex:1"></div>
           <button type="button" class="btn" data-close="modal-settings">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -1138,13 +1154,32 @@ systemctl start cloudflared</pre>
       </div>
       <form id="form-edit-user">
         <input type="hidden" id="edit-user-id" />
-        <label>Role
-          <select id="edit-user-role" name="role">
-            <option value="viewer">Viewer — read-only access to assigned sites</option>
-            <option value="editor">Editor — can deploy and manage assigned sites</option>
-            <option value="admin">Admin — full access to everything</option>
-          </select>
-        </label>
+        <div class="field">
+          <span class="field-label">Role</span>
+          <div class="role-select-list" id="edit-user-role-list">
+            <label class="role-select-opt">
+              <input type="radio" name="role" value="admin" />
+              <span class="role-select-body">
+                <span class="role-select-name">Admin</span>
+                <span class="role-select-desc">Everything, incl. users, domains, updates</span>
+              </span>
+            </label>
+            <label class="role-select-opt">
+              <input type="radio" name="role" value="editor" />
+              <span class="role-select-body">
+                <span class="role-select-name">Editor</span>
+                <span class="role-select-desc">Deploy and manage assigned sites</span>
+              </span>
+            </label>
+            <label class="role-select-opt">
+              <input type="radio" name="role" value="viewer" />
+              <span class="role-select-body">
+                <span class="role-select-name">Viewer</span>
+                <span class="role-select-desc">Monitor assigned sites, read-only</span>
+              </span>
+            </label>
+          </div>
+        </div>
         <div id="edit-user-sites-wrap" style="margin-top:16px">
           <div class="settings-subsection-title">Site access</div>
           <p class="settings-desc" style="margin:4px 0 10px">Select which sites this user can access.</p>
