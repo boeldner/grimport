@@ -1577,9 +1577,9 @@ code {
 .token-create-form input { flex: 1; }
 
 .token-reveal {
-  background: rgba(185, 28, 28, 0.08);
-  border: 1px solid rgba(185, 28, 28, 0.3);
-  border-radius: 8px;
+  background: var(--okSoft);
+  border: 1px solid var(--ok);
+  border-radius: var(--r-card);
   padding: 14px 16px;
   margin-bottom: 16px;
   display: flex;

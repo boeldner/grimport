@@ -1426,19 +1426,24 @@ async function loadTokens() {
 function renderTokens(tokens) {
   const list = document.getElementById('tokens-list');
   if (!tokens.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No tokens yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.shield}</div>
+        <h3>No tokens yet.</h3>
+        <p>Create one below to authenticate CI/CD deploys.</p>
+      </div>`;
     return;
   }
   list.innerHTML = `
-    <table class="token-table">
+    <table class="data-table">
       <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody>
         ${tokens.map(t => `
           <tr>
             <td>${esc(t.name)}</td>
-            <td class="token-meta">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
-            <td class="token-meta">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
-            <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke</button></td>
+            <td class="cell-mono">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
+            <td class="cell-mono">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
+            <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1471,13 +1476,9 @@ document.getElementById('form-create-token').addEventListener('submit', async e 
   } catch (err) { toast(err.message, 'error'); }
 });
 
-document.getElementById('btn-copy-token').addEventListener('click', () => {
+document.getElementById('btn-copy-token').addEventListener('click', e => {
   const val = document.getElementById('token-reveal-value').textContent;
-  navigator.clipboard.writeText(val).then(() => {
-    const btn = document.getElementById('btn-copy-token');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
+  copyToClipboard(val, e.currentTarget);
 });
 
 document.getElementById('form-panel-settings').addEventListener('submit', async e => {
@@ -1784,28 +1785,42 @@ async function loadWebhooks() {
 function renderWebhookList(webhooks) {
   const list = document.getElementById('webhooks-list');
   if (!webhooks.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No webhooks yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.zap}</div>
+        <h3>No webhooks yet.</h3>
+        <p>Notify chat tools or CI when deploys and outages happen.</p>
+      </div>`;
     return;
   }
-  list.innerHTML = webhooks.map(w => {
-    let events = [];
-    try { events = JSON.parse(w.events || '[]'); } catch {}
-    return `
-      <div class="webhook-item">
-        <div class="webhook-item-info">
-          <span class="webhook-name">${esc(w.name)}</span>
-          <span class="webhook-url">${esc(w.url)}</span>
-          <span class="webhook-events">${events.join(', ')}</span>
-        </div>
-        <div class="webhook-item-actions">
-          <label class="toggle-label" title="${w.enabled ? 'Enabled' : 'Disabled'}">
-            <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
-          </label>
-          <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
-          <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
-        </div>
-      </div>`;
-  }).join('');
+  list.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Enabled</th><th></th></tr></thead>
+      <tbody>
+        ${webhooks.map(w => {
+          let events = [];
+          try { events = JSON.parse(w.events || '[]'); } catch {}
+          return `
+          <tr>
+            <td>${esc(w.name)}</td>
+            <td class="cell-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.url)}</td>
+            <td>${events.map(ev => `<span class="badge badge-neutral">${esc(ev)}</span>`).join(' ')}</td>
+            <td>
+              <label class="g-toggle" title="${w.enabled ? 'Enabled' : 'Disabled'}">
+                <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
+                <span class="g-toggle-track"></span>
+              </label>
+            </td>
+            <td>
+              <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
+                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 
   list.querySelectorAll('.webhook-toggle').forEach(input => {
     input.addEventListener('change', async () => {
