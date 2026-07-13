@@ -1198,6 +1198,8 @@ const EVENT_LABELS = {
   update_started:   'Update started',
   update_applying:  'Update applying',
   update_failed:    'Update failed',
+  login:            'Signed in',
+  logout:           'Signed out',
 };
 
 let activitySiteFilter = null;
@@ -1207,15 +1209,17 @@ async function loadActivity() {
   const filtersEl = document.getElementById('activity-filters');
   if (filtersEl && sites.length) {
     filtersEl.innerHTML = `
-      <button class="activity-filter-chip ${activitySiteFilter === null ? 'active' : ''}" data-filter="">All sites</button>
-      ${sites.map(s => `<button class="activity-filter-chip ${activitySiteFilter === s.id ? 'active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
-      <span class="activity-filter-sep">|</span>
-      <button class="activity-filter-chip activity-level-chip ${activityLevelFilter === null ? 'active' : ''}" data-level="">All levels</button>
-      <button class="activity-filter-chip activity-level-chip activity-level-error ${activityLevelFilter === 'error' ? 'active' : ''}" data-level="error">Errors</button>
-      <button class="activity-filter-chip activity-level-chip activity-level-warn ${activityLevelFilter === 'warn' ? 'active' : ''}" data-level="warn">Warnings</button>
-      <a href="/activity/export.csv" class="activity-export-btn" download>${ICON.download} CSV</a>
+      <div class="chip-group">
+        <button class="chip ${activitySiteFilter === null ? 'is-active' : ''}" data-filter="">All sites</button>
+        ${sites.map(s => `<button class="chip ${activitySiteFilter === s.id ? 'is-active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+      </div>
+      <div class="chip-group">
+        <button class="chip activity-level-chip ${activityLevelFilter === null ? 'is-active' : ''}" data-level="">All levels</button>
+        <button class="chip chip-err activity-level-chip ${activityLevelFilter === 'error' ? 'is-active' : ''}" data-level="error">Errors</button>
+        <button class="chip chip-warn activity-level-chip ${activityLevelFilter === 'warn' ? 'is-active' : ''}" data-level="warn">Warnings</button>
+      </div>
     `;
-    filtersEl.querySelectorAll('.activity-filter-chip:not(.activity-level-chip)').forEach(btn => {
+    filtersEl.querySelectorAll('.chip:not(.activity-level-chip)').forEach(btn => {
       btn.addEventListener('click', () => { activitySiteFilter = btn.dataset.filter || null; loadActivity(); });
     });
     filtersEl.querySelectorAll('.activity-level-chip').forEach(btn => {
@@ -1230,6 +1234,16 @@ async function loadActivity() {
   try {
     const events = await api('GET', url);
     const feed = document.getElementById('activity-feed');
+    const subtitle = document.getElementById('activity-subtitle');
+    if (subtitle) {
+      if (!events.length) {
+        subtitle.textContent = 'No activity yet';
+      } else {
+        const oldest = events[events.length - 1].created_at;
+        const spanDays = Math.max(1, Math.ceil((Date.now() / 1000 - oldest) / 86400));
+        subtitle.textContent = `${events.length} event${events.length !== 1 ? 's' : ''} · last ${spanDays} day${spanDays !== 1 ? 's' : ''}`;
+      }
+    }
     if (!events.length) {
       feed.innerHTML = '<div class="activity-empty">No activity yet.</div>';
       return;
@@ -1240,29 +1254,43 @@ async function loadActivity() {
       const isError = e.level === 'error';
       const isWarn  = e.level === 'warn';
       const levelBadge = isError
-        ? '<span class="audit-badge audit-error">error</span>'
+        ? '<span class="badge badge-err">ERROR</span>'
         : isWarn
-          ? '<span class="audit-badge audit-warn">warn</span>'
+          ? '<span class="badge badge-warn">WARN</span>'
           : '';
       const actorBadge = (e.actor && e.actor !== 'system')
-        ? `<span class="audit-actor">${esc(e.actor)}</span>`
+        ? `<span class="badge badge-accent">${esc(e.actor)}</span>`
         : '';
-      const fnBadge = e.fn ? `<span class="audit-fn">${esc(e.fn)}</span>` : '';
-      const duration = e.duration_ms != null ? `<span class="audit-duration">${e.duration_ms}ms</span>` : '';
+      const label = EVENT_LABELS[e.event] || (e.fn ? esc(e.fn) : esc(e.event));
+      const duration = e.duration_ms != null ? `<span class="activity-duration">took ${fmtDuration(e.duration_ms)}</span>` : '';
+      const emphasis = isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : '';
       return `
-        <div class="activity-item ${isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : ''}">
+        <div class="activity-item ${emphasis}">
           <span class="activity-icon">${EVENT_ICONS[e.event] || (isError ? ICON.x : isWarn ? ICON.warning : ICON.dot)}</span>
           <div class="activity-body">
-            ${levelBadge}${actorBadge}
-            <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
-            <span class="activity-event">${fnBadge || (EVENT_LABELS[e.event] || esc(e.event))}</span>
-            ${e.detail ? `<span class="activity-detail">${esc(e.detail)}</span>` : ''}
+            <div class="activity-line">
+              ${levelBadge}
+              <span class="activity-label">${label}</span>
+              ${actorBadge ? `<span class="activity-by">by</span>${actorBadge}` : ''}
+              <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
+            </div>
+            ${e.detail ? `<div class="activity-detail">${esc(e.detail)}</div>` : ''}
             ${duration}
           </div>
           <span class="activity-time">${timeAgo(e.created_at)}</span>
         </div>`;
     }).join('');
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    const feed = document.getElementById('activity-feed');
+    if (feed) feed.innerHTML = '<div class="activity-empty">Failed to load activity.</div>';
+    toast(err.message, 'error');
+  }
+}
+
+function fmtDuration(ms) {
+  if (ms < 1000) return `${ms} ms`;
+  const s = ms / 1000;
+  return `${s % 1 === 0 ? s.toFixed(0) : s.toFixed(1)} s`;
 }
 
 function timeAgo(ts) {
@@ -2100,6 +2128,8 @@ async function loadDeployments() {
         const d = allDeployments.find(x => x.site_id === id);
         return `<option value="${esc(id)}"${current === id ? ' selected' : ''}>${esc(d.site_name)}</option>`;
       }).join('');
+    const subtitle = document.getElementById('deployments-subtitle');
+    if (subtitle) subtitle.textContent = `${allDeployments.length} deploy${allDeployments.length !== 1 ? 's' : ''} total`;
     renderDeployments();
   } catch {
     document.getElementById('deployments-loading').textContent = 'Failed to load deployments.';
@@ -2111,23 +2141,31 @@ function renderDeployments() {
   const rows = filterVal ? allDeployments.filter(d => d.site_id === filterVal) : allDeployments;
   const isAdmin = currentUser.role === 'admin';
 
+  // allDeployments is ordered newest-first per site (server: ORDER BY deployed_at DESC),
+  // so the first row seen for a given site_id is that site's current live deploy.
+  const seenSites = new Set();
+
   document.getElementById('deployments-tbody').innerHTML = rows.length === 0
-    ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No deployments yet</td></tr>`
-    : rows.map(d => `
+    ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No deployments yet</td></tr>`
+    : rows.map(d => {
+      const isCurrent = !seenSites.has(d.site_id);
+      seenSites.add(d.site_id);
+      return `
     <tr>
       <td>
-        <span style="font-weight:600;color:var(--text)">${esc(d.site_name)}</span>
-        <span style="display:block;font-size:11px;color:var(--text-subtle)">${esc(d.site_domain)}</span>
+        <span style="font-weight:600;color:var(--tx)">${esc(d.site_name)}</span>
+        <span style="display:block;font-size:11px;color:var(--tx3)">${esc(d.site_domain)}</span>
       </td>
-      <td style="font-family:monospace;font-size:12px">${esc(d.filename)}</td>
+      <td class="cell-mono">${esc(d.filename)}</td>
       <td class="num">${fmtBytes(d.size)}</td>
-      <td>${timeAgo(d.deployed_at)}</td>
-      <td>${isAdmin ? `<button class="btn btn-sm" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Rollback</button>` : ''}</td>
-    </tr>`).join('');
+      <td>${timeAgo(d.deployed_at)} ${isCurrent ? '<span class="badge badge-ok">CURRENT</span>' : ''}</td>
+      <td>${isAdmin && !isCurrent ? `<button class="btn btn-sm btn-secondary" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button>` : ''}</td>
+    </tr>`;
+    }).join('');
 
   document.querySelectorAll('[data-rollback-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Roll back to this deployment?')) return;
+      if (!confirm('Roll back to this deployment? Current files will be replaced.')) return;
       try {
         await api('POST', `/deploy/${btn.dataset.rollbackSite}/rollback/${btn.dataset.rollbackId}`);
         toast('Rolled back successfully', 'success');
@@ -2144,6 +2182,7 @@ document.getElementById('deployments-filter').addEventListener('change', renderD
 
 // ── Logs view ─────────────────────────────────────────────
 let logsAutoInterval = null;
+let logsLineCount = 100;
 
 async function loadLogsView() {
   // Populate site selector from already-loaded sites list
@@ -2155,28 +2194,50 @@ async function loadLogsView() {
 }
 
 async function fetchLogs(siteId) {
-  if (!siteId) return;
-  const lines = document.getElementById('logs-lines-select').value;
   const out = document.getElementById('logs-output');
+  if (!siteId) {
+    clearInterval(logsAutoInterval);
+    out.textContent = 'Select a site to view logs.';
+    return;
+  }
   out.textContent = 'Loading…';
   try {
-    const res = await fetch(`/api/sites/${siteId}/logs?lines=${lines}`);
+    const res = await fetch(`/api/sites/${siteId}/logs?lines=${logsLineCount}`);
     const text = await res.text();
     if (!res.ok) {
       try { out.textContent = `Error: ${JSON.parse(text).error}`; } catch { out.textContent = text; }
-    } else {
-      out.textContent = text || '(no output)';
-      out.scrollTop = out.scrollHeight;
+      return;
     }
+    const site = sites.find(s => s.id === siteId);
+    const containerRunning = site?.container?.running;
+    out.textContent = text || '(no output)';
+    if (containerRunning === false) {
+      out.textContent += '\n\n— end of stream · container is not running —';
+    }
+    out.scrollTop = out.scrollHeight;
   } catch { out.textContent = 'Failed to fetch logs.'; }
 }
 
 document.getElementById('logs-site-select').addEventListener('change', e => fetchLogs(e.target.value));
-document.getElementById('logs-lines-select').addEventListener('change', () => fetchLogs(document.getElementById('logs-site-select').value));
 document.getElementById('btn-logs-refresh').addEventListener('click', () => fetchLogs(document.getElementById('logs-site-select').value));
-document.getElementById('logs-auto-refresh').addEventListener('change', e => {
+
+document.querySelectorAll('#logs-lines-seg button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#logs-lines-seg button').forEach(b => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    logsLineCount = Number(btn.dataset.lines);
+    fetchLogs(document.getElementById('logs-site-select').value);
+  });
+});
+
+document.getElementById('logs-auto-refresh').addEventListener('click', e => {
+  const btn = e.currentTarget;
+  const active = btn.dataset.active !== 'true';
+  btn.dataset.active = String(active);
+  btn.classList.toggle('is-active', active);
+  btn.setAttribute('aria-pressed', String(active));
   clearInterval(logsAutoInterval);
-  if (e.target.checked) {
+  if (active) {
     logsAutoInterval = setInterval(() => fetchLogs(document.getElementById('logs-site-select').value), 3000);
   }
 });

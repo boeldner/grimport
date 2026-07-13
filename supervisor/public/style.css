@@ -1383,26 +1383,6 @@ code {
   margin-bottom: 4px;
 }
 
-/* ── Activity filter chips ───────────────────────────────── */
-.activity-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-.activity-filter-chip {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--text-muted);
-  font-size: 12px;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.activity-filter-chip:hover { border-color: var(--border-hi); color: var(--text); }
-.activity-filter-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-hi); }
-
 /* ── Nav badge ───────────────────────────────────────────── */
 .nav-badge {
   display: inline-block;
@@ -1434,59 +1414,62 @@ code {
 .uptime-dot-unknown { background: var(--tx3); }
 .uptime-live-label  { font-size: 11px; font-weight: 600; }
 
-/* ── Activity feed ───────────────────────────────────────── */
+/* ── Activity feed (task C3 — canvas 3b) ─────────────────────
+   Filter chips: .chip-row > .chip-group > .chip[.chip-err/.chip-warn][.is-active]
+   Feed rows: .activity-item, emphasis via .activity-item-down/-up/-error */
 .activity-feed { display: flex; flex-direction: column; gap: 2px; }
-.activity-empty { color: var(--text-subtle); font-size: 13px; padding: 24px 0; }
+.activity-empty { color: var(--tx3); font-size: 13px; padding: 24px 0; }
 .activity-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--r-control);
   border: 1px solid transparent;
-  background: var(--surface);
+  background: var(--panel);
   font-size: 13px;
   transition: background var(--transition);
 }
-.activity-item:hover { background: var(--surface-2); }
-.activity-item-down { border-color: rgba(248,113,113,0.15); background: rgba(248,113,113,0.05); }
-.activity-item-up   { border-color: rgba(74,222,128,0.15);  background: rgba(74,222,128,0.05); }
+.activity-item:hover { background: var(--panel2); }
+.activity-item-down  { border-color: var(--errSoft); background: var(--errSoft); }
+.activity-item-up    { border-color: var(--okSoft);  background: var(--okSoft); }
+.activity-item-error { border-color: var(--errSoft); background: var(--errSoft); }
 .activity-icon {
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  color: var(--tx2);
   flex-shrink: 0;
 }
-.activity-body { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
-.activity-site { font-weight: 600; color: var(--text); }
-.activity-event { color: var(--text-muted); }
-.activity-detail { color: var(--text-subtle); font-size: 12px; font-family: var(--font-mono); }
-.activity-time { color: var(--text-subtle); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
-.activity-item-error { border-color: rgba(248,113,113,0.2); background: rgba(248,113,113,0.07); }
+.activity-body { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.activity-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.activity-label { font-weight: 600; color: var(--tx); }
+.activity-by { color: var(--tx3); font-size: 12px; }
+.activity-site { color: var(--tx2); }
+.activity-detail { color: var(--tx3); font-size: 12px; font-family: var(--mono); }
+.activity-duration { color: var(--tx3); font-size: 11px; font-family: var(--mono); }
+.activity-time { color: var(--tx3); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 
-/* ── Audit badges ────────────────────────────────────────── */
-.audit-badge {
-  font-size: 10px; font-weight: 700; padding: 1px 6px;
-  border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+/* filter chip row shared by Activity (site + level groups) */
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; align-items: center; }
+.chip-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.audit-error { background: rgba(248,113,113,0.2); color: #f87171; }
-.audit-warn  { background: rgba(250,204,21,0.2);  color: #facc15; }
-.audit-actor { font-size: 11px; color: var(--accent-hi); background: var(--accent-dim); padding: 1px 6px; border-radius: 4px; }
-.audit-fn    { font-size: 11px; color: var(--text-subtle); font-family: var(--font-mono); }
-.audit-duration { font-size: 11px; color: var(--text-subtle); font-family: var(--font-mono); }
-.activity-filter-sep { color: var(--border-hi); padding: 0 4px; align-self: center; }
-.activity-level-error.active { background: rgba(248,113,113,0.15); border-color: #f87171; color: #f87171; }
-.activity-level-warn.active  { background: rgba(250,204,21,0.15);  border-color: #facc15; color: #facc15; }
-.activity-export-btn {
-  margin-left: auto; font-size: 12px; color: var(--text-muted);
-  text-decoration: none; padding: 4px 10px;
-  border: 1px solid var(--border); border-radius: 6px;
-  transition: all var(--transition);
-}
-.activity-export-btn:hover { color: var(--text); border-color: var(--border-hi); }
+.chip:hover { color: var(--tx); border-color: var(--line2); }
+.chip.is-active { background: var(--accSoft); border-color: var(--acc); color: var(--acc); }
+.chip-err.is-active  { background: var(--errSoft);  border-color: var(--err);  color: var(--err); }
+.chip-warn.is-active { background: var(--warnSoft); border-color: var(--warn); color: var(--warn); }
 
 /* ── Settings page tabs ──────────────────────────────────── */
 .settings-ptabs {
@@ -1887,7 +1870,7 @@ code {
   font-size: 13px;
   padding: 8px 0;
 }
-#overview-table-wrap, #domains-table-wrap {
+#overview-table-wrap, #domains-table-wrap, #deployments-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--r-card);
@@ -1896,60 +1879,22 @@ code {
 .ov-site-name { font-weight: 600; color: var(--tx); }
 .ov-site-domain { font-size: 11px; color: var(--tx3); font-family: var(--mono); }
 
-/* .overview-table — legacy table skin still used by Deployments (out of
-   scope for C2); kept so that view doesn't regress. */
-.overview-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.overview-table thead th {
-  padding: 10px 14px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-subtle);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.overview-table thead th.num { text-align: right; }
-.overview-table tbody tr.ov-row {
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background var(--transition);
-}
-.overview-table tbody tr.ov-row:last-child { border-bottom: none; }
-.overview-table tbody tr.ov-row:hover { background: var(--surface-hover); }
-.overview-table td { padding: 10px 14px; color: var(--text-muted); white-space: nowrap; }
-.overview-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* ── Logs view ───────────────────────────────────────────── */
+/* ── Logs view (task C3 — canvas 3d) ─────────────────────────
+   Monospaced tail block; line-count via .seg-ctl, auto-refresh via .chip. */
 .logs-output {
-  background: #0a0a0a;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
   padding: 16px;
-  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1.6;
-  color: #d4d4d4;
+  color: var(--tx2);
   white-space: pre-wrap;
   word-break: break-all;
   overflow-y: auto;
   max-height: calc(100vh - 220px);
   min-height: 200px;
-}
-.logs-auto-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-  cursor: pointer;
-  white-space: nowrap;
 }
 
 /* ── Shared form inputs ───────────────────────────────────── */
@@ -2011,7 +1956,6 @@ code {
 /* .modal / .toast shadows now come from --shdw (themed in :root / [data-theme="dark"]) */
 [data-theme="light"] .modal-overlay { background: rgba(0,0,0,0.3); }
 [data-theme="light"] .site-card { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-[data-theme="light"] .logs-output { background: #f8f8fa; color: #1a1a20; }
 [data-theme="light"] .input, [data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { color: var(--text); }
 
 /* theme toggle button */
