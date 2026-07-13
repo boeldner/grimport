@@ -1,15 +1,10 @@
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
 const crypto = require('crypto');
-const path = require('path');
 const db = require('./db');
-
-const DB_PATH = process.env.DATA_PATH
-  ? path.join(process.env.DATA_PATH, '..', 'supervisor.db')
-  : path.join(__dirname, '../../data/supervisor.db');
+const { BetterSqliteStore } = require('./session-store');
 
 const sessionMiddleware = session({
-  store: new SQLiteStore({ db: 'supervisor.db', dir: path.dirname(DB_PATH) }),
+  store: new BetterSqliteStore(),
   secret: process.env.SUPERVISOR_SECRET || 'changeme',
   resave: false,
   saveUninitialized: false,
@@ -17,8 +12,13 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.SESSION_SECURE === 'true' ||
-            (process.env.SESSION_SECURE !== 'false' && process.env.NODE_ENV === 'production'),
+    // Secure is OPT-IN. Most deployments terminate TLS at a proxy (Cloudflare
+    // Tunnel, Traefik) and forward plain HTTP to the supervisor, so the app
+    // sees an insecure connection and express-session would refuse to set a
+    // Secure cookie — silently breaking login. Only enable Secure when the
+    // operator explicitly opts in (SESSION_SECURE=true) AND their proxy sends
+    // X-Forwarded-Proto: https (trust proxy is set below).
+    secure: process.env.SESSION_SECURE === 'true',
     maxAge: 8 * 60 * 60 * 1000, // 8 hours
   },
 });
