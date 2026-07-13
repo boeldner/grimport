@@ -1320,11 +1320,15 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
 });
 
 // ── Settings page tabs ────────────────────────────────────
-document.querySelectorAll('.settings-ptab').forEach(tab => {
+document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.settings-ptab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    document.querySelectorAll('.settings-ppanel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('#view-panel-settings .tab').forEach(t => {
+      t.classList.remove('is-active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('is-active');
+    tab.setAttribute('aria-selected', 'true');
+    document.querySelectorAll('#view-panel-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`spanel-${tab.dataset.stab}`).classList.remove('hidden');
     if (tab.dataset.stab === 'general')       checkForUpdate();
     if (tab.dataset.stab === 'server')        loadServerInfo();
@@ -1499,9 +1503,37 @@ document.getElementById('form-change-password').addEventListener('submit', async
       new_password: form.elements['new_password'].value,
     });
     form.reset();
+    setPasswordStrengthHint('');
     toast('Password changed', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
+
+// ── Password strength hint (Security tab) ─────────────────
+function setPasswordStrengthHint(pw) {
+  const hint = document.getElementById('password-strength-hint');
+  if (!hint) return;
+  if (!pw) {
+    hint.textContent = 'Minimum 8 characters';
+    hint.className = 'field-help muted';
+    return;
+  }
+  const variety = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length;
+  if (pw.length < 8) {
+    hint.textContent = 'Too short — minimum 8 characters';
+    hint.className = 'field-help err';
+  } else if (pw.length >= 12 && variety >= 3) {
+    hint.textContent = 'Strong — 12+ characters, mixed case, symbol';
+    hint.className = 'field-help ok';
+  } else if (pw.length >= 8 && variety >= 2) {
+    hint.textContent = 'Okay — add length or symbols for a stronger password';
+    hint.className = 'field-help warn';
+  } else {
+    hint.textContent = 'Weak — try mixing case, numbers, and symbols';
+    hint.className = 'field-help warn';
+  }
+}
+document.querySelector('#form-change-password [name="new_password"]')
+  .addEventListener('input', e => setPasswordStrengthHint(e.target.value));
 
 // ── Sign out ──────────────────────────────────────────────
 document.getElementById('btn-signout').addEventListener('click', async () => {
@@ -2069,7 +2101,7 @@ document.getElementById('form-create-user').addEventListener('submit', async e =
 });
 
 // ── Extend settings ptab to load users ───────────────────
-document.querySelectorAll('.settings-ptab').forEach(tab => {
+document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.stab === 'users') loadUsers();
   });

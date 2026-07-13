@@ -279,75 +279,86 @@
         </div>
       </header>
       <div class="settings-page">
-        <div class="settings-ptabs">
-          <button class="settings-ptab active" data-stab="general">General</button>
-          <button class="settings-ptab" data-stab="server">Server &amp; DNS</button>
-          <button class="settings-ptab" data-stab="tokens">API Tokens</button>
-          <button class="settings-ptab" data-stab="webhooks">Webhooks</button>
-          <button class="settings-ptab" data-stab="notifications">Notifications</button>
-          <button class="settings-ptab admin-only" data-stab="users">Users</button>
-          <button class="settings-ptab" data-stab="security">Security</button>
+        <div class="tabs" role="tablist">
+          <button class="tab is-active" data-stab="general" role="tab" aria-selected="true">General</button>
+          <button class="tab" data-stab="server" role="tab" aria-selected="false">Server &amp; DNS</button>
+          <button class="tab" data-stab="tokens" role="tab" aria-selected="false">API Tokens</button>
+          <button class="tab" data-stab="webhooks" role="tab" aria-selected="false">Webhooks</button>
+          <button class="tab" data-stab="notifications" role="tab" aria-selected="false">Notifications</button>
+          <button class="tab admin-only" data-stab="users" role="tab" aria-selected="false">Users</button>
+          <button class="tab" data-stab="security" role="tab" aria-selected="false">Security</button>
         </div>
 
         <!-- General -->
-        <div id="spanel-general" class="settings-ppanel">
-          <section class="settings-section">
-            <h3>Site defaults</h3>
-            <form id="form-panel-settings">
-              <label>Base domain for auto-generated URLs
-                <input type="text" name="site_base_domain" placeholder="site.yourdomain.com" />
-                <small>New sites get a random subdomain, e.g. <code>a8f3k2p9xq.site.yourdomain.com</code></small>
-              </label>
-              <label class="row">
-                <input type="checkbox" name="default_spa_mode" />
-                <span>Default SPA mode for new sites</span>
-              </label>
-              <label class="row">
-                <input type="checkbox" name="default_cache_enabled" />
-                <span>Default cache enabled for new sites</span>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save</button>
-              </div>
-            </form>
-          </section>
+        <div id="spanel-general" class="tab-panel">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Site defaults</span></div>
+            <div class="card-body">
+              <form id="form-panel-settings" class="settings-form">
+                <div class="field">
+                  <label class="field-label" for="f-site-base-domain">Base domain</label>
+                  <input class="g-input" id="f-site-base-domain" type="text" name="site_base_domain" placeholder="grim.host" />
+                  <div class="field-help muted">New sites get <code>name.grim.host</code> suggested</div>
+                </div>
+                <label class="g-toggle">
+                  <input type="checkbox" name="default_spa_mode" />
+                  <span class="g-toggle-track"></span>
+                  <span>SPA fallback by default</span>
+                </label>
+                <label class="g-toggle">
+                  <input type="checkbox" name="default_cache_enabled" />
+                  <span class="g-toggle-track"></span>
+                  <span>Asset caching by default</span>
+                </label>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
 
-          <section class="settings-section">
-            <h3>Analytics snippet</h3>
-            <p class="settings-desc">Inject a tracking script into every site's HTML (before <code>&lt;/body&gt;</code>). Works with Plausible, Umami, or any custom snippet. Applied to all sites — per-site toggle coming soon.</p>
-            <form id="form-analytics-snippet">
-              <label>Script tag
-                <textarea name="analytics_snippet" rows="3" placeholder='&lt;script defer data-domain="yourdomain.com" src="https://plausible.io/js/script.js"&gt;&lt;/script&gt;'></textarea>
-                <small>Leave blank to disable. Nginx restarts all site containers to apply changes.</small>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save &amp; apply</button>
-              </div>
-            </form>
-          </section>
-          <section class="settings-section">
-            <h3>Updates</h3>
-            <div class="update-version-row">
-              <div class="update-version-cell">
-                <span class="settings-label">Installed</span>
-                <span id="settings-version-current" class="update-version-pill">—</span>
-              </div>
-              <div class="update-version-cell">
-                <span class="settings-label">Latest</span>
-                <span id="settings-version-latest" class="update-version-pill">—</span>
-              </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Analytics snippet</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Injected into every hosted page before <code>&lt;/head&gt;</code>. Leave empty to disable. Works with Plausible, Umami, or any custom snippet.</p>
+              <form id="form-analytics-snippet" class="settings-form">
+                <div class="field">
+                  <label class="field-label" for="f-analytics-snippet">Script tag</label>
+                  <textarea class="g-textarea" id="f-analytics-snippet" name="analytics_snippet" rows="3" placeholder='&lt;script defer data-domain="yourdomain.com" src="https://plausible.io/js/script.js"&gt;&lt;/script&gt;'></textarea>
+                  <div class="field-help muted">Nginx restarts all site containers to apply changes.</div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save &amp; apply</button>
+                </div>
+              </form>
             </div>
-            <div class="form-actions" style="margin-top:12px">
-              <button class="btn" id="btn-settings-check-update">Check now</button>
-              <button class="btn btn-primary hidden" id="btn-settings-do-update">Update to latest</button>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Updates</span></div>
+            <div class="card-body">
+              <div class="update-version-row">
+                <div class="update-version-cell">
+                  <span class="settings-label">Installed</span>
+                  <span id="settings-version-current" class="update-version-pill">—</span>
+                </div>
+                <div class="update-version-cell">
+                  <span class="settings-label">Latest</span>
+                  <span id="settings-version-latest" class="update-version-pill">—</span>
+                </div>
+              </div>
+              <div class="form-actions" style="margin-top:12px">
+                <button class="btn" id="btn-settings-check-update">Check now</button>
+                <button class="btn btn-primary hidden" id="btn-settings-do-update">Update to latest</button>
+              </div>
+              <p class="settings-desc" id="settings-update-msg" style="margin-top:8px"></p>
+              <div id="settings-release-notes" class="release-notes hidden"></div>
             </div>
-            <p class="settings-desc" id="settings-update-msg" style="margin-top:8px"></p>
-            <div id="settings-release-notes" class="release-notes hidden"></div>
-          </section>
+          </div>
         </div>
 
         <!-- Server & DNS -->
-        <div id="spanel-server" class="settings-ppanel hidden">
+        <div id="spanel-server" class="tab-panel hidden">
           <section class="settings-section">
             <h3>Server</h3>
             <div class="server-info-grid" id="server-info-grid">
@@ -485,7 +496,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- API Tokens -->
-        <div id="spanel-tokens" class="settings-ppanel hidden">
+        <div id="spanel-tokens" class="tab-panel hidden">
           <section class="settings-section">
             <h3>API Tokens</h3>
             <p class="settings-desc">Use tokens to deploy sites from CI/CD pipelines or scripts without a browser session. Tokens have full API access — treat them like passwords.</p>
@@ -509,7 +520,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Webhooks -->
-        <div id="spanel-webhooks" class="settings-ppanel hidden">
+        <div id="spanel-webhooks" class="tab-panel hidden">
           <section class="settings-section">
             <h3>Webhooks</h3>
             <p class="settings-desc">Send a POST request to an external URL when events happen. Supports Discord webhook URLs and generic JSON endpoints.</p>
@@ -526,7 +537,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Notifications -->
-        <div id="spanel-notifications" class="settings-ppanel hidden">
+        <div id="spanel-notifications" class="tab-panel hidden">
           <section class="settings-section">
             <h3>Bell notifications</h3>
             <p class="settings-desc">Choose which events appear in the notification bell.</p>
@@ -556,7 +567,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Users -->
-        <div id="spanel-users" class="settings-ppanel hidden admin-only">
+        <div id="spanel-users" class="tab-panel hidden admin-only">
           <section class="settings-section">
             <h3>User accounts</h3>
             <p class="settings-desc">Manage who can access this Grimport instance. <strong>Admins</strong> have full access. <strong>Editors</strong> can deploy and manage their assigned sites. <strong>Viewers</strong> have read-only access to their assigned sites.</p>
@@ -575,22 +586,26 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Security -->
-        <div id="spanel-security" class="settings-ppanel hidden">
-          <section class="settings-section">
-            <h3>Change password</h3>
-            <form id="form-change-password">
-              <label>Current password
-                <input type="password" name="old_password" autocomplete="current-password" required />
-              </label>
-              <label>New password
-                <input type="password" name="new_password" autocomplete="new-password" required />
-                <small>Minimum 8 characters</small>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Change password</button>
-              </div>
-            </form>
-          </section>
+        <div id="spanel-security" class="tab-panel hidden">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Change password</span></div>
+            <div class="card-body">
+              <form id="form-change-password" class="settings-form">
+                <div class="field">
+                  <label class="field-label" for="f-old-password">Current password</label>
+                  <input class="g-input" id="f-old-password" type="password" name="old_password" autocomplete="current-password" required />
+                </div>
+                <div class="field">
+                  <label class="field-label" for="f-new-password">New password</label>
+                  <input class="g-input" id="f-new-password" type="password" name="new_password" autocomplete="new-password" required minlength="8" />
+                  <div class="field-help muted" id="password-strength-hint">Minimum 8 characters</div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Update password</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
       </div>
     </div>
