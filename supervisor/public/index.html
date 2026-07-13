@@ -83,12 +83,17 @@
         <div class="view-header-end">
           <div class="search-wrap">
             <input class="search-input" id="site-search" type="search" placeholder="Search sites…" autocomplete="off" />
+            <button class="search-clear hidden" id="site-search-clear" type="button" aria-label="Clear search">×</button>
             <kbd class="search-kbd">⌘K</kbd>
           </div>
           <button class="btn btn-primary" id="btn-new-site">+ New site</button>
         </div>
       </header>
-      <div id="sites-list" class="sites-grid"></div>
+      <div id="sites-list" class="sites-grid">
+        <div class="skeleton site-card-skeleton"></div>
+        <div class="skeleton site-card-skeleton"></div>
+        <div class="skeleton site-card-skeleton"></div>
+      </div>
     </div>
 
     <!-- Overview view -->

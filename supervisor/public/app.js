@@ -213,14 +213,33 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   const open = document.querySelector('.modal-backdrop:not(.hidden)');
-  if (open) closeModal(open.id);
+  if (open) { closeModal(open.id); return; }
+  document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
 });
 
 // ── Search ────────────────────────────────────────────────
-document.getElementById('site-search').addEventListener('input', e => {
+const siteSearchInput = document.getElementById('site-search');
+const siteSearchClear = document.getElementById('site-search-clear');
+
+function clearSiteSearch() {
+  searchQuery = '';
+  if (siteSearchInput) siteSearchInput.value = '';
+  if (siteSearchClear) siteSearchClear.classList.add('hidden');
+  renderSites();
+}
+if (typeof window !== 'undefined') window.clearSiteSearch = clearSiteSearch;
+
+siteSearchInput.addEventListener('input', e => {
   searchQuery = e.target.value.toLowerCase().trim();
+  if (siteSearchClear) siteSearchClear.classList.toggle('hidden', !searchQuery);
   renderSites();
 });
+if (siteSearchClear) {
+  siteSearchClear.addEventListener('click', () => {
+    clearSiteSearch();
+    siteSearchInput.focus();
+  });
+}
 
 // ── Sites list ────────────────────────────────────────────
 async function loadSites() {
@@ -228,6 +247,7 @@ async function loadSites() {
   api('GET', '/uptime').then(d => { uptimeData = d; renderSites(); }).catch(() => {});
   renderSites();
   sites.forEach(s => refreshDnsDot(s.id));
+  sites.forEach(s => { if (statusInfo(s.container).error) refreshDownDuration(s.id); });
 }
 
 async function refreshDnsDot(siteId) {
@@ -240,6 +260,41 @@ async function refreshDnsDot(siteId) {
   } catch {}
 }
 
+// Best-effort "down for N min" hint on the error banner. Uses the existing
+// per-site /api/uptime/:id endpoint (already used by the analytics modal) —
+// no API changes. The endpoint only returns the most recent ~90 checks, so
+// for outages older than that we just show the oldest known point ("over").
+function humanDuration(mins) {
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+async function refreshDownDuration(siteId) {
+  try {
+    const data = await api('GET', `/uptime/${siteId}?period=24h`);
+    const strip = data.strip || [];
+    if (!strip.length || strip[strip.length - 1].up) return;
+    let since = strip[strip.length - 1].checked_at;
+    let coversWholeStrip = true;
+    for (let i = strip.length - 1; i >= 0; i--) {
+      if (!strip[i].up) { since = strip[i].checked_at; }
+      else { coversWholeStrip = false; break; }
+    }
+    const mins = Math.max(1, Math.round((Date.now() / 1000 - since) / 60));
+    const el = document.getElementById(`down-duration-${siteId}`);
+    if (el) el.textContent = ` · down for ${coversWholeStrip ? 'over ' : ''}${humanDuration(mins)}`;
+  } catch {}
+}
+
+function closeAllSiteOverflows(exceptId) {
+  document.querySelectorAll('.site-overflow-menu').forEach(m => {
+    if (m.id !== `overflow-${exceptId}`) m.classList.add('hidden');
+  });
+}
+document.addEventListener('click', () => closeAllSiteOverflows());
+if (typeof window !== 'undefined') window.closeAllSiteOverflows = closeAllSiteOverflows;
+
 function renderSites() {
   const grid = document.getElementById('sites-list');
   const count = document.getElementById('site-count');
@@ -250,17 +305,23 @@ function renderSites() {
         s.domain.toLowerCase().includes(searchQuery))
     : sites;
 
-  count.textContent = searchQuery
-    ? `${filtered.length} of ${sites.length} site${sites.length !== 1 ? 's' : ''}`
-    : `${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+  if (searchQuery) {
+    count.textContent = `${filtered.length} of ${sites.length} site${sites.length !== 1 ? 's' : ''} — matching "${searchQuery}"`;
+  } else {
+    const runningCount = sites.filter(s => s.container?.running).length;
+    const downCount = sites.filter(s => statusInfo(s.container).error).length;
+    count.textContent = `${sites.length} site${sites.length !== 1 ? 's' : ''}` +
+      (sites.length ? ` · ${runningCount} running` : '') +
+      (downCount ? ` · ${downCount} down` : '');
+  }
 
   if (sites.length === 0) {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
-        <p>Deploy your first site to get started.</p>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} New site</button>
+        <p>Upload a zip and Grimport serves it over HTTPS on your domain.</p>
+        ${currentUser.role === 'admin' ? `<button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} Create your first site</button>` : ''}
       </div>`;
     return;
   }
@@ -269,8 +330,8 @@ function renderSites() {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
-        <h3>No results for "${esc(searchQuery)}"</h3>
-        <p>Try a different name or domain.</p>
+        <h3>No other sites match "${esc(searchQuery)}"</h3>
+        <p>Search covers names and domains · <button type="button" class="link-btn" onclick="clearSiteSearch()">Clear search</button></p>
       </div>`;
     return;
   }
@@ -293,71 +354,109 @@ function renderSites() {
       if (action === 'preview-create')  openPreviewModal(site);
       if (action === 'preview-swap')    previewSwap(site);
       if (action === 'preview-discard') previewDiscard(site);
+      if (action === 'overflow') {
+        const menu = document.getElementById(`overflow-${id}`);
+        const wasHidden = menu?.classList.contains('hidden');
+        closeAllSiteOverflows();
+        if (menu && wasHidden) menu.classList.remove('hidden');
+      }
     });
   });
 }
 
+// Container lifecycle → { cls, label, error }. `cls` maps 1:1 onto the
+// design-system .status-<cls> classes (docs/design/design-system.md
+// "Status vocabulary"); glyph + label + colour, never colour alone.
 function statusInfo(container) {
-  if (!container) return { cls: 'stopped', label: 'Unknown', error: false };
-  const map = {
-    running:    { cls: 'running',  label: 'Running',      error: false },
-    exited:     { cls: 'stopped',  label: 'Stopped',      error: container.exitCode !== 0 },
-    created:    { cls: 'starting', label: 'Starting',     error: false },
-    restarting: { cls: 'starting', label: 'Restarting',   error: true },
-    paused:     { cls: 'stopped',  label: 'Paused',       error: false },
-    missing:    { cls: 'missing',  label: 'Missing',      error: true },
-    none:       { cls: 'stopped',  label: 'No container', error: false },
-  };
-  return map[container.status] || { cls: 'stopped', label: container.status, error: false };
+  if (!container) return { cls: 'unknown', label: 'Unknown', error: false };
+  switch (container.status) {
+    case 'running':    return { cls: 'running',      label: 'Running',      error: false };
+    case 'exited': {
+      const abnormal = container.exitCode !== 0;
+      return { cls: abnormal ? 'missing' : 'stopped', label: abnormal ? 'Exited' : 'Stopped', error: abnormal };
+    }
+    case 'created':    return { cls: 'starting',     label: 'Starting…',    error: false };
+    case 'restarting': return { cls: 'restarting',   label: 'Restarting',   error: true };
+    case 'paused':     return { cls: 'paused',       label: 'Paused',       error: false };
+    case 'missing':    return { cls: 'missing',      label: 'Missing',      error: true };
+    case 'none':       return { cls: 'no-container', label: 'No container', error: false };
+    default:           return { cls: 'unknown',      label: container.status, error: false };
+  }
+}
+
+// Common container exit codes → short human reason for the error hint.
+function exitCodeReason(exitCode) {
+  const known = { 137: 'out of memory', 139: 'segmentation fault', 143: 'terminated', 1: 'application error' };
+  return known[exitCode] ? ` (${known[exitCode]})` : '';
+}
+
+function errorHintText(container) {
+  if (container?.status === 'exited' && container.exitCode !== 0) {
+    return `Container exited with code ${container.exitCode}${exitCodeReason(container.exitCode)} — check logs`;
+  }
+  if (container?.status === 'missing')    return 'Container missing — check logs';
+  if (container?.status === 'restarting') return 'Container restarting repeatedly — check logs';
+  return 'Check logs for details';
 }
 
 function siteCard(site) {
-  const { cls, label, error } = statusInfo(site.container);
-  const isRunning = site.container?.running;
+  const container = site.container;
+  const { cls, label, error } = statusInfo(container);
+  const isRunning = !!container?.running;
   const runtime = site.runtime || 'static';
 
   const tags = [
-    runtime !== 'static' ? `<span class="runtime-badge ${runtime}">${runtime.toUpperCase()}</span>` : '',
-    site.maintenance_mode ? `<span class="tag tag-yellow">Maintenance</span>` : '',
-    site.basic_auth       ? `<span class="tag tag-gray">${ICON.shield} Auth</span>` : '',
-    site.spa_mode         ? `<span class="tag tag-blue">SPA</span>` : '',
+    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
+    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
+    site.maintenance_mode ? `<span class="badge badge-maint">⛭ Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="badge badge-auth">🔒 Basic Auth</span>` : '',
   ].filter(Boolean).join('');
 
   const previewBadge = site.preview_container_id ? `
     <div class="preview-badge">
-      ${ICON.layers}
-      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)}</a>
-      <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
-      <button class="btn btn-xs" data-action="preview-discard" data-id="${site.id}">Discard</button>
+      <span class="preview-badge-label">Preview</span>
+      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)} ↗</a>
+      <span class="preview-badge-meta">deployed</span>
+      <div class="preview-badge-actions">
+        <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
+        <button class="btn btn-xs btn-secondary" data-action="preview-discard" data-id="${site.id}">Discard</button>
+      </div>
+    </div>` : '';
+
+  const errorHint = error ? `
+    <div class="site-error-hint">
+      ${ICON.warning}
+      <span>${esc(errorHintText(container))}<span id="down-duration-${site.id}"></span></span>
     </div>` : '';
 
   return `
     <div class="site-card${error ? ' site-card--error' : ''}">
       <div class="site-card-header">
-        <span class="status-dot ${cls}" title="${label}"></span>
+        <span class="status status-${cls}" data-status-for="${site.id}"><span class="status-glyph">●</span><span class="status-label">${esc(label)}</span></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
-        <span class="site-status-label">${label}</span>
       </div>
       <div class="site-domain-row">
-        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}</a>
-        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS">
+        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}<span class="site-domain-arrow">↗</span></a>
+        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status">
           <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}"></span>
         </button>
-        <a class="site-ext-link" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="Open site">${ICON.externalLink}</a>
       </div>
       ${tags ? `<div class="site-tags">${tags}</div>` : ''}
       ${previewBadge}
-      ${error ? `<div class="site-error-hint">${ICON.warning} Container exited — check logs</div>` : ''}
+      ${errorHint}
       ${uptimeStrip(site.id)}
       <div class="site-actions">
-        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">${ICON.upload} Deploy</button>
-        <div class="site-action-icons">
-          <button class="icon-btn" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" title="${isRunning ? 'Stop' : 'Start'}">${isRunning ? ICON.stop : ICON.play}</button>
-          <button class="icon-btn" data-action="logs"     data-id="${site.id}" title="Logs">${ICON.logs}</button>
-          <button class="icon-btn" data-action="analytics" data-id="${site.id}" title="Analytics">${ICON.barChart}</button>
-          <button class="icon-btn" data-action="history"  data-id="${site.id}" title="History">${ICON.history}</button>
-          <button class="icon-btn" data-action="settings" data-id="${site.id}" title="Settings">${ICON.settings}</button>
-          ${!site.preview_container_id ? `<button class="icon-btn" data-action="preview-create" data-id="${site.id}" title="Create preview">${ICON.layers}</button>` : ''}
+        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">Deploy</button>
+        <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}">${isRunning ? 'Stop' : 'Start'}</button>
+        <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
+        <button class="btn btn-sm btn-secondary" data-action="analytics" data-id="${site.id}">Analytics</button>
+        <div class="site-overflow">
+          <button class="btn btn-sm btn-secondary" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions">⋯</button>
+          <div class="site-overflow-menu hidden" id="overflow-${site.id}">
+            <button data-action="history" data-id="${site.id}">${ICON.history} History</button>
+            <button data-action="settings" data-id="${site.id}">${ICON.settings} Settings</button>
+            ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}">${ICON.layers} Create preview</button>` : ''}
+          </div>
         </div>
       </div>
     </div>`;
@@ -365,13 +464,19 @@ function siteCard(site) {
 
 function uptimeStrip(siteId) {
   const u = uptimeData[siteId];
-  if (!u || u.uptime24h === null) return '';
-  const pct = parseFloat(u.uptime24h);
-  const cls = pct >= 99 ? 'uptime-good' : pct >= 95 ? 'uptime-warn' : 'uptime-bad';
+  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
+  const pct = hasPct ? parseFloat(u.uptime24h) : null;
+  const pctCls = pct === null ? '' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
+  const pctText = pct === null ? '— %' : `${pct}%`;
+  const status = u?.currentStatus;
+  const dotCls = status === 'up' ? 'uptime-dot-up' : status === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown';
+  const liveCls = status === 'up' ? 'status-up' : status === 'down' ? 'status-down' : 'status-muted';
+  const liveLabel = status === 'up' ? 'Up' : status === 'down' ? 'Down' : '?';
   return `<div class="uptime-row">
-    <span class="uptime-pct ${cls}">${pct}%</span>
+    <span class="uptime-pct ${pctCls}">${pctText}</span>
     <span class="uptime-label">uptime 24h</span>
-    <span class="uptime-dot ${u.currentStatus === 'up' ? 'uptime-dot-up' : u.currentStatus === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown'}"></span>
+    <span class="uptime-dot ${dotCls}"></span>
+    <span class="uptime-live-label ${liveCls}">${liveLabel}</span>
   </div>`;
 }
 
@@ -802,12 +907,13 @@ async function siteAction(id, action) {
     if (!confirm(`Stop "${site.name}"? It will be unreachable until started again.`)) return;
   }
 
-  // Optimistic update
+  // Optimistic update — flip the status pill to "starting" while the
+  // request is in flight; loadSites() reconciles with the real state after.
   const card = document.querySelector(`[data-action="${action === 'stop' ? 'stop' : 'start'}"][data-id="${id}"]`)?.closest('.site-card');
-  const dot = card?.querySelector('.status-dot');
-  const tag = card?.querySelector('.tag:not(.blue):not(.yellow):not(.green)');
-  if (dot) { dot.className = 'status-dot starting'; }
-  if (tag) tag.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
+  const statusEl = card?.querySelector(`[data-status-for="${id}"]`);
+  const labelEl = statusEl?.querySelector('.status-label');
+  if (statusEl) statusEl.className = 'status status-starting';
+  if (labelEl) labelEl.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
 
   try {
     await api('POST', `/sites/${id}/${action}`);
