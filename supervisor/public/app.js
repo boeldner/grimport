@@ -988,7 +988,7 @@ async function openAnalytics(site) {
   activeAnalyticsSiteId = site.id;
   document.getElementById('analytics-site-name').textContent = site.name;
   document.querySelectorAll('.analytics-period-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.period === activeAnalyticsPeriod));
+    b.classList.toggle('is-active', b.dataset.period === activeAnalyticsPeriod));
   openModal('modal-analytics');
   await loadAnalytics();
 }
@@ -1013,13 +1013,17 @@ function renderAnalytics(data) {
   const errorRate = totals.requests > 0
     ? (((totals.client_err + totals.server_err) / totals.requests) * 100).toFixed(1)
     : '0.0';
+  const clientPct = totals.requests > 0 ? ((totals.client_err / totals.requests) * 100).toFixed(1) : '0.0';
+  const serverPct = totals.requests > 0 ? ((totals.server_err / totals.requests) * 100).toFixed(1) : '0.0';
 
   document.getElementById('stat-requests').textContent = fmtNum(totals.requests);
-  document.getElementById('stat-requests-1h').textContent = fmtNum(last1h.requests) + ' last 1h';
+  document.getElementById('stat-requests-1h').textContent = fmtNum(last1h.requests) + ' in the last hour';
   document.getElementById('stat-bytes').textContent = fmtBytes(totals.bytes);
+  const avgBytes = totals.requests > 0 ? totals.bytes / totals.requests : 0;
+  document.getElementById('stat-bytes-sub').textContent = fmtBytes(avgBytes) + ' avg / request';
   document.getElementById('stat-errors').textContent = errorRate + '%';
-  document.getElementById('stat-errors-detail').textContent =
-    `${totals.client_err} client · ${totals.server_err} server`;
+  document.getElementById('stat-errors-detail').innerHTML =
+    `<span style="color:var(--warn)">${clientPct}% client</span> · <span style="color:var(--err)">${serverPct}% server</span>`;
 
   const total = totals.ok + totals.redirects + totals.client_err + totals.server_err || 1;
   document.getElementById('bar-ok').style.width        = (totals.ok        / total * 100) + '%';
@@ -1048,18 +1052,19 @@ function renderSparkline(hourly, period) {
   const slots = [];
   for (let i = bucketCount - 1; i >= 0; i--) {
     const slotEnd = now - i * bucketSize * 3600;
-    let requests = 0, hasError = false;
+    let requests = 0, serverErr = 0, hasError = false;
     for (let t = slotEnd - bucketSize * 3600; t < slotEnd; t += 3600) {
       const h = dataMap.get(t - (t % 3600));
-      if (h) { requests += h.requests; if (h.client_err + h.server_err > 0) hasError = true; }
+      if (h) { requests += h.requests; serverErr += h.server_err; if (h.client_err + h.server_err > 0) hasError = true; }
     }
-    slots.push({ requests, hasError, label: new Date(slotEnd * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+    slots.push({ requests, serverErr, hasError, label: new Date(slotEnd * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
   }
   const maxVal = Math.max(...slots.map(s => s.requests), 1);
+  const tooltip = document.getElementById('analytics-tooltip');
   chart.innerHTML = `
     <div class="sparkline">
-      ${slots.map(s => `
-        <div class="spark-bar-wrap" title="${s.requests} requests at ${s.label}">
+      ${slots.map((s, i) => `
+        <div class="spark-bar-wrap" data-slot="${i}" title="${s.requests} requests at ${s.label}">
           <div class="spark-bar ${s.hasError ? 'spark-bar-error' : ''}" style="height:${Math.max(s.requests / maxVal * 100, s.requests > 0 ? 4 : 0)}%"></div>
         </div>`).join('')}
     </div>
@@ -1068,12 +1073,24 @@ function renderSparkline(hourly, period) {
       <span>${slots[Math.floor(slots.length / 2)]?.label || ''}</span>
       <span>${slots[slots.length - 1]?.label || 'now'}</span>
     </div>`;
+
+  if (tooltip) {
+    chart.querySelectorAll('.spark-bar-wrap').forEach(wrap => {
+      wrap.addEventListener('mouseenter', () => {
+        const s = slots[Number(wrap.dataset.slot)];
+        if (!s) return;
+        tooltip.textContent = `${s.label} — ${fmtNum(s.requests)} req${s.serverErr > 0 ? ` · ${s.serverErr}× 5xx` : ''}`;
+        tooltip.classList.add('is-visible');
+      });
+      wrap.addEventListener('mouseleave', () => tooltip.classList.remove('is-visible'));
+    });
+  }
 }
 
 document.querySelectorAll('.analytics-period-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     activeAnalyticsPeriod = btn.dataset.period;
-    document.querySelectorAll('.analytics-period-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.analytics-period-btn').forEach(b => b.classList.toggle('is-active', b === btn));
     loadAnalytics();
   });
 });
@@ -1109,7 +1126,7 @@ async function checkDns(siteId) {
     const data = await api('GET', `/dns/${siteId}`);
     updateDnsIpFields(data.serverIp || '—');
     const bannerMap = {
-      ok:      { cls: 'ok',      text: `✓ DNS is correctly pointing to ${data.serverIp}` },
+      ok:      { cls: 'ok',      text: `DNS is correctly pointing to ${data.serverIp}` },
       pending: { cls: 'pending', text: 'DNS not resolving yet — records may not have propagated' },
       wrong:   { cls: 'wrong',   text: `Resolves to ${data.resolved.join(', ')} — expected ${data.serverIp}` },
       unknown: { cls: 'pending', text: 'Server IP unknown — set PUBLIC_IP in .env to enable checks' },
@@ -1125,9 +1142,18 @@ async function checkDns(siteId) {
   }
 }
 
+const DNS_BANNER_ICON = {
+  ok:       ICON.check,
+  wrong:    ICON.x,
+  pending:  ICON.circle,
+  checking: ICON.rotateCw,
+};
+
 function setBanner(state, text) {
   document.getElementById('dns-status-banner').className = `dns-banner dns-banner-${state}`;
   document.getElementById('dns-status-text').textContent = text;
+  const icon = document.getElementById('dns-banner-icon');
+  if (icon) icon.innerHTML = DNS_BANNER_ICON[state] || '';
 }
 
 function updateDnsIpFields(ip) {
@@ -1145,7 +1171,7 @@ function updateDnsIpFields(ip) {
 }
 
 function switchDnsTab(name) {
-  document.querySelectorAll('.dns-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.dns-tab').forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
   document.querySelectorAll('.dns-tab-content').forEach(c => c.classList.add('hidden'));
   document.getElementById(`dns-tab-${name}`)?.classList.remove('hidden');
 }
@@ -1160,7 +1186,7 @@ document.getElementById('btn-recheck-dns').addEventListener('click', () => {
 async function openHistory(site) {
   activeSiteId = site.id;
   document.getElementById('history-site-name').textContent = site.name;
-  document.getElementById('history-list').innerHTML = '<p style="color:var(--text-muted);padding:16px">Loading…</p>';
+  document.getElementById('history-list').innerHTML = '<p style="color:var(--tx3);padding:16px">Loading…</p>';
   openModal('modal-history');
   await refreshHistory(site.id, site.name);
 }
@@ -1170,22 +1196,20 @@ async function refreshHistory(siteId, siteName) {
     const history = await api('GET', `/deploy/${siteId}/history`);
     const list = document.getElementById('history-list');
     if (!history.length) {
-      list.innerHTML = '<p style="color:var(--text-muted);padding:16px 0">No deployments yet.</p>';
+      list.innerHTML = '<p style="color:var(--tx3);padding:16px 0">No deployments yet.</p>';
       return;
     }
-    list.innerHTML = `
-      <table class="token-table">
-        <thead><tr><th>#</th><th>Deployed</th><th>Size</th><th></th></tr></thead>
-        <tbody>
-          ${history.map((d, i) => `
-            <tr>
-              <td class="token-meta">${history.length - i}</td>
-              <td>${new Date(d.deployed_at * 1000).toLocaleString()}</td>
-              <td class="token-meta">${(d.size / 1024).toFixed(0)} KB</td>
-              <td>${i > 0 ? `<button class="btn btn-sm" data-rollback="${d.id}">Rollback</button>` : '<span class="token-meta">Current</span>'}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+    list.innerHTML = history.map((d, i) => `
+      <div class="history-row">
+        <span class="history-num">#${history.length - i}</span>
+        <span class="history-info">
+          <span class="history-file">${esc(d.filename)}</span>
+          <span class="history-meta">${timeAgo(d.deployed_at)} · ${fmtBytes(d.size)}</span>
+        </span>
+        ${i === 0
+          ? '<span class="badge badge-ok">CURRENT</span>'
+          : `<button class="btn btn-sm" data-rollback="${d.id}">Roll back…</button>`}
+      </div>`).join('');
     list.querySelectorAll('[data-rollback]').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!confirm('Roll back to this deployment? Current files will be replaced.')) return;
@@ -1199,12 +1223,12 @@ async function refreshHistory(siteId, siteName) {
         } catch (err) {
           toast(err.message, 'error');
           btn.disabled = false;
-          btn.textContent = 'Rollback';
+          btn.textContent = 'Roll back…';
         }
       });
     });
   } catch (err) {
-    document.getElementById('history-list').innerHTML = `<p style="color:var(--red);padding:16px 0">${esc(err.message)}</p>`;
+    document.getElementById('history-list').innerHTML = `<p style="color:var(--err);padding:16px 0">${esc(err.message)}</p>`;
   }
 }
 
@@ -1727,13 +1751,13 @@ function openConnectDomain(domain) {
   document.getElementById('connect-domain-name').textContent = domain;
   const siteList = document.getElementById('connect-site-list');
   if (!sites.length) {
-    siteList.innerHTML = '<p style="color:var(--text-muted)">No sites yet — create one below.</p>';
+    siteList.innerHTML = '<p style="color:var(--tx3)">No sites yet — create one below.</p>';
   } else {
     siteList.innerHTML = sites.map(s => `
       <div class="connect-site-row">
         <span class="connect-site-name">${esc(s.name)}</span>
         <span class="connect-site-domain">${esc(s.domain)}</span>
-        <button class="btn btn-sm btn-primary" data-assign-site="${s.id}">Assign</button>
+        <button class="btn btn-sm btn-accent-outline" data-assign-site="${s.id}">Assign…</button>
       </div>`).join('');
     siteList.querySelectorAll('[data-assign-site]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2640,9 +2664,13 @@ document.getElementById('btn-update-now').addEventListener('click', () => {
 });
 
 async function startUpdateFlow() {
-  // Show release notes in modal if available
+  // Show release notes + target version in modal if available
   try {
     const data = await api('GET', '/update/check');
+    const titleEl = document.getElementById('update-modal-title');
+    if (titleEl && data.latest) titleEl.textContent = `Updating to ${data.latest}`;
+    const detailEl = document.getElementById('update-pull-detail');
+    if (detailEl && data.latest) detailEl.textContent = `— grimport:${data.latest}`;
     const el = document.getElementById('update-modal-release-notes');
     if (el && data.releaseNotes) {
       el.innerHTML = renderMarkdown(data.releaseNotes);
@@ -2661,9 +2689,9 @@ function setUpdateStep(activeStatus) {
     const iconEl = document.getElementById(`ustep-${s}-icon`);
     const stepEl = document.getElementById(`ustep-${s}`);
     if (!iconEl) return;
-    if (i < activeIdx) { iconEl.innerHTML = ICON.check; stepEl.className = 'update-step done'; }
-    else if (i === activeIdx) { iconEl.innerHTML = ICON.rotateCw; stepEl.className = 'update-step active'; }
-    else { iconEl.innerHTML = ICON.circle; stepEl.className = 'update-step'; }
+    if (i < activeIdx) { iconEl.innerHTML = ICON.check; stepEl.className = 'step done'; }
+    else if (i === activeIdx) { iconEl.innerHTML = ICON.rotateCw; stepEl.className = 'step active'; }
+    else { iconEl.innerHTML = ICON.circle; stepEl.className = 'step'; }
   });
   // Progress bar: each step is worth 25%, active step animates within its slice
   const bar = document.getElementById('update-progressbar');
@@ -2672,8 +2700,6 @@ function setUpdateStep(activeStatus) {
     ? 100
     : Math.round((activeIdx / stepOrder.length) * 100) + 10; // +10 so it doesn't start at 0
   bar.style.width = `${Math.min(pct, 95)}%`;
-  if (activeStatus === 'done') bar.classList.add('update-progressbar--done');
-  else bar.classList.remove('update-progressbar--done');
 }
 
 async function pollUpdateStatus() {

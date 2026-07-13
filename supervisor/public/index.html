@@ -888,44 +888,49 @@ systemctl start cloudflared</pre>
   <div id="modal-analytics" class="modal-backdrop hidden">
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h2>Analytics — <span id="analytics-site-name"></span></h2>
-        <div style="display:flex;gap:6px;align-items:center">
-          <div class="analytics-periods">
+        <h2><span id="analytics-site-name"></span> — Analytics</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="seg-ctl" id="analytics-periods">
             <button class="analytics-period-btn" data-period="24h">24h</button>
-            <button class="analytics-period-btn active" data-period="7d">7d</button>
+            <button class="analytics-period-btn is-active" data-period="7d">7d</button>
             <button class="analytics-period-btn" data-period="30d">30d</button>
           </div>
           <button class="modal-close" data-close="modal-analytics"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
       </div>
 
-      <div id="analytics-loading" class="hidden" style="text-align:center;padding:24px;color:var(--text-muted)">Loading…</div>
+      <div id="analytics-loading" class="hidden" style="text-align:center;padding:24px;color:var(--tx3)">Loading…</div>
 
-      <div id="analytics-body">
-        <div class="analytics-stats">
-          <div class="analytics-stat">
-            <div class="analytics-stat-value" id="stat-requests">—</div>
-            <div class="analytics-stat-label">Requests</div>
-            <div class="analytics-stat-sub" id="stat-requests-1h">— last 1h</div>
+      <div id="analytics-body" class="analytics-body">
+        <div class="stat-tiles analytics-stat-tiles">
+          <div class="stat-tile">
+            <span class="stat-tile-label">Requests</span>
+            <span class="stat-tile-val" id="stat-requests">—</span>
+            <span class="stat-tile-sub" id="stat-requests-1h">—</span>
           </div>
-          <div class="analytics-stat">
-            <div class="analytics-stat-value" id="stat-bytes">—</div>
-            <div class="analytics-stat-label">Data served</div>
+          <div class="stat-tile">
+            <span class="stat-tile-label">Data served</span>
+            <span class="stat-tile-val" id="stat-bytes">—</span>
+            <span class="stat-tile-sub" id="stat-bytes-sub">avg / request</span>
           </div>
-          <div class="analytics-stat">
-            <div class="analytics-stat-value" id="stat-errors">—%</div>
-            <div class="analytics-stat-label">Error rate</div>
-            <div class="analytics-stat-sub" id="stat-errors-detail">—</div>
+          <div class="stat-tile">
+            <span class="stat-tile-label">Error rate</span>
+            <span class="stat-tile-val" id="stat-errors">—%</span>
+            <span class="stat-tile-sub" id="stat-errors-detail">—</span>
           </div>
         </div>
 
-        <div class="analytics-chart-wrap">
-          <div class="analytics-chart-title">Requests over time</div>
+        <div class="analytics-panel">
+          <div class="analytics-panel-head">
+            <span class="analytics-chart-title">Requests / hour</span>
+            <span class="analytics-tooltip" id="analytics-tooltip"></span>
+          </div>
           <div id="analytics-chart"></div>
+          <div class="analytics-chart-note">Red bar = hour with 5xx errors · hover a bar for detail</div>
         </div>
 
-        <div class="analytics-breakdown">
-          <div class="analytics-breakdown-title">Status codes</div>
+        <div class="analytics-panel">
+          <span class="analytics-chart-title">Status codes</span>
           <div class="analytics-status-bar">
             <div class="analytics-bar-seg seg-ok"       id="bar-ok"       style="width:0%"></div>
             <div class="analytics-bar-seg seg-redirect" id="bar-redirect" style="width:0%"></div>
@@ -933,10 +938,10 @@ systemctl start cloudflared</pre>
             <div class="analytics-bar-seg seg-server"   id="bar-server"   style="width:0%"></div>
           </div>
           <div class="analytics-legend">
-            <span class="legend-item"><span class="legend-dot" style="background:var(--green)"></span> 2xx <strong id="bar-ok-label">0</strong></span>
-            <span class="legend-item"><span class="legend-dot" style="background:var(--accent-hi)"></span> 3xx <strong id="bar-redirect-label">0</strong></span>
-            <span class="legend-item"><span class="legend-dot" style="background:var(--yellow)"></span> 4xx <strong id="bar-client-label">0</strong></span>
-            <span class="legend-item"><span class="legend-dot" style="background:var(--red)"></span> 5xx <strong id="bar-server-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--ok)"></span> 2xx <strong id="bar-ok-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--acc)"></span> 3xx <strong id="bar-redirect-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--warn)"></span> 4xx <strong id="bar-client-label">0</strong></span>
+            <span class="legend-item"><span class="legend-dot" style="background:var(--err)"></span> 5xx <strong id="bar-server-label">0</strong></span>
           </div>
         </div>
       </div>
@@ -953,19 +958,19 @@ systemctl start cloudflared</pre>
   <div id="modal-dns" class="modal-backdrop hidden">
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h2>DNS Setup — <span id="dns-site-name"></span></h2>
+        <h2>DNS setup — <span id="dns-site-name"></span></h2>
         <button class="modal-close" data-close="modal-dns"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
 
       <div id="dns-status-banner" class="dns-banner dns-banner-checking">
-        <span class="dns-banner-dot"></span>
+        <span class="dns-banner-icon" id="dns-banner-icon"></span>
         <span id="dns-status-text">Checking DNS…</span>
         <button class="btn btn-sm" id="btn-recheck-dns" style="margin-left:auto">Recheck</button>
       </div>
 
-      <div class="dns-tabs">
-        <button class="dns-tab active" data-tab="standard">Standard DNS</button>
-        <button class="dns-tab" data-tab="cloudflare">Cloudflare Proxy</button>
+      <div class="seg-ctl">
+        <button class="dns-tab is-active" data-tab="standard">Standard DNS</button>
+        <button class="dns-tab" data-tab="cloudflare">Proxied / tunnel</button>
       </div>
 
       <div class="dns-tab-content" id="dns-tab-standard">
@@ -981,8 +986,20 @@ systemctl start cloudflared</pre>
             <span class="dns-muted">3600</span>
           </div>
         </div>
-        <p class="dns-note">DNS propagation usually takes 1–5 minutes with low TTL, up to 24h with high TTL. Click Recheck to test.</p>
-        <p class="dns-note">Once the domain resolves correctly, enable HTTPS by setting <code>ACME_EMAIL</code> in your <code>.env</code> and uncommenting the HTTPS router labels in <code>docker-compose.yml</code>.</p>
+        <div class="dns-steps">
+          <div class="dns-step">
+            <span class="dns-step-num">1</span>
+            <div>Open your provider's DNS console and add the <strong>A record</strong> above.</div>
+          </div>
+          <div class="dns-step">
+            <span class="dns-step-num">2</span>
+            <div>Wait for the TTL to expire — usually 1–5 minutes with low TTL, up to 24h with high TTL.</div>
+          </div>
+          <div class="dns-step">
+            <span class="dns-step-num">3</span>
+            <div>Hit <strong>Recheck</strong>. Once DNS resolves correctly, enable HTTPS by setting <code>ACME_EMAIL</code> in <code>.env</code> and uncommenting the HTTPS router labels in <code>docker-compose.yml</code>.</div>
+          </div>
+        </div>
       </div>
 
       <div class="dns-tab-content hidden" id="dns-tab-cloudflare">
@@ -1038,12 +1055,12 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Deploy History ────────────────────── -->
   <div id="modal-history" class="modal-backdrop hidden">
-    <div class="modal modal-wide">
+    <div class="modal">
       <div class="modal-header">
-        <h2>History — <span id="history-site-name"></span></h2>
+        <h2><span id="history-site-name"></span> — Deploy history</h2>
         <button class="modal-close" data-close="modal-history"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
-      <div id="history-list"></div>
+      <div id="history-list" class="history-list"></div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modal-history">Close</button>
       </div>
@@ -1058,14 +1075,17 @@ systemctl start cloudflared</pre>
         <button class="modal-close" data-close="modal-connect-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <p class="settings-desc" style="margin-bottom:16px">
-        <strong id="connect-domain-name"></strong> is pointing to this server but isn't connected to a site yet.
+        <strong id="connect-domain-name" class="connect-domain-mono"></strong> points at this server but isn't linked to any site yet.
       </p>
       <div class="connect-domain-options">
-        <div class="connect-opt">
-          <h4>Create a new site</h4>
-          <button class="btn btn-primary" id="btn-connect-create">Create site with this domain</button>
+        <div class="connect-opt connect-opt-accent">
+          <div class="connect-opt-body">
+            <h4>Create a new site</h4>
+            <span class="connect-opt-sub">Pre-filled with this domain</span>
+          </div>
+          <button class="btn btn-primary" id="btn-connect-create">New site…</button>
         </div>
-        <div class="connect-opt-divider">or assign to existing site</div>
+        <div class="connect-opt-divider">Or assign to an existing site</div>
         <div id="connect-site-list" class="connect-site-list"></div>
       </div>
       <div class="modal-actions">
@@ -1104,43 +1124,43 @@ systemctl start cloudflared</pre>
   <div id="modal-update" class="modal-backdrop hidden">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
-        <h2 class="modal-title">Updating Grimport</h2>
+        <h2 class="modal-title" id="update-modal-title">Updating Grimport</h2>
       </div>
-      <div style="padding:8px 0 16px">
-        <div id="update-modal-release-notes" class="release-notes hidden" style="margin-bottom:16px"></div>
-        <div class="update-progressbar-wrap">
-          <div class="update-progressbar" id="update-progressbar"></div>
-        </div>
-        <div class="update-progress-steps" id="update-steps">
-          <div class="update-step" id="ustep-pulling">
-            <span class="update-step-icon" id="ustep-pulling-icon">○</span>
-            <span>Pulling new image from GHCR</span>
+      <div style="padding:8px 0 16px;display:flex;flex-direction:column;gap:14px">
+        <div id="update-modal-release-notes" class="release-notes hidden"></div>
+        <div class="progress"><div class="progress-fill" id="update-progressbar"></div></div>
+        <div class="steps" id="update-steps">
+          <div class="step" id="ustep-pulling">
+            <span class="step-glyph" id="ustep-pulling-icon">○</span>
+            <span>Pull image <span class="update-step-detail" id="update-pull-detail"></span></span>
           </div>
-          <div class="update-step" id="ustep-applying">
-            <span class="update-step-icon" id="ustep-applying-icon">○</span>
-            <span>Preparing new container</span>
+          <div class="step" id="ustep-applying">
+            <span class="step-glyph" id="ustep-applying-icon">○</span>
+            <span>Prepare container</span>
           </div>
-          <div class="update-step" id="ustep-restarting">
-            <span class="update-step-icon" id="ustep-restarting-icon">○</span>
-            <span>Restarting supervisor</span>
+          <div class="step" id="ustep-restarting">
+            <span class="step-glyph" id="ustep-restarting-icon">○</span>
+            <span>Restarting panel…</span>
           </div>
-          <div class="update-step" id="ustep-done">
-            <span class="update-step-icon" id="ustep-done-icon">○</span>
+          <div class="step" id="ustep-done">
+            <span class="step-glyph" id="ustep-done-icon">○</span>
             <span>Done</span>
           </div>
         </div>
-        <p class="settings-desc" id="update-status-msg" style="margin-top:12px">Starting update…</p>
+
+        <div class="update-note-box">The panel will be unreachable for a few seconds. This screen keeps polling and resumes automatically — status survives the restart.</div>
+        <p class="settings-desc" id="update-status-msg">Starting update…</p>
 
         <!-- Shown only after update completes -->
         <div id="update-reload-box" class="update-reload-box hidden">
-          <p class="update-reload-msg">Update complete! Reloading in <strong id="update-reload-countdown">30</strong>s</p>
+          <div class="update-reload-row">
+            <span class="update-reload-msg">Reloading in <strong id="update-reload-countdown">30</strong>s after completion…</span>
+            <button class="btn btn-sm" id="btn-reload-now">Reload now</button>
+          </div>
           <div class="update-countdown-wrap">
             <div class="update-countdown-bar" id="update-countdown-bar"></div>
           </div>
-          <button class="btn btn-primary" id="btn-reload-now" style="margin-top:12px;width:100%">Reload now</button>
         </div>
-
-        <p class="settings-desc" style="margin-top:8px;color:var(--text-subtle)">Everything happens inside the running container. Your sites stay online — only the panel restarts for a few seconds.</p>
       </div>
     </div>
   </div>
