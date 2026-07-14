@@ -229,7 +229,20 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const dir = siteDir(req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 
-  db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
+  // Remove dependent rows first (site_permissions FKs to sites; deployments
+  // isn't FK-constrained but is cleaned up here too) so the sites delete
+  // never trips SQLITE_CONSTRAINT_FOREIGNKEY, then delete the site — all in
+  // one transaction so a failure partway through doesn't leave orphans.
+  const deleteSiteCascade = db.transaction((siteId) => {
+    db.prepare('DELETE FROM site_permissions WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM deployments WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM analytics_hourly WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM analytics_cursor WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM uptime_checks WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM sites WHERE id = ?').run(siteId);
+  });
+  deleteSiteCascade(req.params.id);
+
   logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system');
   res.json({ ok: true });
 }));

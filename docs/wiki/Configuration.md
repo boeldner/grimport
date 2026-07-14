@@ -11,11 +11,18 @@ Copy `.env.example` to `.env` and edit before starting.
 | `SUPERVISOR_DOMAIN` | `localhost` | Hostname for the panel, e.g. `panel.yourdomain.com` |
 | `SITE_BASE_DOMAIN` | _(empty)_ | Base domain for auto-generated site URLs, e.g. `sites.yourdomain.com` |
 | `SUPERVISOR_SECRET` | `changeme` | Initial panel password — bcrypt-hashed on first run, changing it later requires using the panel's Change Password form |
+| `SESSION_SECURE` | _(empty / off)_ | Opt-in. Set to `true` to mark the session cookie `Secure`. See note below. |
 | `ACME_EMAIL` | _(empty)_ | Email for Let's Encrypt expiry notifications — required for automatic SSL |
+| `PUBLIC_IP` | _(empty)_ | Your server's public IP — auto-detected if blank |
+| `HOST_DATA_PATH` | _(empty)_ | Absolute host path to the data/sites directory — only needed under Portainer/Arcane |
 | `HTTP_PORT` | `80` | Host port mapped to port 80 inside Traefik |
 | `HTTPS_PORT` | `443` | Host port mapped to port 443 inside Traefik |
 | `NODE_ENV` | `development` | Set to `production` to enable HSTS and stricter headers |
-| `GRIMPORT_IMAGE` | `ghcr.io/boeldner/grimport:latest` | Override to pin a specific release, e.g. `ghcr.io/boeldner/grimport:0.5.1` |
+| `GRIMPORT_IMAGE` | `ghcr.io/boeldner/grimport:latest` | Override to pin a specific release, e.g. `ghcr.io/boeldner/grimport:0.9.5` |
+
+### `SESSION_SECURE` is opt-in
+
+Most deployments terminate TLS at a proxy (Cloudflare Tunnel, Traefik) and forward plain HTTP to the supervisor. If the `Secure` cookie flag were on by default, the browser would silently drop the session cookie over that internal HTTP hop and login would appear to fail with no clear error. For that reason `SESSION_SECURE` defaults to **off**. Only set it to `true` if the supervisor itself is reached directly over HTTPS, or your proxy is configured to send `X-Forwarded-Proto: https` and you've verified sessions still work after enabling it.
 
 ## Panel settings
 

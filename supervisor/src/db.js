@@ -142,6 +142,10 @@ try { db.exec("ALTER TABLE activity ADD COLUMN actor TEXT NOT NULL DEFAULT 'syst
 try { db.exec("ALTER TABLE activity ADD COLUMN duration_ms INTEGER"); } catch {}
 try { db.exec("ALTER TABLE activity ADD COLUMN fn TEXT"); } catch {}
 try { db.exec("ALTER TABLE api_tokens ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'"); } catch {}
+// site_scope: JSON array of site ids, or NULL = all sites (least-privilege scoping for CI tokens)
+try { db.exec('ALTER TABLE api_tokens ADD COLUMN site_scope TEXT'); } catch {}
+// expires_at: unix seconds, NULL = never expires
+try { db.exec('ALTER TABLE api_tokens ADD COLUMN expires_at INTEGER'); } catch {}
 
 // Seed first admin user from existing password_hash setting (one-time migration)
 const { nanoid } = require('nanoid');

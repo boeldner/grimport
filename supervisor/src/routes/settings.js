@@ -1,10 +1,12 @@
 // NOTE: mounted behind requireRole('admin') in index.js — all routes here are admin-only.
 const { Router } = require('express');
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { assertPublicUrl } = require('../validate');
 const { asyncHandler } = require('../async-handler');
+const { sendAlert, getNtfyConfig, setNtfyConfig, postNtfy, ALL_ALERT_EVENTS } = require('../alerts');
+const { requireHumanSession } = require('../auth');
 
 const router = Router();
 
@@ -25,58 +27,143 @@ router.get('/', (req, res) => {
     default_cache_enabled: getSetting('default_cache_enabled') !== '0',
     acme_email: getSetting('acme_email') || process.env.ACME_EMAIL || '',
     analytics_snippet: getSetting('analytics_snippet') || '',
+    onboarding_done: getSetting('onboarding_done') === '1',
   });
 });
 
 // PUT /api/settings
 router.put('/', (req, res) => {
-  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet } = req.body;
+  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet, onboarding_done } = req.body;
   if (site_base_domain !== undefined) setSetting('site_base_domain', site_base_domain.trim().toLowerCase());
   if (default_spa_mode !== undefined) setSetting('default_spa_mode', default_spa_mode ? '1' : '0');
   if (default_cache_enabled !== undefined) setSetting('default_cache_enabled', default_cache_enabled ? '1' : '0');
   if (acme_email !== undefined) setSetting('acme_email', acme_email.trim().toLowerCase());
   if (analytics_snippet !== undefined) setSetting('analytics_snippet', analytics_snippet.trim());
+  // onboarding_done is write-once in practice: the wizard sets it true on
+  // finish/skip and never unsets it, so first-run detection never re-fires.
+  if (onboarding_done !== undefined) setSetting('onboarding_done', onboarding_done ? '1' : '0');
   res.json({ ok: true, restart_required: acme_email !== undefined });
 });
 
 // GET /api/settings/tokens
 router.get('/tokens', (req, res) => {
   const tokens = db.prepare(
-    'SELECT id, name, role, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
+    'SELECT id, name, role, site_scope, expires_at, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
   ).all();
-  res.json(tokens);
+  res.json(tokens.map(t => ({ ...t, site_scope: t.site_scope ? JSON.parse(t.site_scope) : 'all' })));
 });
 
-// POST /api/settings/tokens
-router.post('/tokens', (req, res) => {
-  const { name, role } = req.body;
+// POST /api/settings/tokens — a token must not mint new tokens (kills
+// self-renewal-past-expiry and scope-escape).
+router.post('/tokens', requireHumanSession, (req, res) => {
+  const { name, role, site_scope, expires_in_days } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   const tokenRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'admin';
+
+  // site_scope: 'all' / undefined / null → unrestricted. A non-empty array of site ids
+  // scopes the token to just those sites (see auth.js requireSiteAccess).
+  let siteScopeValue = null;
+  if (Array.isArray(site_scope)) {
+    if (site_scope.length) {
+      const ids = site_scope.map(String);
+      const placeholders = ids.map(() => '?').join(',');
+      const found = db.prepare(`SELECT id FROM sites WHERE id IN (${placeholders})`).all(...ids);
+      if (found.length !== ids.length) return res.status(400).json({ error: 'site_scope contains an unknown site id' });
+      siteScopeValue = JSON.stringify(ids);
+    }
+  } else if (site_scope !== undefined && site_scope !== null && site_scope !== 'all') {
+    return res.status(400).json({ error: 'site_scope must be "all" or an array of site ids' });
+  }
+
+  // expires_in_days: optional number of days from now. Omitted/null/'' → never expires.
+  let expiresAt = null;
+  if (expires_in_days !== undefined && expires_in_days !== null && expires_in_days !== '') {
+    const days = Number(expires_in_days);
+    if (!Number.isFinite(days) || days <= 0) return res.status(400).json({ error: 'expires_in_days must be a positive number' });
+    expiresAt = Math.floor(Date.now() / 1000) + Math.round(days * 86400);
+  }
+
   const token = 'grim_' + nanoid(32);
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const id = nanoid(10);
-  db.prepare('INSERT INTO api_tokens (id, name, token_hash, role) VALUES (?, ?, ?, ?)').run(id, name.trim(), hash, tokenRole);
-  res.json({ id, name: name.trim(), role: tokenRole, token }); // token shown once
+  db.prepare(
+    'INSERT INTO api_tokens (id, name, token_hash, role, site_scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, name.trim(), hash, tokenRole, siteScopeValue, expiresAt);
+  res.json({
+    id,
+    name: name.trim(),
+    role: tokenRole,
+    site_scope: siteScopeValue ? JSON.parse(siteScopeValue) : 'all',
+    expires_at: expiresAt,
+    token, // token shown once
+  });
 });
 
-// DELETE /api/settings/tokens/:id
-router.delete('/tokens/:id', (req, res) => {
+// DELETE /api/settings/tokens/:id — a token must not revoke tokens either.
+router.delete('/tokens/:id', requireHumanSession, (req, res) => {
   db.prepare('DELETE FROM api_tokens WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// PUT /api/settings/password
-router.put('/password', asyncHandler(async (req, res) => {
-  const { old_password, new_password } = req.body;
-  if (!old_password || !new_password) return res.status(400).json({ error: 'old_password and new_password required' });
-  if (new_password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+// NOTE: password changes now go through PATCH /api/users/:id (self-service
+// path, checks the `users` table — see routes/users.js). The legacy
+// PUT /settings/password route (which wrote to the unused
+// settings.password_hash key and never touched the row `login` reads) has
+// been retired.
 
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'password_hash'").get();
-  const valid = await bcrypt.compare(old_password, row.value);
-  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+// PUT /api/settings/notification-events — which bell event types are enabled
+router.put('/notification-events', (req, res) => {
+  const { events } = req.body;
+  if (!Array.isArray(events) || !events.every(e => ['unknown_domain', 'site_down', 'site_up'].includes(e))) {
+    return res.status(400).json({ error: 'events must be an array of unknown_domain, site_down, site_up' });
+  }
+  setSetting('notification_events', JSON.stringify(events));
+  res.json({ ok: true, events });
+});
 
-  const hash = await bcrypt.hash(new_password, 12);
-  setSetting('password_hash', hash);
+// GET /api/settings/notification-events
+router.get('/notification-events', (req, res) => {
+  const raw = getSetting('notification_events');
+  let events;
+  try {
+    events = raw ? JSON.parse(raw) : ['unknown_domain', 'site_down', 'site_up'];
+  } catch {
+    events = ['unknown_domain', 'site_down', 'site_up'];
+  }
+  res.json({ events });
+});
+
+// GET /api/settings/alerts — ntfy alert-channel config
+router.get('/alerts', (req, res) => {
+  res.json({ ntfy: getNtfyConfig(), events: ALL_ALERT_EVENTS });
+});
+
+// PUT /api/settings/alerts — save ntfy alert-channel config
+router.put('/alerts', asyncHandler(async (req, res) => {
+  const { url, enabled, events } = req.body?.ntfy || req.body || {};
+
+  if (enabled && url) {
+    try { await assertPublicUrl(url); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+  }
+
+  if (events !== undefined && !(Array.isArray(events) && events.every(e => ALL_ALERT_EVENTS.includes(e)))) {
+    return res.status(400).json({ error: `events must be an array of ${ALL_ALERT_EVENTS.join(', ')}` });
+  }
+
+  const cfg = setNtfyConfig({ url, enabled, events });
+  res.json({ ok: true, ntfy: cfg });
+}));
+
+// POST /api/settings/alerts/test — send a test ntfy alert using the saved config
+router.post('/alerts/test', asyncHandler(async (req, res) => {
+  const ntfy = getNtfyConfig();
+  if (!ntfy.url) return res.status(400).json({ error: 'No ntfy URL configured' });
+
+  try { await assertPublicUrl(ntfy.url); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
+  postNtfy(ntfy.url, 'site_down', 'Test Site', 'This is a test alert from Grimport.');
   res.json({ ok: true });
 }));
 

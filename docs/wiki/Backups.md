@@ -1,5 +1,15 @@
 # Backups
 
+Grimport has a built-in backup feature (**Settings → Backups**, admin only) — no cron or manual tarball required, though those still work if you prefer them.
+
+- **On demand** — click **Back up now** to create a backup immediately, or `POST /api/backups`.
+- **Scheduled** — set an interval in hours (`0` disables the schedule) and a retention count; old backups beyond the retention count are pruned automatically after each run.
+- **Download** — download the most recent backup, or stream a fresh one on demand, straight from the panel (`GET /api/backups/download`).
+
+Each backup zip contains the SQLite database and the `sites/` directory (see layout below). There is intentionally no one-click *restore* — restoring means stopping the stack and replacing `data/`, which is destructive enough that it shouldn't be a single button. See **Restoring** below.
+
+## Data layout
+
 All Grimport data lives in `./data/` relative to the install directory.
 
 ```
@@ -16,9 +26,9 @@ data/
 └── supervisor.db           ← SQLite database (sites, settings, tokens, uptime)
 ```
 
-## Backing up
+## Manual / external backup (alternative)
 
-The simplest approach is to stop the stack, copy `./data/`, and restart:
+If you'd rather not rely on the in-panel scheduler — e.g. you want backups off-host — the simplest approach is to stop the stack, copy `./data/`, and restart:
 
 ```bash
 cd ~/grimport

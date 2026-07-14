@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
-const { sessionMiddleware, requireAuth } = require('./auth');
+const { sessionMiddleware, requireAuth, requireHumanSession } = require('./auth');
 const { version: VERSION } = require('../package.json');
 
 if (process.env.NODE_ENV === 'production' &&
@@ -103,8 +103,13 @@ app.use('/api/uptime',          requireAuth, require('./routes/uptime'));
 // at the top of routes/activity.js and routes/notifications.js.
 app.use('/api/activity',        requireAuth, require('./routes/activity'));
 app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
-app.use('/api/users',           requireAuth, require('./routes/users'));
+// requireHumanSession: API tokens must not create/delete users, reset
+// passwords, or manage token/backup surfaces. requireAuth still allows a
+// token through as a principal (so requireHumanSession can tell it apart
+// from a session user) — it's requireHumanSession that draws the line.
+app.use('/api/users',           requireAuth, requireHumanSession, require('./routes/users'));
 app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
+app.use('/api/backups',         requireAuth, requireRole('admin'), requireHumanSession, require('./routes/backups'));
 
 // ── Static files ───────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));
@@ -129,11 +134,19 @@ process.on('unhandledRejection', (reason) => {
 const { reconcile } = require('./reconcile');
 const { startAnalyticsJob } = require('./analytics');
 const { startUptimeJob } = require('./uptime');
+const { startScheduledBackups } = require('./backups');
+
+const DATA_PATH = process.env.DATA_PATH || '/data/sites';
+const DB_PATH = process.env.DATA_PATH
+  ? path.join(process.env.DATA_PATH, '..', 'supervisor.db')
+  : path.join(__dirname, '../data/supervisor.db');
+const BACKUP_DIR = path.join(DATA_PATH, '..', 'backups');
 
 async function start() {
   await reconcile();
   startAnalyticsJob();
   startUptimeJob();
+  startScheduledBackups({ db, destDir: BACKUP_DIR, dbPath: DB_PATH, sitesDir: DATA_PATH });
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Webhost supervisor running on :${PORT}`);
   });

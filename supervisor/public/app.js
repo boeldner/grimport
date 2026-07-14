@@ -2,17 +2,16 @@
 
 // ── Theme ─────────────────────────────────────────────────
 (function () {
-  const saved = localStorage.getItem('grimport-theme');
-  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  const saved = localStorage.getItem('grimport-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
 })();
 
 function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
   if (theme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
     document.getElementById('theme-icon-dark').classList.add('hidden');
     document.getElementById('theme-icon-light').classList.remove('hidden');
   } else {
-    document.documentElement.removeAttribute('data-theme');
     document.getElementById('theme-icon-dark').classList.remove('hidden');
     document.getElementById('theme-icon-light').classList.add('hidden');
   }
@@ -77,7 +76,19 @@ let cachedUpdateData = null; // latest update check result
 async function api(method, path, body) {
   const opts = { method, headers: {} };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetch('/api' + path, opts);
+  let res;
+  try {
+    res = await fetch('/api' + path, opts);
+  } catch (networkErr) {
+    // fetch() itself threw — actual connectivity failure (panel restarting,
+    // DNS hiccup, etc), as opposed to an HTTP error response below. Same
+    // error is rethrown unchanged so every existing caller's catch block
+    // behaves exactly as before; we just also feed the panel-restart
+    // detector (see "Panel-restart / reconnect banner" section).
+    _onApiNetworkFailure();
+    throw networkErr;
+  }
+  _onApiSuccess();
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -89,7 +100,7 @@ async function apiUpload(siteId, file, onProgress) {
     form.append('file', file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/deploy/${siteId}`);
-    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total, e.loaded, e.total);
     xhr.onload = () => {
       const data = JSON.parse(xhr.responseText || '{}');
       if (xhr.status >= 400) reject(new Error(data.error || `HTTP ${xhr.status}`));
@@ -101,17 +112,359 @@ async function apiUpload(siteId, file, onProgress) {
 }
 
 // ── Toast ─────────────────────────────────────────────────
-function toast(message, type = 'info') {
+// toast(type, message) is the canonical signature per the design system,
+// but every existing call site in this file predates it and calls
+// toast(message, type). Both orders are accepted so nothing needs
+// rewiring here; later phases will migrate call sites to (type, message).
+const TOAST_TYPES = ['info', 'success', 'error', 'warn'];
+
+function getToastStack() {
+  let stack = document.getElementById('toast-container');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-container';
+    document.body.appendChild(stack);
+  }
+  stack.classList.add('toast-stack');
+  return stack;
+}
+
+function dismissToast(el) {
+  if (!el || !el.isConnected) return;
+  el.classList.add('toast-leaving');
+  const remove = () => el.remove();
+  // don't rely on animationend when reduced-motion strips the animation
+  setTimeout(remove, 200);
+}
+
+function toast(a, b) {
+  let type = 'info';
+  let message = '';
+  if (TOAST_TYPES.includes(a)) { type = a; message = b ?? ''; }
+  else if (TOAST_TYPES.includes(b)) { type = b; message = a ?? ''; }
+  else { message = a ?? ''; if (b) type = b; }
+
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  el.className = `toast toast-${type} ${type}`;
+  // errors interrupt (role="alert" ~ assertive live region); info/ok/warn
+  // just announce politely once idle (role="status").
+  if (type === 'error') {
+    el.setAttribute('role', 'alert');
+  } else {
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+  }
+
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'toast-dismiss';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => dismissToast(el));
+  el.appendChild(closeBtn);
+
+  getToastStack().appendChild(el);
+  setTimeout(() => dismissToast(el), 4000);
+  return el;
+}
+
+// Alias for call sites that expect a showToast() name.
+if (typeof window !== 'undefined') {
+  window.toast = toast;
+  window.showToast = toast;
+}
+
+// ── System states: skeletons ───────────────────────────────
+// Matches the static skeleton markup already used for the Sites view /
+// Overview / Deployments / Domains loading placeholders (phase C1) so any
+// view can show/reset the same look before a fetch runs (including on a
+// retry after a view-error, which needs to rebuild the skeleton itself
+// since the error card overwrote the container's innerHTML).
+function skeletonBlock(rows = 3, rowHeight = 28) {
+  return Array.from({ length: rows }, (_, i) =>
+    `<div class="skeleton" style="height:${i === 0 ? rowHeight + 4 : rowHeight}px;margin-bottom:${i === rows - 1 ? 0 : 6}px;border-radius:var(--r-control)"></div>`
+  ).join('');
+}
+
+// Skeleton <tr> rows for table-based views (n rows × cols placeholder cells).
+function skeletonRows(n, cols) {
+  return Array.from({ length: n }, () =>
+    `<tr>${Array.from({ length: cols }, () => `<td><span class="skeleton" style="display:inline-block;width:80%;height:14px;border-radius:4px"></span></td>`).join('')}</tr>`
+  ).join('');
+}
+
+// ── System states: view-error ──────────────────────────────
+// Consistent inline "couldn't load this view" card with a retry button,
+// used in place of blank/broken UI in list-style view loaders. `message`
+// is the full sentence(s) to show — the first sentence (up to the first
+// ". ") is rendered as the bold heading (e.g. "Couldn't load activity."),
+// anything after that as supporting body text.
+function viewError(container, message, retryFn) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  if (!el) return;
+  const parts = String(message).split(/\.\s+/).filter(Boolean);
+  const heading = (parts.shift() || 'Something went wrong') + '.';
+  const body = parts.join('. ');
+  el.innerHTML = `
+    <div class="view-error">
+      <span class="view-error-icon">${ICON.warning}</span>
+      <strong class="view-error-title">${esc(heading)}</strong>
+      ${body ? `<p class="view-error-body">${esc(body)}</p>` : ''}
+      <button type="button" class="btn btn-secondary btn-sm view-error-retry">Try again</button>
+    </div>`;
+  const btn = el.querySelector('.view-error-retry');
+  if (btn && retryFn) btn.addEventListener('click', () => retryFn());
+}
+
+// Turns an error (thrown by api()) into the "The API returned 502." /
+// "Something went wrong." detail fragment used inside viewError() messages.
+function apiErrorDetail(err) {
+  const m = err && err.message ? String(err.message) : '';
+  const httpMatch = m.match(/^HTTP (\d+)/);
+  if (httpMatch) return `The API returned ${httpMatch[1]}.`;
+  if (m) return m.endsWith('.') ? m : `${m}.`;
+  return 'Something went wrong.';
+}
+
+function viewErrorMessage(viewLabel, err) {
+  return `Couldn't load ${viewLabel}. ${apiErrorDetail(err)} Your sites keep running — only this view is affected.`;
+}
+
+// ── System states: panel-restart banner ────────────────────
+// Distinguishes real connectivity loss (fetch() throwing — panel process
+// restarting, network blip) from ordinary HTTP error responses, which stay
+// on the per-view viewError() path above. Requires 2 consecutive network
+// failures (across any api() call) before showing the banner, to avoid
+// flashing it on a single blip. Reuses the same /api/health endpoint the
+// update flow (pollUpdateStatus, below) already polls to detect the panel
+// coming back — while an intentional update is running, _updateFlowActive
+// suppresses this banner so the two mechanisms never fight over the UI;
+// the update modal's own "Panel restarting…" step covers that case.
+const PANEL_RESTART_FAILURE_THRESHOLD = 2;
+const PANEL_RESTART_POLL_MS = 2500;
+let _networkFailStreak = 0;
+let _panelRestartBannerShown = false;
+let _panelRestartPollTimer = null;
+let _updateFlowActive = false;
+
+function _onApiNetworkFailure() {
+  _networkFailStreak++;
+  if (_networkFailStreak >= PANEL_RESTART_FAILURE_THRESHOLD && !_panelRestartBannerShown && !_updateFlowActive) {
+    showPanelRestartBanner();
+  }
+}
+function _onApiSuccess() {
+  _networkFailStreak = 0;
+}
+
+function showPanelRestartBanner() {
+  _panelRestartBannerShown = true;
+  document.getElementById('panel-restart-banner')?.classList.remove('hidden');
+  startPanelRestartPolling();
+}
+
+function hidePanelRestartBanner() {
+  _panelRestartBannerShown = false;
+  document.getElementById('panel-restart-banner')?.classList.add('hidden');
+  if (_panelRestartPollTimer) { clearInterval(_panelRestartPollTimer); _panelRestartPollTimer = null; }
+}
+
+function startPanelRestartPolling() {
+  if (_panelRestartPollTimer) return;
+  _panelRestartPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        hidePanelRestartBanner();
+        _networkFailStreak = 0;
+        refreshActiveView();
+      }
+    } catch { /* still down — keep polling */ }
+  }, PANEL_RESTART_POLL_MS);
+}
+
+// Re-runs whichever loader corresponds to the currently visible view, so
+// data is fresh once the panel comes back up after a restart.
+function refreshActiveView() {
+  const view = document.querySelector('.nav-item.active')?.dataset.view;
+  if (view === 'overview') loadOverview();
+  else if (view === 'activity') loadActivity();
+  else if (view === 'deployments') loadDeployments();
+  else if (view === 'domains') loadDomains();
+  else if (view === 'logs') loadLogsView();
+  else if (view === 'panel-settings') loadPanelSettings();
+  else loadSites();
+}
+
+// ── Copy to clipboard ───────────────────────────────────────
+function copyToClipboard(text, btnEl) {
+  const done = (ok) => {
+    if (!btnEl) return;
+    const original = btnEl.dataset.copyLabel ?? btnEl.textContent;
+    btnEl.dataset.copyLabel = original;
+    btnEl.textContent = ok ? 'Copied!' : 'Copy failed';
+    btnEl.classList.toggle('copied', ok);
+    setTimeout(() => {
+      btnEl.textContent = original;
+      btnEl.classList.remove('copied');
+    }, 2000);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+    return;
+  }
+
+  // fallback for non-secure contexts / older environments
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  } catch (err) {
+    done(false);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.copyToClipboard = copyToClipboard;
+}
+
+// ── Focus trap (task H2, additive) ──────────────────────────
+// Keeps Tab/Shift+Tab cycling inside `container` while it's the active
+// modal/palette, and returns focus to whatever triggered it on close.
+// Used by openModal/closeModal below, plus confirmDialog() and the
+// command palette, which manage their own show/hide.
+let _focusTrapCleanup = null;
+
+function _focusableEls(container) {
+  return Array.from(container.querySelectorAll(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+}
+
+function trapFocus(container, triggerEl) {
+  if (!container) return;
+  releaseFocusTrap();
+  const previouslyFocused = triggerEl || document.activeElement;
+  const focusables = _focusableEls(container);
+  (focusables[0] || container).focus({ preventScroll: true });
+
+  function onKeydown(e) {
+    if (e.key !== 'Tab') return;
+    const items = _focusableEls(container);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  container.addEventListener('keydown', onKeydown);
+  _focusTrapCleanup = () => {
+    container.removeEventListener('keydown', onKeydown);
+    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      previouslyFocused.focus({ preventScroll: true });
+    }
+  };
+}
+
+function releaseFocusTrap() {
+  if (_focusTrapCleanup) {
+    const fn = _focusTrapCleanup;
+    _focusTrapCleanup = null;
+    fn();
+  }
 }
 
 // ── Modal helpers ─────────────────────────────────────────
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function openModal(id) {
+  const backdrop = document.getElementById(id);
+  if (!backdrop) return;
+  const trigger = document.activeElement;
+  backdrop.classList.remove('hidden');
+  const dialog = backdrop.querySelector('.modal');
+  trapFocus(dialog, trigger);
+}
+function closeModal(id) {
+  const backdrop = document.getElementById(id);
+  if (!backdrop) return;
+  backdrop.classList.add('hidden');
+  releaseFocusTrap();
+}
+
+// ── Styled confirmation dialog (Promise<boolean>) ──────────
+// confirmDialog({ title, body, confirmLabel, danger, warn, requireText })
+// Replaces native confirm() for destructive/important actions. `requireText`,
+// when set, disables the confirm button until the input matches exactly.
+function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, warn = false, requireText = null }) {
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    const btnClass = danger ? 'btn-danger' : (warn ? 'btn-warn' : 'btn-primary');
+    backdrop.innerHTML = `
+      <div class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+        <div class="modal-header"><h2 id="confirm-dialog-title">${esc(title)}</h2></div>
+        <div class="confirm-body">
+          <p>${esc(body)}</p>
+          ${requireText ? `
+          <div class="type-to-confirm">
+            <label for="confirm-type-input">Type the site name to confirm</label>
+            <input type="text" id="confirm-type-input" autocomplete="off" spellcheck="false" />
+          </div>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
+          <button type="button" class="btn ${btnClass}" data-role="confirm-ok" ${requireText ? 'disabled' : ''}>${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+
+    const confirmBtn = backdrop.querySelector('[data-role="confirm-ok"]');
+    const cancelBtn = backdrop.querySelector('[data-role="confirm-cancel"]');
+    const input = backdrop.querySelector('#confirm-type-input');
+    const dialogEl = backdrop.querySelector('.modal');
+    trapFocus(dialogEl, document.activeElement);
+
+    function cleanup(result) {
+      document.removeEventListener('keydown', onKey);
+      releaseFocusTrap();
+      backdrop.remove();
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+    }
+
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    confirmBtn.addEventListener('click', () => { if (!confirmBtn.disabled) cleanup(true); });
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(false); });
+    document.addEventListener('keydown', onKey);
+
+    if (input) {
+      input.addEventListener('input', () => {
+        const matched = input.value === requireText;
+        confirmBtn.disabled = !matched;
+        input.classList.toggle('matched', matched && input.value.length > 0);
+        input.classList.toggle('mismatch', !matched && input.value.length > 0);
+      });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !confirmBtn.disabled) cleanup(true);
+      });
+      setTimeout(() => input.focus(), 30);
+    } else {
+      confirmBtn.addEventListener('keydown', e => { if (e.key === 'Enter') cleanup(true); });
+      setTimeout(() => confirmBtn.focus(), 30);
+    }
+  });
+}
 
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => closeModal(btn.dataset.close));
@@ -124,14 +477,33 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   const open = document.querySelector('.modal-backdrop:not(.hidden)');
-  if (open) closeModal(open.id);
+  if (open) { closeModal(open.id); return; }
+  document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
 });
 
 // ── Search ────────────────────────────────────────────────
-document.getElementById('site-search').addEventListener('input', e => {
+const siteSearchInput = document.getElementById('site-search');
+const siteSearchClear = document.getElementById('site-search-clear');
+
+function clearSiteSearch() {
+  searchQuery = '';
+  if (siteSearchInput) siteSearchInput.value = '';
+  if (siteSearchClear) siteSearchClear.classList.add('hidden');
+  renderSites();
+}
+if (typeof window !== 'undefined') window.clearSiteSearch = clearSiteSearch;
+
+siteSearchInput.addEventListener('input', e => {
   searchQuery = e.target.value.toLowerCase().trim();
+  if (siteSearchClear) siteSearchClear.classList.toggle('hidden', !searchQuery);
   renderSites();
 });
+if (siteSearchClear) {
+  siteSearchClear.addEventListener('click', () => {
+    clearSiteSearch();
+    siteSearchInput.focus();
+  });
+}
 
 // ── Sites list ────────────────────────────────────────────
 async function loadSites() {
@@ -139,8 +511,10 @@ async function loadSites() {
   api('GET', '/uptime').then(d => { uptimeData = d; renderSites(); }).catch(() => {});
   renderSites();
   sites.forEach(s => refreshDnsDot(s.id));
+  sites.forEach(s => { if (statusInfo(s.container).error) refreshDownDuration(s.id); });
 }
 
+const DNS_DOT_LABEL = { ok: 'DNS ok', wrong: 'DNS wrong', pending: 'DNS pending' };
 async function refreshDnsDot(siteId) {
   try {
     const data = await api('GET', `/dns/${siteId}`);
@@ -148,8 +522,48 @@ async function refreshDnsDot(siteId) {
     if (!dot) return;
     const cls = data.status === 'ok' ? 'ok' : data.status === 'wrong' ? 'wrong' : 'pending';
     dot.className = `dns-indicator dns-indicator-${cls}`;
+    // colour is never the only signal — mirror the state as text on the
+    // button that wraps this dot (the dot itself has no visible label).
+    const btn = dot.closest('.dns-status-btn');
+    if (btn) btn.title = DNS_DOT_LABEL[cls];
+    if (btn) btn.setAttribute('aria-label', DNS_DOT_LABEL[cls]);
   } catch {}
 }
+
+// Best-effort "down for N min" hint on the error banner. Uses the existing
+// per-site /api/uptime/:id endpoint (already used by the analytics modal) —
+// no API changes. The endpoint only returns the most recent ~90 checks, so
+// for outages older than that we just show the oldest known point ("over").
+function humanDuration(mins) {
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+async function refreshDownDuration(siteId) {
+  try {
+    const data = await api('GET', `/uptime/${siteId}?period=24h`);
+    const strip = data.strip || [];
+    if (!strip.length || strip[strip.length - 1].up) return;
+    let since = strip[strip.length - 1].checked_at;
+    let coversWholeStrip = true;
+    for (let i = strip.length - 1; i >= 0; i--) {
+      if (!strip[i].up) { since = strip[i].checked_at; }
+      else { coversWholeStrip = false; break; }
+    }
+    const mins = Math.max(1, Math.round((Date.now() / 1000 - since) / 60));
+    const el = document.getElementById(`down-duration-${siteId}`);
+    if (el) el.textContent = ` · down for ${coversWholeStrip ? 'over ' : ''}${humanDuration(mins)}`;
+  } catch {}
+}
+
+function closeAllSiteOverflows(exceptId) {
+  document.querySelectorAll('.site-overflow-menu').forEach(m => {
+    if (m.id !== `overflow-${exceptId}`) m.classList.add('hidden');
+  });
+}
+document.addEventListener('click', () => closeAllSiteOverflows());
+if (typeof window !== 'undefined') window.closeAllSiteOverflows = closeAllSiteOverflows;
 
 function renderSites() {
   const grid = document.getElementById('sites-list');
@@ -161,17 +575,23 @@ function renderSites() {
         s.domain.toLowerCase().includes(searchQuery))
     : sites;
 
-  count.textContent = searchQuery
-    ? `${filtered.length} of ${sites.length} site${sites.length !== 1 ? 's' : ''}`
-    : `${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+  if (searchQuery) {
+    count.textContent = `${filtered.length} of ${sites.length} site${sites.length !== 1 ? 's' : ''} — matching "${searchQuery}"`;
+  } else {
+    const runningCount = sites.filter(s => s.container?.running).length;
+    const downCount = sites.filter(s => statusInfo(s.container).error).length;
+    count.textContent = `${sites.length} site${sites.length !== 1 ? 's' : ''}` +
+      (sites.length ? ` · ${runningCount} running` : '') +
+      (downCount ? ` · ${downCount} down` : '');
+  }
 
   if (sites.length === 0) {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
-        <p>Deploy your first site to get started.</p>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} New site</button>
+        <p>Upload a zip and Grimport serves it over HTTPS on your domain.</p>
+        ${currentUser.role === 'admin' ? `<button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} Create your first site</button>` : ''}
       </div>`;
     return;
   }
@@ -180,8 +600,8 @@ function renderSites() {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
-        <h3>No results for "${esc(searchQuery)}"</h3>
-        <p>Try a different name or domain.</p>
+        <h3>No other sites match "${esc(searchQuery)}"</h3>
+        <p>Search covers names and domains · <button type="button" class="link-btn" onclick="clearSiteSearch()">Clear search</button></p>
       </div>`;
     return;
   }
@@ -204,71 +624,110 @@ function renderSites() {
       if (action === 'preview-create')  openPreviewModal(site);
       if (action === 'preview-swap')    previewSwap(site);
       if (action === 'preview-discard') previewDiscard(site);
+      if (action === 'uptime-detail')   openUptimeDetail(site, btn);
+      if (action === 'overflow') {
+        const menu = document.getElementById(`overflow-${id}`);
+        const wasHidden = menu?.classList.contains('hidden');
+        closeAllSiteOverflows();
+        if (menu && wasHidden) menu.classList.remove('hidden');
+      }
     });
   });
 }
 
+// Container lifecycle → { cls, label, error }. `cls` maps 1:1 onto the
+// design-system .status-<cls> classes (docs/design/design-system.md
+// "Status vocabulary"); glyph + label + colour, never colour alone.
 function statusInfo(container) {
-  if (!container) return { cls: 'stopped', label: 'Unknown', error: false };
-  const map = {
-    running:    { cls: 'running',  label: 'Running',      error: false },
-    exited:     { cls: 'stopped',  label: 'Stopped',      error: container.exitCode !== 0 },
-    created:    { cls: 'starting', label: 'Starting',     error: false },
-    restarting: { cls: 'starting', label: 'Restarting',   error: true },
-    paused:     { cls: 'stopped',  label: 'Paused',       error: false },
-    missing:    { cls: 'missing',  label: 'Missing',      error: true },
-    none:       { cls: 'stopped',  label: 'No container', error: false },
-  };
-  return map[container.status] || { cls: 'stopped', label: container.status, error: false };
+  if (!container) return { cls: 'unknown', label: 'Unknown', error: false };
+  switch (container.status) {
+    case 'running':    return { cls: 'running',      label: 'Running',      error: false };
+    case 'exited': {
+      const abnormal = container.exitCode !== 0;
+      return { cls: abnormal ? 'missing' : 'stopped', label: abnormal ? 'Exited' : 'Stopped', error: abnormal };
+    }
+    case 'created':    return { cls: 'starting',     label: 'Starting…',    error: false };
+    case 'restarting': return { cls: 'restarting',   label: 'Restarting',   error: true };
+    case 'paused':     return { cls: 'paused',       label: 'Paused',       error: false };
+    case 'missing':    return { cls: 'missing',      label: 'Missing',      error: true };
+    case 'none':       return { cls: 'no-container', label: 'No container', error: false };
+    default:           return { cls: 'unknown',      label: container.status, error: false };
+  }
+}
+
+// Common container exit codes → short human reason for the error hint.
+function exitCodeReason(exitCode) {
+  const known = { 137: 'out of memory', 139: 'segmentation fault', 143: 'terminated', 1: 'application error' };
+  return known[exitCode] ? ` (${known[exitCode]})` : '';
+}
+
+function errorHintText(container) {
+  if (container?.status === 'exited' && container.exitCode !== 0) {
+    return `Container exited with code ${container.exitCode}${exitCodeReason(container.exitCode)} — check logs`;
+  }
+  if (container?.status === 'missing')    return 'Container missing — check logs';
+  if (container?.status === 'restarting') return 'Container restarting repeatedly — check logs';
+  return 'Check logs for details';
 }
 
 function siteCard(site) {
-  const { cls, label, error } = statusInfo(site.container);
-  const isRunning = site.container?.running;
+  const container = site.container;
+  const { cls, label, error } = statusInfo(container);
+  const isRunning = !!container?.running;
   const runtime = site.runtime || 'static';
 
   const tags = [
-    runtime !== 'static' ? `<span class="runtime-badge ${runtime}">${runtime.toUpperCase()}</span>` : '',
-    site.maintenance_mode ? `<span class="tag tag-yellow">Maintenance</span>` : '',
-    site.basic_auth       ? `<span class="tag tag-gray">${ICON.shield} Auth</span>` : '',
-    site.spa_mode         ? `<span class="tag tag-blue">SPA</span>` : '',
+    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
+    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
+    site.maintenance_mode ? `<span class="badge badge-maint">⛭ Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="badge badge-auth">🔒 Basic Auth</span>` : '',
   ].filter(Boolean).join('');
 
   const previewBadge = site.preview_container_id ? `
     <div class="preview-badge">
-      ${ICON.layers}
-      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)}</a>
-      <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
-      <button class="btn btn-xs" data-action="preview-discard" data-id="${site.id}">Discard</button>
+      <span class="preview-badge-label">Preview</span>
+      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)} ↗</a>
+      <span class="preview-badge-meta">deployed</span>
+      <div class="preview-badge-actions">
+        <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
+        <button class="btn btn-xs btn-secondary" data-action="preview-discard" data-id="${site.id}">Discard</button>
+      </div>
+    </div>` : '';
+
+  const errorHint = error ? `
+    <div class="site-error-hint">
+      ${ICON.warning}
+      <span>${esc(errorHintText(container))}<span id="down-duration-${site.id}"></span></span>
     </div>` : '';
 
   return `
     <div class="site-card${error ? ' site-card--error' : ''}">
       <div class="site-card-header">
-        <span class="status-dot ${cls}" title="${label}"></span>
+        <span class="status status-${cls}" data-status-for="${site.id}"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
-        <span class="site-status-label">${label}</span>
       </div>
       <div class="site-domain-row">
-        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}</a>
-        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS">
-          <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}"></span>
+        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}<span class="site-domain-arrow">↗</span></a>
+        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status" aria-label="DNS status">
+          <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}" aria-hidden="true"></span>
         </button>
-        <a class="site-ext-link" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="Open site">${ICON.externalLink}</a>
       </div>
       ${tags ? `<div class="site-tags">${tags}</div>` : ''}
       ${previewBadge}
-      ${error ? `<div class="site-error-hint">${ICON.warning} Container exited — check logs</div>` : ''}
+      ${errorHint}
       ${uptimeStrip(site.id)}
       <div class="site-actions">
-        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">${ICON.upload} Deploy</button>
-        <div class="site-action-icons">
-          <button class="icon-btn" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" title="${isRunning ? 'Stop' : 'Start'}">${isRunning ? ICON.stop : ICON.play}</button>
-          <button class="icon-btn" data-action="logs"     data-id="${site.id}" title="Logs">${ICON.logs}</button>
-          <button class="icon-btn" data-action="analytics" data-id="${site.id}" title="Analytics">${ICON.barChart}</button>
-          <button class="icon-btn" data-action="history"  data-id="${site.id}" title="History">${ICON.history}</button>
-          <button class="icon-btn" data-action="settings" data-id="${site.id}" title="Settings">${ICON.settings}</button>
-          ${!site.preview_container_id ? `<button class="icon-btn" data-action="preview-create" data-id="${site.id}" title="Create preview">${ICON.layers}</button>` : ''}
+        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">Deploy</button>
+        <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}">${isRunning ? 'Stop' : 'Start'}</button>
+        <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
+        <button class="btn btn-sm btn-secondary" data-action="analytics" data-id="${site.id}">Analytics</button>
+        <div class="site-overflow">
+          <button class="btn btn-sm btn-secondary" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions">⋯</button>
+          <div class="site-overflow-menu hidden" id="overflow-${site.id}">
+            <button data-action="history" data-id="${site.id}">${ICON.history} History</button>
+            <button data-action="settings" data-id="${site.id}">${ICON.settings} Settings</button>
+            ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}">${ICON.layers} Create preview</button>` : ''}
+          </div>
         </div>
       </div>
     </div>`;
@@ -276,14 +735,75 @@ function siteCard(site) {
 
 function uptimeStrip(siteId) {
   const u = uptimeData[siteId];
-  if (!u || u.uptime24h === null) return '';
-  const pct = parseFloat(u.uptime24h);
-  const cls = pct >= 99 ? 'uptime-good' : pct >= 95 ? 'uptime-warn' : 'uptime-bad';
-  return `<div class="uptime-row">
-    <span class="uptime-pct ${cls}">${pct}%</span>
-    <span class="uptime-label">uptime 24h</span>
-    <span class="uptime-dot ${u.currentStatus === 'up' ? 'uptime-dot-up' : u.currentStatus === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown'}"></span>
-  </div>`;
+  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
+  const pct = hasPct ? parseFloat(u.uptime24h) : null;
+  const pctCls = pct === null ? '' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
+  const pctText = pct === null ? '— %' : `${pct}%`;
+  const status = u?.currentStatus;
+  const dotCls = status === 'up' ? 'uptime-dot-up' : status === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown';
+  const liveCls = status === 'up' ? 'status-up' : status === 'down' ? 'status-down' : 'status-muted';
+  const liveLabel = status === 'up' ? 'Up' : status === 'down' ? 'Down' : '?';
+  return `<button type="button" class="uptime-row-btn" data-action="uptime-detail" data-id="${siteId}" title="View uptime history">
+    <span class="uptime-row">
+      <span class="uptime-pct ${pctCls}">${pctText}</span>
+      <span class="uptime-label">uptime 24h</span>
+      <span class="uptime-dot ${dotCls}"></span>
+      <span class="uptime-live-label ${liveCls}">${liveLabel}</span>
+    </span>
+  </button>`;
+}
+
+// ── Uptime history popover (click the uptime strip on a site card) ────
+let uptimePopoverEl = null;
+
+function closeUptimePopover() {
+  if (uptimePopoverEl) { uptimePopoverEl.remove(); uptimePopoverEl = null; }
+  document.removeEventListener('click', onUptimePopoverOutsideClick, true);
+}
+
+function onUptimePopoverOutsideClick(e) {
+  if (uptimePopoverEl && !uptimePopoverEl.contains(e.target)) closeUptimePopover();
+}
+
+async function openUptimeDetail(site, anchorEl) {
+  closeAllSiteOverflows();
+  const wasOpenForThisSite = uptimePopoverEl?.dataset.forSite === site.id;
+  closeUptimePopover();
+  if (wasOpenForThisSite) return; // toggle off on second click
+
+  const pop = document.createElement('div');
+  pop.className = 'uptime-popover';
+  pop.dataset.forSite = site.id;
+  pop.innerHTML = `<div class="uptime-popover-header"><span>${esc(site.name)} — 24h history</span></div>
+    <div class="uptime-popover-empty">Loading…</div>`;
+  document.body.appendChild(pop);
+  uptimePopoverEl = pop;
+
+  const rect = anchorEl.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 160);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 268));
+  pop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+
+  setTimeout(() => document.addEventListener('click', onUptimePopoverOutsideClick, true), 0);
+
+  try {
+    const data = await api('GET', `/uptime/${site.id}?period=24h`);
+    if (uptimePopoverEl !== pop) return; // closed/replaced while loading
+    const strip = data.strip || [];
+    const bars = strip.length
+      ? `<div class="uptime-popover-strip">${strip.map(c => `<span class="uptime-popover-bar ${c.up ? 'up' : 'down'}" title="${new Date(c.checked_at * 1000).toLocaleString()} — ${c.up ? 'up' : 'down'}"></span>`).join('')}</div>`
+      : `<div class="uptime-popover-empty">No checks recorded yet</div>`;
+    pop.innerHTML = `
+      <div class="uptime-popover-header"><span>${esc(site.name)} — 24h history</span></div>
+      <div class="uptime-popover-stats">
+        <span>Uptime <b>${data.uptime !== null ? data.uptime + '%' : '—'}</b></span>
+        <span>Avg latency <b>${data.avgLatency !== null ? data.avgLatency + 'ms' : '—'}</b></span>
+      </div>
+      ${bars}`;
+  } catch (err) {
+    if (uptimePopoverEl === pop) pop.innerHTML = `<div class="uptime-popover-empty">Couldn't load uptime history</div>`;
+  }
 }
 
 function esc(str) {
@@ -296,12 +816,40 @@ function randomSlug(len = 10) {
   return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?(\.[a-z]{2,})$/;
+const NEW_SITE_DOMAIN_DEFAULT_HELP = 'Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.';
+
+function validateNewSiteDomain() {
+  const input = document.getElementById('new-site-domain');
+  const help = document.getElementById('new-site-domain-help');
+  const field = input.closest('.field');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain) {
+    field.classList.remove('is-invalid', 'is-valid');
+    help.className = 'field-help muted';
+    help.innerHTML = NEW_SITE_DOMAIN_DEFAULT_HELP;
+    return false;
+  }
+  const valid = DOMAIN_RE.test(domain);
+  field.classList.toggle('is-invalid', !valid);
+  field.classList.toggle('is-valid', valid);
+  help.className = valid ? 'field-help ok' : 'field-help err';
+  help.textContent = valid
+    ? 'Available — auto-suggested from base domain'
+    : 'Invalid domain — use a format like mysite.example.com or test.localhost';
+  return valid;
+}
+
+document.getElementById('new-site-domain').addEventListener('input', validateNewSiteDomain);
+
 document.getElementById('btn-new-site').addEventListener('click', async () => {
   document.getElementById('form-new-site').reset();
+  setNewSiteRuntime('static');
   if (config.siteBaseDomain) {
     document.querySelector('#form-new-site input[name="domain"]').value =
       `${randomSlug()}.${config.siteBaseDomain}`;
   }
+  validateNewSiteDomain();
   // Apply panel defaults
   try {
     const s = await api('GET', '/settings');
@@ -315,8 +863,7 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
   const domain = fd.get('domain').trim().toLowerCase();
-  const domainValid = /^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?(\.[a-z]{2,})$/.test(domain);
-  if (!domainValid) {
+  if (!validateNewSiteDomain()) {
     toast('Invalid domain — use a format like mysite.example.com or test.localhost', 'error');
     return;
   }
@@ -349,8 +896,9 @@ let activeDeployTab = 'upload';
 
 document.querySelectorAll('.deploy-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.deploy-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
     tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
     activeDeployTab = tab.dataset.dtab;
     document.getElementById('dtab-upload').classList.toggle('hidden', activeDeployTab !== 'upload');
     document.getElementById('dtab-url').classList.toggle('hidden', activeDeployTab !== 'url');
@@ -376,17 +924,19 @@ function openDeploy(site) {
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('deploy-status-text').textContent = 'Uploading…';
   document.getElementById('btn-deploy-confirm').disabled = true;
-  document.getElementById('dropzone').classList.remove('dragging');
+  document.getElementById('dropzone').classList.remove('dragging', 'has-file');
   document.getElementById('deploy-url-input').value = '';
   // Reset tabs
-  document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
-  document.querySelector('.deploy-tab[data-dtab="upload"]').classList.add('active');
+  document.querySelectorAll('.deploy-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+  const uploadTab = document.querySelector('.deploy-tab[data-dtab="upload"]');
+  uploadTab.classList.add('active');
+  uploadTab.setAttribute('aria-selected', 'true');
   document.getElementById('dtab-upload').classList.remove('hidden');
   document.getElementById('dtab-url').classList.add('hidden');
   document.querySelector('#dropzone .dropzone-inner').innerHTML = `
     <span class="dropzone-icon">${ICON.upload}</span>
     <p>Drop your <strong>.zip</strong> here, or click to browse</p>
-    <small>Supports Webflow exports, React/Vue build output, any static site</small>
+    <small>only .zip accepted · Webflow exports, React/Vue build output, any static site</small>
     <input type="file" id="deploy-file-input" accept=".zip" hidden />
   `;
   document.getElementById('deploy-file-input').addEventListener('change', () => {
@@ -414,10 +964,11 @@ dropzone.addEventListener('drop', e => {
 function selectDeployFile(file) {
   if (!file.name.endsWith('.zip')) { toast('Only .zip files are accepted', 'error'); return; }
   selectedDeployFile = file;
+  dropzone.classList.add('has-file');
   dropzone.querySelector('.dropzone-inner').innerHTML = `
     <span class="dropzone-icon dropzone-icon--ready">${ICON.check}</span>
-    <p><strong>${esc(file.name)}</strong></p>
-    <small>${(file.size / 1024 / 1024).toFixed(1)} MB — click to change</small>
+    <p><strong>${esc(file.name)}</strong> <span class="dropzone-filesize">· ${(file.size / 1024 / 1024).toFixed(1)} MB</span></p>
+    <small>Drop another .zip to replace · only .zip accepted</small>
   `;
   document.getElementById('btn-deploy-confirm').disabled = false;
 }
@@ -441,9 +992,14 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
     } else {
       if (!selectedDeployFile) return;
       status.textContent = 'Uploading…';
-      await apiUpload(activeSiteId, selectedDeployFile, pct => {
+      await apiUpload(activeSiteId, selectedDeployFile, (pct, loaded, total) => {
         fill.style.width = `${Math.round(pct * 90)}%`;
-        status.textContent = pct < 1 ? `Uploading… ${Math.round(pct * 100)}%` : 'Extracting…';
+        if (pct < 1) {
+          const mb = n => (n / 1024 / 1024).toFixed(1);
+          status.textContent = `Uploading… ${Math.round(pct * 100)}% · ${mb(loaded)} of ${mb(total)} MB · then: extract → swap → health check`;
+        } else {
+          status.textContent = 'Extracting…';
+        }
       });
       fill.style.width = '100%';
     }
@@ -460,12 +1016,17 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
 });
 
 // ── Settings modal ────────────────────────────────────────
-// Tab switching
-document.querySelectorAll('.modal-tab').forEach(tab => {
+// Tab switching (scoped to #modal-settings — the panel-level Settings
+// view has its own identically-shaped .tab/.tab-panel group)
+document.querySelectorAll('#modal-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    document.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('#modal-settings .tab').forEach(t => {
+      t.classList.remove('is-active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('is-active');
+    tab.setAttribute('aria-selected', 'true');
+    document.querySelectorAll('#modal-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`stab-${tab.dataset.stab}`).classList.remove('hidden');
     if (tab.dataset.stab === 'access' && currentUser.role === 'admin') loadSiteAccessUsers();
   });
@@ -481,14 +1042,15 @@ async function loadSiteAccessUsers() {
     ]);
     const nonAdmins = allUsers.filter(u => u.role !== 'admin');
     if (!nonAdmins.length) {
-      wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No editor or viewer users exist yet.</p>';
+      wrap.innerHTML = '<p class="settings-desc">No editor or viewer users exist yet.</p>';
       return;
     }
     wrap.innerHTML = nonAdmins.map(u => `
-      <label class="checkbox-label">
+      <label class="g-checkbox" style="display:flex;margin-bottom:8px">
         <input type="checkbox" class="site-user-access-cb" data-uid="${u.id}"
           ${siteUsers.user_ids.includes(u.id) ? 'checked' : ''} />
-        ${esc(u.username)} <span class="role-badge" data-role="${u.role}" style="margin-left:4px">${u.role}</span>
+        <span class="g-checkbox-box"></span>
+        ${esc(u.username)} <span class="badge badge-role-${esc(u.role)}" style="margin-left:4px">${esc(u.role)}</span>
       </label>
     `).join('');
 
@@ -509,8 +1071,11 @@ function openSettings(site) {
   document.getElementById('settings-site-name').textContent = site.name;
 
   // Reset to General tab
-  document.querySelectorAll('.modal-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
-  document.querySelectorAll('.modal-tab-panel').forEach((p, i) => p.classList.toggle('hidden', i !== 0));
+  document.querySelectorAll('#modal-settings .tab').forEach((t, i) => {
+    t.classList.toggle('is-active', i === 0);
+    t.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+  });
+  document.querySelectorAll('#modal-settings .tab-panel').forEach((p, i) => p.classList.toggle('hidden', i !== 0));
 
   const form = document.getElementById('form-settings');
   form.elements['id'].value = site.id;
@@ -548,8 +1113,8 @@ function renderHeadersList(headers) {
   const list = document.getElementById('headers-list');
   list.innerHTML = headers.map((h, i) => `
     <div class="header-row">
-      <input type="text" placeholder="Header-Name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
-      <input type="text" placeholder="value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Header name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-header="${i}" title="Remove">${ICON.x}</button>
     </div>
   `).join('');
@@ -576,10 +1141,11 @@ function renderRedirectsList(redirects) {
   const list = document.getElementById('redirects-list');
   list.innerHTML = redirects.map((r, i) => `
     <div class="redirect-row">
-      <input type="text" placeholder="/old-path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
-      <input type="text" placeholder="/new-path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
-      <label class="redirect-permanent">
+      <input class="g-input" type="text" placeholder="/old-path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="/new-path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
+      <label class="g-checkbox redirect-permanent">
         <input type="checkbox" data-redirect-permanent data-idx="${i}" ${r.permanent ? 'checked' : ''} />
+        <span class="g-checkbox-box"></span>
         301
       </label>
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-redirect="${i}" title="Remove">${ICON.x}</button>
@@ -667,7 +1233,14 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
 document.getElementById('btn-delete-site').addEventListener('click', async () => {
   const site = sites.find(s => s.id === activeSiteId);
   if (!site) return;
-  if (!confirm(`Delete "${site.name}"? This removes the container and all files. This cannot be undone.`)) return;
+  const ok = await confirmDialog({
+    title: `Delete "${site.name}"?`,
+    body: 'This permanently removes the site, its container, files and deploy history. This cannot be undone.',
+    confirmLabel: 'Delete forever',
+    danger: true,
+    requireText: site.name,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', `/sites/${activeSiteId}`);
     closeModal('modal-settings');
@@ -710,15 +1283,22 @@ document.getElementById('btn-refresh-logs').addEventListener('click', fetchModal
 async function siteAction(id, action) {
   const site = sites.find(s => s.id === id);
   if (action === 'stop' && site?.container?.running) {
-    if (!confirm(`Stop "${site.name}"? It will be unreachable until started again.`)) return;
+    const ok = await confirmDialog({
+      title: `Stop "${site.name}"?`,
+      body: 'The site goes offline until you start it again. Visitors will see the maintenance page.',
+      confirmLabel: 'Stop site',
+      warn: true,
+    });
+    if (!ok) return;
   }
 
-  // Optimistic update
+  // Optimistic update — flip the status pill to "starting" while the
+  // request is in flight; loadSites() reconciles with the real state after.
   const card = document.querySelector(`[data-action="${action === 'stop' ? 'stop' : 'start'}"][data-id="${id}"]`)?.closest('.site-card');
-  const dot = card?.querySelector('.status-dot');
-  const tag = card?.querySelector('.tag:not(.blue):not(.yellow):not(.green)');
-  if (dot) { dot.className = 'status-dot starting'; }
-  if (tag) tag.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
+  const statusEl = card?.querySelector(`[data-status-for="${id}"]`);
+  const labelEl = statusEl?.querySelector('.status-label');
+  if (statusEl) statusEl.className = 'status status-starting';
+  if (labelEl) labelEl.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
 
   try {
     await api('POST', `/sites/${id}/${action}`);
@@ -750,23 +1330,25 @@ async function openAnalytics(site) {
   activeAnalyticsSiteId = site.id;
   document.getElementById('analytics-site-name').textContent = site.name;
   document.querySelectorAll('.analytics-period-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.period === activeAnalyticsPeriod));
+    b.classList.toggle('is-active', b.dataset.period === activeAnalyticsPeriod));
   openModal('modal-analytics');
   await loadAnalytics();
 }
 
 async function loadAnalytics() {
   if (!activeAnalyticsSiteId) return;
-  document.getElementById('analytics-loading').classList.remove('hidden');
-  document.getElementById('analytics-body').classList.add('hidden');
+  const loadingEl = document.getElementById('analytics-loading');
+  const bodyEl = document.getElementById('analytics-body');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
+  bodyEl.classList.add('hidden');
   try {
     const data = await api('GET', `/analytics/${activeAnalyticsSiteId}?period=${activeAnalyticsPeriod}`);
     renderAnalytics(data);
+    loadingEl.classList.add('hidden');
+    bodyEl.classList.remove('hidden');
   } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    document.getElementById('analytics-loading').classList.add('hidden');
-    document.getElementById('analytics-body').classList.remove('hidden');
+    viewError(loadingEl, viewErrorMessage('analytics', err), loadAnalytics);
   }
 }
 
@@ -775,13 +1357,17 @@ function renderAnalytics(data) {
   const errorRate = totals.requests > 0
     ? (((totals.client_err + totals.server_err) / totals.requests) * 100).toFixed(1)
     : '0.0';
+  const clientPct = totals.requests > 0 ? ((totals.client_err / totals.requests) * 100).toFixed(1) : '0.0';
+  const serverPct = totals.requests > 0 ? ((totals.server_err / totals.requests) * 100).toFixed(1) : '0.0';
 
   document.getElementById('stat-requests').textContent = fmtNum(totals.requests);
-  document.getElementById('stat-requests-1h').textContent = fmtNum(last1h.requests) + ' last 1h';
+  document.getElementById('stat-requests-1h').textContent = fmtNum(last1h.requests) + ' in the last hour';
   document.getElementById('stat-bytes').textContent = fmtBytes(totals.bytes);
+  const avgBytes = totals.requests > 0 ? totals.bytes / totals.requests : 0;
+  document.getElementById('stat-bytes-sub').textContent = fmtBytes(avgBytes) + ' avg / request';
   document.getElementById('stat-errors').textContent = errorRate + '%';
-  document.getElementById('stat-errors-detail').textContent =
-    `${totals.client_err} client · ${totals.server_err} server`;
+  document.getElementById('stat-errors-detail').innerHTML =
+    `<span style="color:var(--warn)">${clientPct}% client</span> · <span style="color:var(--err)">${serverPct}% server</span>`;
 
   const total = totals.ok + totals.redirects + totals.client_err + totals.server_err || 1;
   document.getElementById('bar-ok').style.width        = (totals.ok        / total * 100) + '%';
@@ -810,18 +1396,19 @@ function renderSparkline(hourly, period) {
   const slots = [];
   for (let i = bucketCount - 1; i >= 0; i--) {
     const slotEnd = now - i * bucketSize * 3600;
-    let requests = 0, hasError = false;
+    let requests = 0, serverErr = 0, hasError = false;
     for (let t = slotEnd - bucketSize * 3600; t < slotEnd; t += 3600) {
       const h = dataMap.get(t - (t % 3600));
-      if (h) { requests += h.requests; if (h.client_err + h.server_err > 0) hasError = true; }
+      if (h) { requests += h.requests; serverErr += h.server_err; if (h.client_err + h.server_err > 0) hasError = true; }
     }
-    slots.push({ requests, hasError, label: new Date(slotEnd * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+    slots.push({ requests, serverErr, hasError, label: new Date(slotEnd * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
   }
   const maxVal = Math.max(...slots.map(s => s.requests), 1);
+  const tooltip = document.getElementById('analytics-tooltip');
   chart.innerHTML = `
     <div class="sparkline">
-      ${slots.map(s => `
-        <div class="spark-bar-wrap" title="${s.requests} requests at ${s.label}">
+      ${slots.map((s, i) => `
+        <div class="spark-bar-wrap" data-slot="${i}" title="${s.requests} requests at ${s.label}">
           <div class="spark-bar ${s.hasError ? 'spark-bar-error' : ''}" style="height:${Math.max(s.requests / maxVal * 100, s.requests > 0 ? 4 : 0)}%"></div>
         </div>`).join('')}
     </div>
@@ -830,12 +1417,24 @@ function renderSparkline(hourly, period) {
       <span>${slots[Math.floor(slots.length / 2)]?.label || ''}</span>
       <span>${slots[slots.length - 1]?.label || 'now'}</span>
     </div>`;
+
+  if (tooltip) {
+    chart.querySelectorAll('.spark-bar-wrap').forEach(wrap => {
+      wrap.addEventListener('mouseenter', () => {
+        const s = slots[Number(wrap.dataset.slot)];
+        if (!s) return;
+        tooltip.textContent = `${s.label} — ${fmtNum(s.requests)} req${s.serverErr > 0 ? ` · ${s.serverErr}× 5xx` : ''}`;
+        tooltip.classList.add('is-visible');
+      });
+      wrap.addEventListener('mouseleave', () => tooltip.classList.remove('is-visible'));
+    });
+  }
 }
 
 document.querySelectorAll('.analytics-period-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     activeAnalyticsPeriod = btn.dataset.period;
-    document.querySelectorAll('.analytics-period-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.analytics-period-btn').forEach(b => b.classList.toggle('is-active', b === btn));
     loadAnalytics();
   });
 });
@@ -871,7 +1470,7 @@ async function checkDns(siteId) {
     const data = await api('GET', `/dns/${siteId}`);
     updateDnsIpFields(data.serverIp || '—');
     const bannerMap = {
-      ok:      { cls: 'ok',      text: `✓ DNS is correctly pointing to ${data.serverIp}` },
+      ok:      { cls: 'ok',      text: `DNS is correctly pointing to ${data.serverIp}` },
       pending: { cls: 'pending', text: 'DNS not resolving yet — records may not have propagated' },
       wrong:   { cls: 'wrong',   text: `Resolves to ${data.resolved.join(', ')} — expected ${data.serverIp}` },
       unknown: { cls: 'pending', text: 'Server IP unknown — set PUBLIC_IP in .env to enable checks' },
@@ -887,9 +1486,18 @@ async function checkDns(siteId) {
   }
 }
 
+const DNS_BANNER_ICON = {
+  ok:       ICON.check,
+  wrong:    ICON.x,
+  pending:  ICON.circle,
+  checking: ICON.rotateCw,
+};
+
 function setBanner(state, text) {
   document.getElementById('dns-status-banner').className = `dns-banner dns-banner-${state}`;
   document.getElementById('dns-status-text').textContent = text;
+  const icon = document.getElementById('dns-banner-icon');
+  if (icon) icon.innerHTML = DNS_BANNER_ICON[state] || '';
 }
 
 function updateDnsIpFields(ip) {
@@ -907,7 +1515,11 @@ function updateDnsIpFields(ip) {
 }
 
 function switchDnsTab(name) {
-  document.querySelectorAll('.dns-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.dns-tab').forEach(t => {
+    const active = t.dataset.tab === name;
+    t.classList.toggle('is-active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
   document.querySelectorAll('.dns-tab-content').forEach(c => c.classList.add('hidden'));
   document.getElementById(`dns-tab-${name}`)?.classList.remove('hidden');
 }
@@ -922,7 +1534,7 @@ document.getElementById('btn-recheck-dns').addEventListener('click', () => {
 async function openHistory(site) {
   activeSiteId = site.id;
   document.getElementById('history-site-name').textContent = site.name;
-  document.getElementById('history-list').innerHTML = '<p style="color:var(--text-muted);padding:16px">Loading…</p>';
+  document.getElementById('history-list').innerHTML = '<p style="color:var(--tx3);padding:16px">Loading…</p>';
   openModal('modal-history');
   await refreshHistory(site.id, site.name);
 }
@@ -932,25 +1544,29 @@ async function refreshHistory(siteId, siteName) {
     const history = await api('GET', `/deploy/${siteId}/history`);
     const list = document.getElementById('history-list');
     if (!history.length) {
-      list.innerHTML = '<p style="color:var(--text-muted);padding:16px 0">No deployments yet.</p>';
+      list.innerHTML = '<p style="color:var(--tx3);padding:16px 0">No deployments yet.</p>';
       return;
     }
-    list.innerHTML = `
-      <table class="token-table">
-        <thead><tr><th>#</th><th>Deployed</th><th>Size</th><th></th></tr></thead>
-        <tbody>
-          ${history.map((d, i) => `
-            <tr>
-              <td class="token-meta">${history.length - i}</td>
-              <td>${new Date(d.deployed_at * 1000).toLocaleString()}</td>
-              <td class="token-meta">${(d.size / 1024).toFixed(0)} KB</td>
-              <td>${i > 0 ? `<button class="btn btn-sm" data-rollback="${d.id}">Rollback</button>` : '<span class="token-meta">Current</span>'}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+    list.innerHTML = history.map((d, i) => `
+      <div class="history-row">
+        <span class="history-num">#${history.length - i}</span>
+        <span class="history-info">
+          <span class="history-file">${esc(d.filename)}</span>
+          <span class="history-meta">${timeAgo(d.deployed_at)} · ${fmtBytes(d.size)}</span>
+        </span>
+        ${i === 0
+          ? '<span class="badge badge-ok">CURRENT</span>'
+          : `<button class="btn btn-sm" data-rollback="${d.id}">Roll back…</button>`}
+      </div>`).join('');
     list.querySelectorAll('[data-rollback]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if (!confirm('Roll back to this deployment? Current files will be replaced.')) return;
+        const ok = await confirmDialog({
+          title: 'Roll back to this deployment?',
+          body: 'Current files will be replaced with this deployment’s files. This cannot be undone.',
+          confirmLabel: 'Roll back',
+          danger: true,
+        });
+        if (!ok) return;
         btn.disabled = true;
         btn.textContent = 'Rolling back…';
         try {
@@ -961,12 +1577,12 @@ async function refreshHistory(siteId, siteName) {
         } catch (err) {
           toast(err.message, 'error');
           btn.disabled = false;
-          btn.textContent = 'Rollback';
+          btn.textContent = 'Roll back…';
         }
       });
     });
   } catch (err) {
-    document.getElementById('history-list').innerHTML = `<p style="color:var(--red);padding:16px 0">${esc(err.message)}</p>`;
+    document.getElementById('history-list').innerHTML = `<p style="color:var(--err);padding:16px 0">${esc(err.message)}</p>`;
   }
 }
 
@@ -1003,6 +1619,8 @@ const EVENT_LABELS = {
   update_started:   'Update started',
   update_applying:  'Update applying',
   update_failed:    'Update failed',
+  login:            'Signed in',
+  logout:           'Signed out',
 };
 
 let activitySiteFilter = null;
@@ -1012,15 +1630,17 @@ async function loadActivity() {
   const filtersEl = document.getElementById('activity-filters');
   if (filtersEl && sites.length) {
     filtersEl.innerHTML = `
-      <button class="activity-filter-chip ${activitySiteFilter === null ? 'active' : ''}" data-filter="">All sites</button>
-      ${sites.map(s => `<button class="activity-filter-chip ${activitySiteFilter === s.id ? 'active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
-      <span class="activity-filter-sep">|</span>
-      <button class="activity-filter-chip activity-level-chip ${activityLevelFilter === null ? 'active' : ''}" data-level="">All levels</button>
-      <button class="activity-filter-chip activity-level-chip activity-level-error ${activityLevelFilter === 'error' ? 'active' : ''}" data-level="error">Errors</button>
-      <button class="activity-filter-chip activity-level-chip activity-level-warn ${activityLevelFilter === 'warn' ? 'active' : ''}" data-level="warn">Warnings</button>
-      <a href="/activity/export.csv" class="activity-export-btn" download>${ICON.download} CSV</a>
+      <div class="chip-group">
+        <button class="chip ${activitySiteFilter === null ? 'is-active' : ''}" data-filter="">All sites</button>
+        ${sites.map(s => `<button class="chip ${activitySiteFilter === s.id ? 'is-active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+      </div>
+      <div class="chip-group">
+        <button class="chip activity-level-chip ${activityLevelFilter === null ? 'is-active' : ''}" data-level="">All levels</button>
+        <button class="chip chip-err activity-level-chip ${activityLevelFilter === 'error' ? 'is-active' : ''}" data-level="error">Errors</button>
+        <button class="chip chip-warn activity-level-chip ${activityLevelFilter === 'warn' ? 'is-active' : ''}" data-level="warn">Warnings</button>
+      </div>
     `;
-    filtersEl.querySelectorAll('.activity-filter-chip:not(.activity-level-chip)').forEach(btn => {
+    filtersEl.querySelectorAll('.chip:not(.activity-level-chip)').forEach(btn => {
       btn.addEventListener('click', () => { activitySiteFilter = btn.dataset.filter || null; loadActivity(); });
     });
     filtersEl.querySelectorAll('.activity-level-chip').forEach(btn => {
@@ -1032,9 +1652,22 @@ async function loadActivity() {
   if (activitySiteFilter) url += `&site_id=${activitySiteFilter}`;
   if (activityLevelFilter) url += `&level=${activityLevelFilter}`;
 
+  const feedEl = document.getElementById('activity-feed');
+  if (feedEl) feedEl.innerHTML = skeletonBlock(4, 56);
+
   try {
     const events = await api('GET', url);
     const feed = document.getElementById('activity-feed');
+    const subtitle = document.getElementById('activity-subtitle');
+    if (subtitle) {
+      if (!events.length) {
+        subtitle.textContent = 'No activity yet';
+      } else {
+        const oldest = events[events.length - 1].created_at;
+        const spanDays = Math.max(1, Math.ceil((Date.now() / 1000 - oldest) / 86400));
+        subtitle.textContent = `${events.length} event${events.length !== 1 ? 's' : ''} · last ${spanDays} day${spanDays !== 1 ? 's' : ''}`;
+      }
+    }
     if (!events.length) {
       feed.innerHTML = '<div class="activity-empty">No activity yet.</div>';
       return;
@@ -1045,29 +1678,41 @@ async function loadActivity() {
       const isError = e.level === 'error';
       const isWarn  = e.level === 'warn';
       const levelBadge = isError
-        ? '<span class="audit-badge audit-error">error</span>'
+        ? '<span class="badge badge-err">ERROR</span>'
         : isWarn
-          ? '<span class="audit-badge audit-warn">warn</span>'
+          ? '<span class="badge badge-warn">WARN</span>'
           : '';
       const actorBadge = (e.actor && e.actor !== 'system')
-        ? `<span class="audit-actor">${esc(e.actor)}</span>`
+        ? `<span class="badge badge-accent">${esc(e.actor)}</span>`
         : '';
-      const fnBadge = e.fn ? `<span class="audit-fn">${esc(e.fn)}</span>` : '';
-      const duration = e.duration_ms != null ? `<span class="audit-duration">${e.duration_ms}ms</span>` : '';
+      const label = EVENT_LABELS[e.event] || (e.fn ? esc(e.fn) : esc(e.event));
+      const duration = e.duration_ms != null ? `<span class="activity-duration">took ${fmtDuration(e.duration_ms)}</span>` : '';
+      const emphasis = isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : '';
       return `
-        <div class="activity-item ${isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : ''}">
+        <div class="activity-item ${emphasis}">
           <span class="activity-icon">${EVENT_ICONS[e.event] || (isError ? ICON.x : isWarn ? ICON.warning : ICON.dot)}</span>
           <div class="activity-body">
-            ${levelBadge}${actorBadge}
-            <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
-            <span class="activity-event">${fnBadge || (EVENT_LABELS[e.event] || esc(e.event))}</span>
-            ${e.detail ? `<span class="activity-detail">${esc(e.detail)}</span>` : ''}
+            <div class="activity-line">
+              ${levelBadge}
+              <span class="activity-label">${label}</span>
+              ${actorBadge ? `<span class="activity-by">by</span>${actorBadge}` : ''}
+              <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
+            </div>
+            ${e.detail ? `<div class="activity-detail">${esc(e.detail)}</div>` : ''}
             ${duration}
           </div>
           <span class="activity-time">${timeAgo(e.created_at)}</span>
         </div>`;
     }).join('');
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    if (feedEl) viewError(feedEl, viewErrorMessage('activity', err), loadActivity);
+  }
+}
+
+function fmtDuration(ms) {
+  if (ms < 1000) return `${ms} ms`;
+  const s = ms / 1000;
+  return `${s % 1 === 0 ? s.toFixed(0) : s.toFixed(1)} s`;
 }
 
 function timeAgo(ts) {
@@ -1096,18 +1741,56 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
   });
 });
 
+// ── Phone off-canvas sidebar + bottom nav (task H1, additive) ─────────────
+// The bottom-nav Sites/Overview/Activity items are plain .nav-item[data-view]
+// elements, already wired by the view-switching listener above — no separate
+// navigation logic here. This block only (a) mirrors the "active" class onto
+// whichever nav-item(s) share a data-view, so sidebar + bottom nav agree, and
+// (b) toggles the sidebar as an off-canvas drawer on phone widths.
+document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+  item.addEventListener('click', () => {
+    const view = item.dataset.view;
+    document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach(n => n.classList.add('active'));
+  });
+});
+
+(function () {
+  const menuBtn = document.getElementById('btn-phone-menu');
+  const moreBtn = document.getElementById('btn-bottom-nav-more');
+  const scrim = document.getElementById('phone-sidebar-scrim');
+  if (!menuBtn && !moreBtn) return;
+
+  function setOpen(open) {
+    document.body.classList.toggle('phone-menu-open', open);
+    scrim?.classList.toggle('hidden', !open);
+    menuBtn?.setAttribute('aria-expanded', String(open));
+  }
+  function toggleOpen() { setOpen(!document.body.classList.contains('phone-menu-open')); }
+
+  menuBtn?.addEventListener('click', toggleOpen);
+  moreBtn?.addEventListener('click', toggleOpen);
+  scrim?.addEventListener('click', () => setOpen(false));
+  document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => setOpen(false));
+  });
+})();
+
 // ── Settings page tabs ────────────────────────────────────
-document.querySelectorAll('.settings-ptab').forEach(tab => {
+document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.settings-ptab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    document.querySelectorAll('.settings-ppanel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('#view-panel-settings .tab').forEach(t => {
+      t.classList.remove('is-active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    tab.classList.add('is-active');
+    tab.setAttribute('aria-selected', 'true');
+    document.querySelectorAll('#view-panel-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`spanel-${tab.dataset.stab}`).classList.remove('hidden');
     if (tab.dataset.stab === 'general')       checkForUpdate();
     if (tab.dataset.stab === 'server')        loadServerInfo();
     if (tab.dataset.stab === 'tokens')        loadTokens();
     if (tab.dataset.stab === 'webhooks')      loadWebhooks();
-    if (tab.dataset.stab === 'notifications') loadNotifSettings();
+    if (tab.dataset.stab === 'notifications') { loadNotifSettings(); loadNotifUnreadSummary(); loadAlertSettings(); }
   });
 });
 
@@ -1123,7 +1806,63 @@ async function loadPanelSettings() {
     const snippetEl = document.querySelector('#form-analytics-snippet [name="analytics_snippet"]');
     if (snippetEl) snippetEl.value = s.analytics_snippet || '';
   } catch (err) { toast(err.message, 'error'); }
+  if (currentUser?.role === 'admin') loadBackups();
 }
+
+// ── Backups ───────────────────────────────────────────────
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+async function loadBackups() {
+  const listEl = document.getElementById('backups-list');
+  const form = document.getElementById('form-backup-schedule');
+  if (!listEl) return;
+  try {
+    const data = await api('GET', '/backups');
+    if (form) {
+      form.elements['backup_interval_hours'].value = data.backup_interval_hours ?? 0;
+      form.elements['backup_keep'].value = data.backup_keep ?? 7;
+    }
+    if (!data.backups.length) {
+      listEl.innerHTML = '<p class="muted">No backups yet.</p>';
+      return;
+    }
+    listEl.innerHTML = data.backups.map(b => `
+      <div class="backup-row">
+        <span class="backup-name">${b.name}</span>
+        <span class="backup-meta muted">${fmtBytes(b.size)} · ${new Date(b.created * 1000).toLocaleString()}</span>
+      </div>
+    `).join('');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+document.getElementById('btn-backup-create')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-backup-create');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    await api('POST', '/backups');
+    toast('Backup created', 'success');
+    loadBackups();
+  } catch (err) { toast(err.message, 'error'); }
+  btn.disabled = false;
+  btn.textContent = 'Create backup now';
+});
+
+document.getElementById('form-backup-schedule')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const backup_interval_hours = Number(e.target.elements['backup_interval_hours'].value) || 0;
+  const backup_keep = Number(e.target.elements['backup_keep'].value) || 7;
+  try {
+    await api('PUT', '/backups/settings', { backup_interval_hours, backup_keep });
+    toast('Backup schedule saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
 
 document.getElementById('form-acme').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1190,34 +1929,82 @@ async function loadServerInfo() {
 
 // ── API Tokens ────────────────────────────────────────────
 async function loadTokens() {
+  const list = document.getElementById('tokens-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
     const tokens = await api('GET', '/settings/tokens');
     renderTokens(tokens);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('API tokens', err), loadTokens);
+  }
 }
+
+function renderTokenScope(siteScope) {
+  if (!siteScope || siteScope === 'all') return '<span class="badge badge-accent">All sites</span>';
+  const chips = siteScope.map(sid => {
+    const s = sites.find(x => x.id === sid);
+    return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
+  }).filter(Boolean).join('');
+  return `<div class="chip-wrap">${chips || '<span style="color:var(--tx3)">None</span>'}</div>`;
+}
+
+function renderTokenScopeSites() {
+  const wrap = document.getElementById('token-scope-sites');
+  if (!sites.length) {
+    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
+    return;
+  }
+  wrap.innerHTML = sites.map(s => `
+    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
+      <input type="checkbox" name="token_site" value="${s.id}" />
+      <span class="g-checkbox-box"></span>
+      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
+    </label>
+  `).join('');
+}
+
+document.getElementById('token-scope-all').addEventListener('change', e => {
+  const wrap = document.getElementById('token-scope-sites');
+  wrap.classList.toggle('hidden', e.target.checked);
+  if (!e.target.checked) renderTokenScopeSites();
+});
 
 function renderTokens(tokens) {
   const list = document.getElementById('tokens-list');
   if (!tokens.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No tokens yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.shield}</div>
+        <h3>No tokens yet.</h3>
+        <p>Create one below to authenticate CI/CD deploys.</p>
+      </div>`;
     return;
   }
   list.innerHTML = `
-    <table class="token-table">
-      <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Role</th><th>Scope</th><th>Expires</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody>
         ${tokens.map(t => `
           <tr>
             <td>${esc(t.name)}</td>
-            <td class="token-meta">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
-            <td class="token-meta">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
-            <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke</button></td>
+            <td><span class="badge badge-neutral">${esc(t.role || 'admin')}</span></td>
+            <td>${renderTokenScope(t.site_scope)}</td>
+            <td class="cell-mono">${t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : 'never'}</td>
+            <td class="cell-mono">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
+            <td class="cell-mono">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
+            <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></td>
           </tr>`).join('')}
       </tbody>
     </table>`;
   list.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Revoke this token? Any scripts using it will stop working.')) return;
+      const ok = await confirmDialog({
+        title: 'Revoke this token?',
+        body: 'Any scripts using it will stop working immediately.',
+        confirmLabel: 'Revoke',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/settings/tokens/${btn.dataset.revoke}`);
       toast('Token revoked', 'success');
       loadTokens();
@@ -1229,9 +2016,20 @@ document.getElementById('form-create-token').addEventListener('submit', async e 
   e.preventDefault();
   const name = e.target.elements['token_name'].value.trim();
   if (!name) return;
+  const role = e.target.elements['token_role'].value;
+  const expiry = e.target.elements['token_expiry'].value;
+  const scopeAll = document.getElementById('token-scope-all').checked;
+  const site_scope = scopeAll ? 'all' : [...document.querySelectorAll('#token-scope-sites input[name="token_site"]:checked')].map(cb => cb.value);
   try {
-    const result = await api('POST', '/settings/tokens', { name });
+    const result = await api('POST', '/settings/tokens', {
+      name,
+      role,
+      site_scope,
+      expires_in_days: expiry ? Number(expiry) : null,
+    });
     e.target.reset();
+    document.getElementById('token-scope-all').checked = true;
+    document.getElementById('token-scope-sites').classList.add('hidden');
     const reveal = document.getElementById('token-reveal');
     reveal.classList.add('hidden');
     document.getElementById('token-reveal-value').textContent = result.token;
@@ -1244,13 +2042,9 @@ document.getElementById('form-create-token').addEventListener('submit', async e 
   } catch (err) { toast(err.message, 'error'); }
 });
 
-document.getElementById('btn-copy-token').addEventListener('click', () => {
+document.getElementById('btn-copy-token').addEventListener('click', e => {
   const val = document.getElementById('token-reveal-value').textContent;
-  navigator.clipboard.writeText(val).then(() => {
-    const btn = document.getElementById('btn-copy-token');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
-  });
+  copyToClipboard(val, e.currentTarget);
 });
 
 document.getElementById('form-panel-settings').addEventListener('submit', async e => {
@@ -1271,14 +2065,42 @@ document.getElementById('form-change-password').addEventListener('submit', async
   e.preventDefault();
   const form = e.target;
   try {
-    await api('PUT', '/settings/password', {
-      old_password: form.elements['old_password'].value,
-      new_password: form.elements['new_password'].value,
+    await api('PATCH', `/users/${currentUser.id}`, {
+      current_password: form.elements['old_password'].value,
+      password: form.elements['new_password'].value,
     });
     form.reset();
+    setPasswordStrengthHint('');
     toast('Password changed', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
+
+// ── Password strength hint (Security tab) ─────────────────
+function setPasswordStrengthHint(pw) {
+  const hint = document.getElementById('password-strength-hint');
+  if (!hint) return;
+  if (!pw) {
+    hint.textContent = 'Minimum 8 characters';
+    hint.className = 'field-help muted';
+    return;
+  }
+  const variety = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length;
+  if (pw.length < 8) {
+    hint.textContent = 'Too short — minimum 8 characters';
+    hint.className = 'field-help err';
+  } else if (pw.length >= 12 && variety >= 3) {
+    hint.textContent = 'Strong — 12+ characters, mixed case, symbol';
+    hint.className = 'field-help ok';
+  } else if (pw.length >= 8 && variety >= 2) {
+    hint.textContent = 'Okay — add length or symbols for a stronger password';
+    hint.className = 'field-help warn';
+  } else {
+    hint.textContent = 'Weak — try mixing case, numbers, and symbols';
+    hint.className = 'field-help warn';
+  }
+}
+document.querySelector('#form-change-password [name="new_password"]')
+  .addEventListener('input', e => setPasswordStrengthHint(e.target.value));
 
 // ── Sign out ──────────────────────────────────────────────
 document.getElementById('btn-signout').addEventListener('click', async () => {
@@ -1286,11 +2108,118 @@ document.getElementById('btn-signout').addEventListener('click', async () => {
   window.location.href = '/login.html';
 });
 
+// ── First-run onboarding wizard (task J1) ──────────────────
+// Shown once, right after login, when GET /api/auth/me reports
+// needsOnboarding (admin still on the seeded password, or no base domain
+// configured, and the wizard has never been dismissed). Every step reuses
+// an existing endpoint — password change (PATCH /api/users/:id), settings
+// (PUT /api/settings) — nothing new is invented server-side beyond the
+// onboarding_done flag itself.
+let obStep = 1;
+let obPasswordChanged = false;
+
+function showOnboardingStep(n) {
+  obStep = n;
+  document.querySelectorAll('.onboarding-panel').forEach(p => {
+    p.classList.toggle('hidden', Number(p.dataset.onboardingPanel) !== n);
+  });
+  document.querySelectorAll('.onboarding-step-dot').forEach(d => {
+    const step = Number(d.dataset.step);
+    d.classList.toggle('is-active', step === n);
+    d.classList.toggle('is-done', step < n);
+  });
+  const steps = document.getElementById('onboarding-steps');
+  if (steps) steps.setAttribute('aria-valuenow', String(n));
+  const backBtn = document.getElementById('btn-onboarding-back');
+  if (backBtn) backBtn.classList.toggle('hidden', n === 1);
+  const nextBtn = document.getElementById('btn-onboarding-next');
+  if (nextBtn) nextBtn.textContent = n === 4 ? 'Finish' : 'Next';
+}
+
+function openOnboarding() {
+  obPasswordChanged = false;
+  const domainInput = document.querySelector('#onboarding-backdrop [name="site_base_domain"]');
+  const acmeInput = document.querySelector('#onboarding-backdrop [name="acme_email"]');
+  if (domainInput) domainInput.value = config.siteBaseDomain || '';
+  if (acmeInput) acmeInput.value = config.acmeEmail || '';
+  const pwForm = document.getElementById('form-onboarding-password');
+  if (pwForm) pwForm.reset();
+  showOnboardingStep(1);
+  openModal('onboarding-backdrop');
+}
+
+async function onboardingNext() {
+  const nextBtn = document.getElementById('btn-onboarding-next');
+  if (obStep === 2) {
+    const newPw = document.getElementById('ob-new-password').value;
+    const curPw = document.getElementById('ob-current-password').value;
+    if (newPw || curPw) {
+      if (newPw.length < 8) return toast('New password must be at least 8 characters', 'error');
+      if (!curPw) return toast('Current password required', 'error');
+      nextBtn.disabled = true;
+      try {
+        await api('PATCH', `/users/${currentUser.id}`, { current_password: curPw, password: newPw });
+        obPasswordChanged = true;
+        toast('Password changed', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+        nextBtn.disabled = false;
+        return;
+      }
+      nextBtn.disabled = false;
+    }
+  } else if (obStep === 3) {
+    const domain = document.getElementById('ob-base-domain').value.trim().toLowerCase();
+    try {
+      await api('PUT', '/settings', { site_base_domain: domain });
+      config = await api('GET', '/config').catch(() => config);
+    } catch (err) { return toast(err.message, 'error'); }
+  } else if (obStep === 4) {
+    const email = document.getElementById('ob-acme-email').value.trim();
+    if (email) {
+      try {
+        await api('PUT', '/settings', { acme_email: email });
+        config = await api('GET', '/config').catch(() => config);
+      } catch (err) { return toast(err.message, 'error'); }
+    }
+    return finishOnboarding();
+  }
+  showOnboardingStep(obStep + 1);
+}
+
+function onboardingBack() {
+  if (obStep > 1) showOnboardingStep(obStep - 1);
+}
+
+function setOnboardingReminder(show) {
+  const banner = document.getElementById('onboarding-reminder-banner');
+  if (banner) banner.classList.toggle('hidden', !show);
+}
+
+async function finishOnboarding() {
+  try { await api('PUT', '/settings', { onboarding_done: true }); }
+  catch (err) { toast(err.message, 'error'); }
+  closeModal('onboarding-backdrop');
+  setOnboardingReminder(!obPasswordChanged);
+  document.querySelector('.nav-item[data-view="sites"]')?.click();
+}
+
+document.getElementById('btn-onboarding-next')?.addEventListener('click', onboardingNext);
+document.getElementById('btn-onboarding-back')?.addEventListener('click', onboardingBack);
+document.getElementById('btn-onboarding-skip')?.addEventListener('click', finishOnboarding);
+document.getElementById('btn-onboarding-skip-2')?.addEventListener('click', finishOnboarding);
+document.getElementById('btn-onboarding-reminder-dismiss')?.addEventListener('click', () => setOnboardingReminder(false));
+document.getElementById('btn-onboarding-reminder-fix')?.addEventListener('click', () => {
+  setOnboardingReminder(false);
+  document.querySelector('.nav-item[data-view="panel-settings"]')?.click();
+  document.getElementById('ptab-security')?.click();
+});
+
 // ── Init ──────────────────────────────────────────────────
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
   if (!me.authenticated) { window.location.href = '/login.html'; return; }
-  currentUser = { role: me.role || 'admin', username: me.username || '' };
+  currentUser = { id: me.id || '', role: me.role || 'admin', username: me.username || '' };
   applyRoleUI();
   config = await api('GET', '/config').catch(() => config);
   if (config.version) {
@@ -1300,6 +2229,7 @@ async function init() {
   await loadSites();
   await loadNotifications();
   checkForUpdate();
+  if (me.needsOnboarding) openOnboarding();
   setInterval(loadSites, 15_000);
   setInterval(loadNotifications, 30_000);
   setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h
@@ -1312,17 +2242,21 @@ let notifDropdownOpen = false;
 const bellBtn = document.getElementById('btn-bell');
 const notifDropdown = document.getElementById('notif-dropdown');
 
+function setNotifDropdownOpen(open) {
+  notifDropdownOpen = open;
+  notifDropdown.classList.toggle('hidden', !open);
+  bellBtn.setAttribute('aria-expanded', String(open));
+}
+
 bellBtn.addEventListener('click', e => {
   e.stopPropagation();
-  notifDropdownOpen = !notifDropdownOpen;
-  notifDropdown.classList.toggle('hidden', !notifDropdownOpen);
+  setNotifDropdownOpen(!notifDropdownOpen);
   if (notifDropdownOpen) loadNotifications();
 });
 
 document.addEventListener('click', e => {
   if (notifDropdownOpen && !notifDropdown.contains(e.target) && e.target !== bellBtn) {
-    notifDropdownOpen = false;
-    notifDropdown.classList.add('hidden');
+    setNotifDropdownOpen(false);
   }
 });
 
@@ -1364,17 +2298,27 @@ function renderNotifList(notifs) {
   list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
     try { data = JSON.parse(n.data || '{}'); } catch {}
+
+    let detailHtml = n.detail ? esc(n.detail) : '';
+    if (n.type === 'unknown_domain' && data.domain) {
+      detailHtml += `${detailHtml ? ' — ' : ''}<button type="button" class="notif-link" data-domain="${esc(data.domain)}">connect it</button>`;
+    }
+
+    const actionsHtml = (n.type === 'site_down' && data.siteId) ? `
+        <span class="notif-actions">
+          <button class="btn btn-xs btn-danger" data-open-logs="${esc(data.siteId)}">Open logs</button>
+          <button class="btn btn-xs btn-secondary" data-restart-site="${esc(data.siteId)}">Restart</button>
+        </span>` : '';
+
     return `
-      <div class="notif-item ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
+      <div class="notif-item notif-type-${esc(n.type)} ${n.read ? '' : 'notif-unread'}" data-notif-id="${n.id}">
         <span class="notif-icon">${NOTIF_ICONS[n.type] || ICON.dot}</span>
         <div class="notif-body">
           <span class="notif-title">${esc(n.title)}</span>
-          ${n.detail ? `<span class="notif-detail">${esc(n.detail)}</span>` : ''}
-          <span class="notif-time">${timeAgo(n.created_at)}</span>
-          ${n.type === 'unknown_domain' && data.domain
-            ? `<button class="btn btn-sm notif-connect-btn" data-domain="${esc(data.domain)}">Connect to site →</button>`
-            : ''}
+          ${detailHtml ? `<span class="notif-detail">${detailHtml}</span>` : ''}
+          ${actionsHtml}
         </div>
+        <span class="notif-time">${timeAgo(n.created_at)}</span>
         <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">${ICON.x}</button>
       </div>`;
   }).join('');
@@ -1382,16 +2326,33 @@ function renderNotifList(notifs) {
   list.querySelectorAll('[data-dismiss]').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
-      await api('DELETE', `/notifications/${btn.dataset.dismiss}`).catch(() => {});
+      await api('DELETE', `/notifications/${btn.dataset.dismiss}`).catch(err => toast(err.message, 'error'));
       loadNotifications();
     });
   });
 
-  list.querySelectorAll('.notif-connect-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
-      openConnectDomain(btn.dataset.domain);
+  list.querySelectorAll('.notif-link[data-domain]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      setNotifDropdownOpen(false);
+      openConnectDomain(el.dataset.domain);
+    });
+  });
+
+  list.querySelectorAll('[data-open-logs]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const site = sites.find(s => s.id === btn.dataset.openLogs);
+      setNotifDropdownOpen(false);
+      if (site) openLogs(site);
+    });
+  });
+
+  list.querySelectorAll('[data-restart-site]').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      setNotifDropdownOpen(false);
+      await siteAction(btn.dataset.restartSite, 'start');
     });
   });
 
@@ -1399,8 +2360,7 @@ function renderNotifList(notifs) {
   const updateItem = document.getElementById('notif-update-item');
   if (updateItem) {
     updateItem.addEventListener('click', () => {
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
+      setNotifDropdownOpen(false);
       openModal('modal-update');
       startUpdateFlow();
     });
@@ -1418,7 +2378,7 @@ function renderNotifList(notifs) {
 }
 
 document.getElementById('btn-notif-read-all').addEventListener('click', async () => {
-  await api('POST', '/notifications/read-all').catch(() => {});
+  await api('POST', '/notifications/read-all').catch(err => toast(err.message, 'error'));
   loadNotifications();
 });
 
@@ -1428,13 +2388,13 @@ function openConnectDomain(domain) {
   document.getElementById('connect-domain-name').textContent = domain;
   const siteList = document.getElementById('connect-site-list');
   if (!sites.length) {
-    siteList.innerHTML = '<p style="color:var(--text-muted)">No sites yet — create one below.</p>';
+    siteList.innerHTML = '<p style="color:var(--tx3)">No sites yet — create one below.</p>';
   } else {
     siteList.innerHTML = sites.map(s => `
       <div class="connect-site-row">
         <span class="connect-site-name">${esc(s.name)}</span>
         <span class="connect-site-domain">${esc(s.domain)}</span>
-        <button class="btn btn-sm btn-primary" data-assign-site="${s.id}">Assign</button>
+        <button class="btn btn-sm btn-accent-outline" data-assign-site="${s.id}">Assign…</button>
       </div>`).join('');
     siteList.querySelectorAll('[data-assign-site]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -1458,10 +2418,12 @@ function openConnectDomain(domain) {
 document.getElementById('btn-connect-create').addEventListener('click', () => {
   closeModal('modal-connect-domain');
   document.getElementById('form-new-site').reset();
+  setNewSiteRuntime('static');
   const domainInput = document.querySelector('#form-new-site input[name="domain"]');
   if (domainInput) domainInput.value = connectDomain;
   const nameInput = document.querySelector('#form-new-site input[name="name"]');
   if (nameInput) nameInput.value = connectDomain.split('.')[0];
+  validateNewSiteDomain();
   openModal('modal-new-site');
 });
 
@@ -1508,7 +2470,13 @@ async function previewSwap(site) {
 }
 
 async function previewDiscard(site) {
-  if (!confirm(`Discard preview for "${site.name}"? The preview container and files will be removed.`)) return;
+  const ok = await confirmDialog({
+    title: `Discard preview for "${site.name}"?`,
+    body: 'The preview container and files will be removed. This cannot be undone.',
+    confirmLabel: 'Discard preview',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', `/sites/${site.id}/preview`);
     toast('Preview discarded', 'success');
@@ -1520,37 +2488,55 @@ async function previewDiscard(site) {
 
 // ── Webhooks settings ─────────────────────────────────────
 async function loadWebhooks() {
+  const list = document.getElementById('webhooks-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 5)}</tbody></table>`;
   try {
     const webhooks = await api('GET', '/settings/webhooks');
     renderWebhookList(webhooks);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('webhooks', err), loadWebhooks);
+  }
 }
 
 function renderWebhookList(webhooks) {
   const list = document.getElementById('webhooks-list');
   if (!webhooks.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No webhooks yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.zap}</div>
+        <h3>No webhooks yet.</h3>
+        <p>Notify chat tools or CI when deploys and outages happen.</p>
+      </div>`;
     return;
   }
-  list.innerHTML = webhooks.map(w => {
-    let events = [];
-    try { events = JSON.parse(w.events || '[]'); } catch {}
-    return `
-      <div class="webhook-item">
-        <div class="webhook-item-info">
-          <span class="webhook-name">${esc(w.name)}</span>
-          <span class="webhook-url">${esc(w.url)}</span>
-          <span class="webhook-events">${events.join(', ')}</span>
-        </div>
-        <div class="webhook-item-actions">
-          <label class="toggle-label" title="${w.enabled ? 'Enabled' : 'Disabled'}">
-            <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
-          </label>
-          <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
-          <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
-        </div>
-      </div>`;
-  }).join('');
+  list.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Enabled</th><th></th></tr></thead>
+      <tbody>
+        ${webhooks.map(w => {
+          let events = [];
+          try { events = JSON.parse(w.events || '[]'); } catch {}
+          return `
+          <tr>
+            <td>${esc(w.name)}</td>
+            <td class="cell-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.url)}</td>
+            <td>${events.map(ev => `<span class="badge badge-neutral">${esc(ev)}</span>`).join(' ')}</td>
+            <td>
+              <label class="g-toggle" title="${w.enabled ? 'Enabled' : 'Disabled'}">
+                <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
+                <span class="g-toggle-track"></span>
+              </label>
+            </td>
+            <td>
+              <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
+                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 
   list.querySelectorAll('.webhook-toggle').forEach(input => {
     input.addEventListener('change', async () => {
@@ -1572,7 +2558,13 @@ function renderWebhookList(webhooks) {
 
   list.querySelectorAll('[data-delete-webhook]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Delete this webhook?')) return;
+      const ok = await confirmDialog({
+        title: 'Delete this webhook?',
+        body: 'It will stop receiving deploy and status events immediately.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/settings/webhooks/${btn.dataset.deleteWebhook}`)
         .catch(err => toast(err.message, 'error'));
       loadWebhooks();
@@ -1612,8 +2604,10 @@ function applyRoleUI() {
   // Sidebar user info
   const usernameEl = document.getElementById('sidebar-username');
   const roleBadge = document.getElementById('sidebar-role-badge');
+  const avatarEl = document.getElementById('sidebar-avatar');
   if (usernameEl) usernameEl.textContent = username;
   if (roleBadge) { roleBadge.textContent = role; roleBadge.dataset.role = role; }
+  if (avatarEl) avatarEl.textContent = (username || '?').slice(0, 2).toUpperCase();
 
   // Hide admin-only elements for non-admins
   if (role !== 'admin') {
@@ -1621,25 +2615,51 @@ function applyRoleUI() {
     const btnNew = document.getElementById('btn-new-site');
     if (btnNew) btnNew.classList.add('hidden');
   }
-  // Hide editor+ elements for viewers
+  // Hide editor+ elements for viewers. Viewer keeps a single ungrouped
+  // nav group, so its "Monitor" section label is dropped too — never
+  // show a lone group label (canvas 7a).
   if (role === 'viewer') {
     document.querySelectorAll('.nav-editor, .nav-section-editor').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.nav-section-monitor').forEach(el => el.classList.add('hidden'));
   }
 }
 
 // ── Runtime selector in new site modal ───────────────────
-document.getElementById('new-site-runtime').addEventListener('change', e => {
-  const runtime = e.target.value;
+function setNewSiteRuntime(runtime) {
   const isApp = runtime === 'node' || runtime === 'python';
   const isPhp = runtime === 'php';
+  document.getElementById('new-site-runtime').value = runtime;
+  document.querySelectorAll('#new-site-runtime-seg button').forEach(b => {
+    const active = b.dataset.runtime === runtime;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
   document.getElementById('new-site-static-opts').classList.toggle('hidden', isApp || isPhp);
   document.getElementById('new-site-app-opts').classList.toggle('hidden', !isApp);
+}
+
+document.getElementById('new-site-runtime-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-runtime]');
+  if (!btn) return;
+  setNewSiteRuntime(btn.dataset.runtime);
 });
 
 // ── Runtime selector in site settings ────────────────────
-document.getElementById('settings-runtime').addEventListener('change', e => {
-  const isApp = ['node', 'python'].includes(e.target.value);
+function setSettingsRuntime(runtime) {
+  const isApp = runtime === 'node' || runtime === 'python';
+  document.getElementById('settings-runtime').value = runtime;
+  document.querySelectorAll('#settings-runtime-seg button').forEach(b => {
+    const active = b.dataset.runtime === runtime;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
   document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+}
+
+document.getElementById('settings-runtime-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-runtime]');
+  if (!btn) return;
+  setSettingsRuntime(btn.dataset.runtime);
 });
 
 // ── App Config tab: env vars ──────────────────────────────
@@ -1647,13 +2667,13 @@ function renderEnvVarList(envVars) {
   const list = document.getElementById('env-vars-list');
   const entries = Object.entries(envVars);
   if (!entries.length) {
-    list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-bottom:8px">No variables yet.</p>';
+    list.innerHTML = '<p class="settings-desc" style="margin-bottom:8px">No variables yet.</p>';
     return;
   }
   list.innerHTML = entries.map(([k, v], i) => `
     <div class="env-var-row">
-      <input type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
-      <input type="text" placeholder="value" value="${esc(v)}" data-env-val data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Value" value="${esc(v)}" data-env-val data-idx="${i}" />
       <button class="btn btn-sm btn-icon-only btn-danger" data-remove-env="${i}" title="Remove">${ICON.x}</button>
     </div>`).join('');
   list.querySelectorAll('[data-remove-env]').forEach(btn => {
@@ -1689,10 +2709,7 @@ document.getElementById('btn-add-env-var').addEventListener('click', () => {
 // ── App Config tab population (called from openSettings) ─
 function populateAppConfigTab(site) {
   const runtime = site.runtime || 'static';
-  const settingsRuntime = document.getElementById('settings-runtime');
-  settingsRuntime.value = runtime;
-  const isApp = runtime === 'node' || runtime === 'python';
-  document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+  setSettingsRuntime(runtime);
   const form = document.getElementById('form-settings');
   if (form.elements['build_cmd']) form.elements['build_cmd'].value = site.build_cmd || '';
   if (form.elements['start_cmd']) form.elements['start_cmd'].value = site.start_cmd || '';
@@ -1712,40 +2729,66 @@ function populateAppConfigTab(site) {
 
 // ── Users management ──────────────────────────────────────
 async function loadUsers() {
+  const list = document.getElementById('users-list');
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
     const users = await api('GET', '/users');
     renderUserList(users);
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) {
+    viewError(list, viewErrorMessage('users', err), loadUsers);
+  }
 }
 
 function renderUserList(users) {
   const list = document.getElementById('users-list');
   if (!users.length) {
-    list.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No users yet.</p>';
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${ICON.user}</div>
+        <h3>No users yet.</h3>
+        <p>Create one below to grant access.</p>
+      </div>`;
     return;
   }
   list.innerHTML = `
-    <table class="users-table">
-      <thead><tr><th>Username</th><th>Role</th><th>Sites</th><th></th></tr></thead>
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Role</th><th>Site access</th><th></th></tr></thead>
       <tbody>
-        ${users.map(u => `
+        ${users.map(u => {
+          const isSelf = u.id === currentUser.id;
+          const initials = (u.username || '?').slice(0, 2).toUpperCase();
+          return `
           <tr>
-            <td>${esc(u.username)}${u.id === currentUser.id ? ' <span style="color:var(--text-muted)">(you)</span>' : ''}</td>
-            <td><span class="role-badge" data-role="${u.role}">${u.role}</span></td>
+            <td>
+              <div class="table-user">
+                <span class="table-avatar">${esc(initials)}</span>
+                <span>${esc(u.username)}</span>
+                ${isSelf ? '<span class="badge badge-neutral">YOU</span>' : ''}
+              </div>
+            </td>
+            <td><span class="badge badge-role-${esc(u.role)}">${esc(u.role)}</span></td>
             <td>${renderUserSites(u)}</td>
             <td>
-              ${u.id !== currentUser.id ? `
-                <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
-                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}" title="Delete user">${ICON.trash}</button>
-              ` : ''}
+              ${!isSelf ? `
+                <div style="display:flex;gap:6px;justify-content:flex-end">
+                  <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">Delete…</button>
+                </div>` : ''}
             </td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 
   list.querySelectorAll('[data-delete-user]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm(`Delete user "${btn.dataset.username}"?`)) return;
+      const ok = await confirmDialog({
+        title: `Delete user "${btn.dataset.username}"?`,
+        body: 'They will immediately lose access to this panel. This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       await api('DELETE', `/users/${btn.dataset.deleteUser}`).catch(err => toast(err.message, 'error'));
       loadUsers();
     });
@@ -1757,19 +2800,27 @@ function renderUserList(users) {
 }
 
 function renderUserSites(u) {
-  if (u.role === 'admin' || u.sites === 'all') return '<span style="color:var(--text-muted)">All</span>';
-  if (!u.sites?.length) return '<span style="color:var(--text-subtle)">None</span>';
-  const siteNames = u.sites.map(sid => {
+  if (u.role === 'admin' || u.sites === 'all') return '<span class="badge badge-accent">All sites</span>';
+  if (!u.sites?.length) return '<span style="color:var(--tx3)">None</span>';
+  const chips = u.sites.map(sid => {
     const s = sites.find(x => x.id === sid);
-    return s ? `<span class="user-site-chip">${esc(s.name)}</span>` : '';
+    return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
   }).filter(Boolean).join('');
-  return `<div class="user-sites-chips">${siteNames}</div>`;
+  return `<div class="chip-wrap">${chips}</div>`;
+}
+
+function setEditUserRole(role) {
+  document.querySelectorAll('#edit-user-role-list input[name="role"]').forEach(input => {
+    input.checked = input.value === role;
+    input.closest('.role-select-opt').classList.toggle('is-active', input.value === role);
+  });
+  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
 }
 
 async function openEditUser(userId, username, role) {
   document.getElementById('edit-user-id').value = userId;
   document.getElementById('edit-user-name').textContent = username;
-  document.getElementById('edit-user-role').value = role;
+  setEditUserRole(role);
 
   // Load current site assignments for this user
   const [siteData] = await Promise.all([
@@ -1777,27 +2828,28 @@ async function openEditUser(userId, username, role) {
   ]);
 
   renderEditUserSites(siteData);
-
-  // Role change hides/shows site list
-  document.getElementById('edit-user-role').onchange = function() {
-    document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', this.value === 'admin');
-  };
-  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
-
   openModal('modal-edit-user');
 }
+
+// Role change hides/shows site list (delegated — radios are re-rendered per open)
+document.getElementById('edit-user-role-list').addEventListener('change', e => {
+  const input = e.target.closest('input[name="role"]');
+  if (!input) return;
+  setEditUserRole(input.value);
+});
 
 function renderEditUserSites(siteData) {
   const wrap = document.getElementById('edit-user-sites-list');
   if (!sites.length) {
-    wrap.innerHTML = '<p class="settings-desc" style="color:var(--text-subtle)">No sites created yet.</p>';
+    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
     return;
   }
   wrap.innerHTML = sites.map(s => `
-    <label class="checkbox-label">
+    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
       <input type="checkbox" name="site_access" value="${s.id}"
         ${siteData.all || (siteData.sites || []).includes(s.id) ? 'checked' : ''} />
-      ${esc(s.name)} <span style="color:var(--text-muted);font-size:11px">${esc(s.domain)}</span>
+      <span class="g-checkbox-box"></span>
+      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
     </label>
   `).join('');
 }
@@ -1805,7 +2857,7 @@ function renderEditUserSites(siteData) {
 document.getElementById('form-edit-user').addEventListener('submit', async e => {
   e.preventDefault();
   const userId = document.getElementById('edit-user-id').value;
-  const newRole = document.getElementById('edit-user-role').value;
+  const newRole = document.querySelector('#edit-user-role-list input[name="role"]:checked')?.value;
 
   try {
     await api('PATCH', `/users/${userId}`, { role: newRole });
@@ -1841,7 +2893,7 @@ document.getElementById('form-create-user').addEventListener('submit', async e =
 });
 
 // ── Extend settings ptab to load users ───────────────────
-document.querySelectorAll('.settings-ptab').forEach(tab => {
+document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.stab === 'users') loadUsers();
   });
@@ -1850,10 +2902,7 @@ document.querySelectorAll('.settings-ptab').forEach(tab => {
 // ── Notification settings ─────────────────────────────────
 async function loadNotifSettings() {
   try {
-    const s = await api('GET', '/settings');
-    const events = s.notification_events
-      ? JSON.parse(s.notification_events)
-      : ['unknown_domain', 'site_down', 'site_up'];
+    const { events } = await api('GET', '/settings/notification-events');
     const form = document.getElementById('form-notif-settings');
     form.elements['notif_unknown_domain'].checked = events.includes('unknown_domain');
     form.elements['notif_site_down'].checked      = events.includes('site_down');
@@ -1869,16 +2918,76 @@ document.getElementById('form-notif-settings').addEventListener('submit', async 
   if (form.elements['notif_site_down'].checked)      events.push('site_down');
   if (form.elements['notif_site_up'].checked)        events.push('site_up');
   try {
-    await api('POST', '/settings', { notification_events: JSON.stringify(events) });
+    await api('PUT', '/settings/notification-events', { events });
     toast('Notification settings saved', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
 
+// ── Alert channels (ntfy) ──────────────────────────────────
+async function loadAlertSettings() {
+  try {
+    const { ntfy } = await api('GET', '/settings/alerts');
+    const form = document.getElementById('form-alert-ntfy');
+    form.elements['ntfy_enabled'].checked = !!ntfy.enabled;
+    form.elements['ntfy_url'].value = ntfy.url || '';
+    const events = ntfy.events || [];
+    form.elements['ntfy_event_site_down'].checked     = events.includes('site_down');
+    form.elements['ntfy_event_site_up'].checked       = events.includes('site_up');
+    form.elements['ntfy_event_deploy_failed'].checked = events.includes('deploy_failed');
+    form.elements['ntfy_event_cert_expiry'].checked   = events.includes('cert_expiry');
+  } catch {}
+}
+
+document.getElementById('form-alert-ntfy').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  const events = [];
+  if (form.elements['ntfy_event_site_down'].checked)     events.push('site_down');
+  if (form.elements['ntfy_event_site_up'].checked)       events.push('site_up');
+  if (form.elements['ntfy_event_deploy_failed'].checked) events.push('deploy_failed');
+  if (form.elements['ntfy_event_cert_expiry'].checked)   events.push('cert_expiry');
+  try {
+    await api('PUT', '/settings/alerts', {
+      ntfy: {
+        enabled: form.elements['ntfy_enabled'].checked,
+        url: form.elements['ntfy_url'].value.trim(),
+        events,
+      },
+    });
+    toast('Alert settings saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-alert-ntfy-test').addEventListener('click', async () => {
+  try {
+    await api('POST', '/settings/alerts/test');
+    toast('Test alert sent', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+async function loadNotifUnreadSummary() {
+  const el = document.getElementById('notif-unread-summary');
+  if (!el) return;
+  try {
+    const { unread } = await api('GET', '/notifications');
+    el.textContent = `${unread} unread notification${unread === 1 ? '' : 's'}`;
+  } catch {
+    el.textContent = '— unread notifications';
+  }
+}
+
 document.getElementById('btn-notif-clear-all').addEventListener('click', async () => {
-  if (!confirm('Delete all notifications? This cannot be undone.')) return;
+  const ok = await confirmDialog({
+    title: 'Delete all notifications?',
+    body: 'This clears the entire notification feed. This cannot be undone.',
+    confirmLabel: 'Clear all',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api('DELETE', '/notifications');
     loadNotifications();
+    loadNotifUnreadSummary();
     toast('All notifications cleared', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
@@ -1887,7 +2996,9 @@ document.getElementById('btn-notif-clear-all').addEventListener('click', async (
 let allDeployments = [];
 
 async function loadDeployments() {
-  document.getElementById('deployments-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('deployments-loading');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
   document.getElementById('deployments-table-wrap').classList.add('hidden');
   try {
     allDeployments = await api('GET', '/deploy');
@@ -1900,9 +3011,11 @@ async function loadDeployments() {
         const d = allDeployments.find(x => x.site_id === id);
         return `<option value="${esc(id)}"${current === id ? ' selected' : ''}>${esc(d.site_name)}</option>`;
       }).join('');
+    const subtitle = document.getElementById('deployments-subtitle');
+    if (subtitle) subtitle.textContent = `${allDeployments.length} deploy${allDeployments.length !== 1 ? 's' : ''} total`;
     renderDeployments();
-  } catch {
-    document.getElementById('deployments-loading').textContent = 'Failed to load deployments.';
+  } catch (err) {
+    viewError(loadingEl, viewErrorMessage('deployments', err), loadDeployments);
   }
 }
 
@@ -1911,23 +3024,37 @@ function renderDeployments() {
   const rows = filterVal ? allDeployments.filter(d => d.site_id === filterVal) : allDeployments;
   const isAdmin = currentUser.role === 'admin';
 
+  // allDeployments is ordered newest-first per site (server: ORDER BY deployed_at DESC),
+  // so the first row seen for a given site_id is that site's current live deploy.
+  const seenSites = new Set();
+
   document.getElementById('deployments-tbody').innerHTML = rows.length === 0
-    ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No deployments yet</td></tr>`
-    : rows.map(d => `
+    ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No deployments yet</td></tr>`
+    : rows.map(d => {
+      const isCurrent = !seenSites.has(d.site_id);
+      seenSites.add(d.site_id);
+      return `
     <tr>
       <td>
-        <span style="font-weight:600;color:var(--text)">${esc(d.site_name)}</span>
-        <span style="display:block;font-size:11px;color:var(--text-subtle)">${esc(d.site_domain)}</span>
+        <span style="font-weight:600;color:var(--tx)">${esc(d.site_name)}</span>
+        <span style="display:block;font-size:11px;color:var(--tx3)">${esc(d.site_domain)}</span>
       </td>
-      <td style="font-family:monospace;font-size:12px">${esc(d.filename)}</td>
+      <td class="cell-mono">${esc(d.filename)}</td>
       <td class="num">${fmtBytes(d.size)}</td>
-      <td>${timeAgo(d.deployed_at)}</td>
-      <td>${isAdmin ? `<button class="btn btn-sm" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Rollback</button>` : ''}</td>
-    </tr>`).join('');
+      <td>${timeAgo(d.deployed_at)} ${isCurrent ? '<span class="badge badge-ok">CURRENT</span>' : ''}</td>
+      <td class="admin-only${isAdmin ? '' : ' hidden'}">${isAdmin && !isCurrent ? `<button class="btn btn-sm btn-secondary" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button>` : ''}</td>
+    </tr>`;
+    }).join('');
 
   document.querySelectorAll('[data-rollback-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Roll back to this deployment?')) return;
+      const ok = await confirmDialog({
+        title: 'Roll back to this deployment?',
+        body: 'Current files will be replaced with this deployment’s files. This cannot be undone.',
+        confirmLabel: 'Roll back',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         await api('POST', `/deploy/${btn.dataset.rollbackSite}/rollback/${btn.dataset.rollbackId}`);
         toast('Rolled back successfully', 'success');
@@ -1944,6 +3071,7 @@ document.getElementById('deployments-filter').addEventListener('change', renderD
 
 // ── Logs view ─────────────────────────────────────────────
 let logsAutoInterval = null;
+let logsLineCount = 100;
 
 async function loadLogsView() {
   // Populate site selector from already-loaded sites list
@@ -1955,58 +3083,89 @@ async function loadLogsView() {
 }
 
 async function fetchLogs(siteId) {
-  if (!siteId) return;
-  const lines = document.getElementById('logs-lines-select').value;
   const out = document.getElementById('logs-output');
+  if (!siteId) {
+    clearInterval(logsAutoInterval);
+    out.textContent = 'Select a site to view logs.';
+    return;
+  }
   out.textContent = 'Loading…';
   try {
-    const res = await fetch(`/api/sites/${siteId}/logs?lines=${lines}`);
+    const res = await fetch(`/api/sites/${siteId}/logs?lines=${logsLineCount}`);
     const text = await res.text();
     if (!res.ok) {
       try { out.textContent = `Error: ${JSON.parse(text).error}`; } catch { out.textContent = text; }
-    } else {
-      out.textContent = text || '(no output)';
-      out.scrollTop = out.scrollHeight;
+      return;
     }
+    const site = sites.find(s => s.id === siteId);
+    const containerRunning = site?.container?.running;
+    out.textContent = text || '(no output)';
+    if (containerRunning === false) {
+      out.textContent += '\n\n— end of stream · container is not running —';
+    }
+    out.scrollTop = out.scrollHeight;
   } catch { out.textContent = 'Failed to fetch logs.'; }
 }
 
 document.getElementById('logs-site-select').addEventListener('change', e => fetchLogs(e.target.value));
-document.getElementById('logs-lines-select').addEventListener('change', () => fetchLogs(document.getElementById('logs-site-select').value));
 document.getElementById('btn-logs-refresh').addEventListener('click', () => fetchLogs(document.getElementById('logs-site-select').value));
-document.getElementById('logs-auto-refresh').addEventListener('change', e => {
+
+document.querySelectorAll('#logs-lines-seg button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#logs-lines-seg button').forEach(b => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+    logsLineCount = Number(btn.dataset.lines);
+    fetchLogs(document.getElementById('logs-site-select').value);
+  });
+});
+
+document.getElementById('logs-auto-refresh').addEventListener('click', e => {
+  const btn = e.currentTarget;
+  const active = btn.dataset.active !== 'true';
+  btn.dataset.active = String(active);
+  btn.classList.toggle('is-active', active);
+  btn.setAttribute('aria-pressed', String(active));
   clearInterval(logsAutoInterval);
-  if (e.target.checked) {
+  if (active) {
     logsAutoInterval = setInterval(() => fetchLogs(document.getElementById('logs-site-select').value), 3000);
   }
 });
 
 // ── Domains view ──────────────────────────────────────────
 async function loadDomains() {
-  document.getElementById('domains-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('domains-loading');
+  loadingEl.innerHTML = skeletonBlock(3);
+  loadingEl.classList.remove('hidden');
   document.getElementById('domains-table-wrap').classList.add('hidden');
   try {
     const data = await api('GET', '/sites');
-    const statusDot = s =>
-      s?.running ? '<span class="ov-dot ov-dot-up" title="Running"></span>' :
-      s?.status === 'none' ? '<span class="ov-dot ov-dot-unknown" title="No container"></span>' :
-      '<span class="ov-dot ov-dot-down" title="Stopped"></span>';
+    const wildcard = config.siteBaseDomain ? ` · wildcard *.${esc(config.siteBaseDomain)} active` : '';
+    document.getElementById('domains-count').textContent =
+      `${data.length} domain${data.length !== 1 ? 's' : ''}${wildcard}`;
+
+    const containerStatus = s => {
+      if (s?.running) return '<span class="status status-running"><span class="status-glyph" aria-hidden="true">●</span>Running</span>';
+      if (!s || s.status === 'none') return '<span class="status status-no-container"><span class="status-glyph" aria-hidden="true">●</span>No container</span>';
+      if (s.status === 'restarting') return '<span class="status status-restarting"><span class="status-glyph" aria-hidden="true">●</span>Restarting</span>';
+      if (s.status === 'paused') return '<span class="status status-paused"><span class="status-glyph" aria-hidden="true">●</span>Paused</span>';
+      return '<span class="status status-stopped"><span class="status-glyph" aria-hidden="true">●</span>Exited</span>';
+    };
 
     document.getElementById('domains-tbody').innerHTML = data.length === 0
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-subtle);padding:24px">No sites yet</td></tr>`
+      ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No sites yet</td></tr>`
       : data.map(s => `
       <tr>
-        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none">${esc(s.domain)}</a></td>
-        <td style="color:var(--text-muted)">${esc(s.name)}</td>
-        <td><span class="runtime-badge">${esc(s.runtime || 'static')}</span></td>
-        <td>${s.ssl_enabled ? '<span class="ov-good">✓ SSL</span>' : '<span style="color:var(--text-subtle)">—</span>'}</td>
-        <td>${statusDot(s.container)}</td>
+        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx);text-decoration:none">${esc(s.domain)} ↗</a></td>
+        <td style="color:var(--tx2)">${esc(s.name)}</td>
+        <td><span class="badge badge-runtime">${esc((s.runtime || 'static').toUpperCase())}</span></td>
+        <td>${s.ssl_enabled ? '<span class="status status-ssl-active"><span class="status-glyph" aria-hidden="true">●</span>On</span>' : '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Off</span>'}</td>
+        <td>${containerStatus(s.container)}</td>
       </tr>`).join('');
 
     document.getElementById('domains-loading').classList.add('hidden');
     document.getElementById('domains-table-wrap').classList.remove('hidden');
-  } catch {
-    document.getElementById('domains-loading').textContent = 'Failed to load domains.';
+  } catch (err) {
+    viewError(loadingEl, viewErrorMessage('domains', err), loadDomains);
   }
 }
 
@@ -2014,63 +3173,98 @@ async function loadDomains() {
 let overviewPeriod = '24h';
 let overviewData = null;
 let overviewSort = 'requests';
+let overviewSortDir = 'desc';
+let overviewRefreshedAt = null;
+let overviewRefreshedTimer = null;
 
 async function loadOverview() {
-  document.getElementById('overview-loading').classList.remove('hidden');
+  const loadingEl = document.getElementById('overview-loading');
+  loadingEl.innerHTML = skeletonBlock(4);
+  loadingEl.classList.remove('hidden');
   document.getElementById('overview-table-wrap').classList.add('hidden');
   try {
     overviewData = await api('GET', `/analytics/overview?period=${overviewPeriod}`);
+    overviewRefreshedAt = Date.now();
     renderOverview();
+    tickOverviewRefreshed();
   } catch (err) {
-    document.getElementById('overview-loading').textContent = 'Failed to load overview.';
+    viewError(loadingEl, viewErrorMessage('overview', err), loadOverview);
   }
 }
+
+function tickOverviewRefreshed() {
+  clearInterval(overviewRefreshedTimer);
+  const el = document.getElementById('overview-refreshed');
+  const update = () => {
+    if (!el || !overviewRefreshedAt) return;
+    const secs = Math.max(0, Math.round((Date.now() - overviewRefreshedAt) / 1000));
+    el.textContent = secs < 1 ? 'refreshed just now' : `refreshed ${secs}s ago`;
+  };
+  update();
+  overviewRefreshedTimer = setInterval(update, 1000);
+}
+
+const PERIOD_DAYS = { '24h': 1, '7d': 7, '30d': 30 };
 
 function renderOverview() {
   if (!overviewData) return;
   const { sites, grand } = overviewData;
+  const total = sites.length;
 
   // Grand totals
   document.getElementById('ov-requests').textContent = fmtNum(grand.requests);
+  document.getElementById('ov-requests-sub').textContent = `over last ${overviewPeriod}`;
+
   document.getElementById('ov-bytes').textContent = fmtBytes(grand.bytes);
-  document.getElementById('ov-errors').textContent = fmtNum(grand.client_err + grand.server_err);
-  document.getElementById('ov-sites-up').textContent = grand.sitesUp;
+  const perDay = grand.bytes / (PERIOD_DAYS[overviewPeriod] || 1);
+  document.getElementById('ov-bytes-sub').textContent = `${fmtBytes(perDay)}/day avg`;
+
+  document.getElementById('ov-errors').textContent = fmtNum(grand.server_err);
+  const errPct = grand.requests > 0 ? ((grand.server_err / grand.requests) * 100).toFixed(2) : '0.00';
+  document.getElementById('ov-errors-sub').textContent = `${errPct}% of requests`;
+
+  document.getElementById('ov-sites-up').textContent = `${grand.sitesUp} / ${total}`;
+
   document.getElementById('ov-sites-down').textContent = grand.sitesDown;
+  const downNames = sites.filter(s => s.currentStatus === 'down').map(s => s.name);
+  document.getElementById('ov-sites-down-sub').textContent = downNames.length ? downNames.join(', ') : 'none';
 
   // Sort
+  const dir = overviewSortDir === 'asc' ? 1 : -1;
   const sorted = [...sites].sort((a, b) => {
-    if (overviewSort === 'requests') return b.requests - a.requests;
-    if (overviewSort === 'bytes')    return b.bytes - a.bytes;
-    if (overviewSort === 'errors')   return (b.client_err + b.server_err) - (a.client_err + a.server_err);
-    if (overviewSort === 'uptime')   return (parseFloat(b.uptime) || 0) - (parseFloat(a.uptime) || 0);
-    if (overviewSort === 'latency')  return (a.avgLatency ?? 99999) - (b.avgLatency ?? 99999);
-    if (overviewSort === 'name')     return a.name.localeCompare(b.name);
+    if (overviewSort === 'requests') return dir * (a.requests - b.requests);
+    if (overviewSort === 'bytes')    return dir * (a.bytes - b.bytes);
+    if (overviewSort === 'uptime')   return dir * ((parseFloat(a.uptime) || 0) - (parseFloat(b.uptime) || 0));
+    if (overviewSort === 'latency')  return dir * ((a.avgLatency ?? 99999) - (b.avgLatency ?? 99999));
+    if (overviewSort === 'name')     return dir * a.name.localeCompare(b.name);
     return 0;
   });
 
-  const statusDot = s =>
-    s === 'up'   ? '<span class="ov-dot ov-dot-up" title="Up"></span>' :
-    s === 'down' ? '<span class="ov-dot ov-dot-down" title="Down"></span>' :
-                   '<span class="ov-dot ov-dot-unknown" title="Unknown"></span>';
+  const statusBadge = s =>
+    s === 'up'   ? '<span class="status status-ok"><span class="status-glyph" aria-hidden="true">●</span>Up</span>' :
+    s === 'down' ? '<span class="status status-err"><span class="status-glyph" aria-hidden="true">●</span>Down</span>' :
+                   '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Unknown</span>';
 
-  const uptimeClass = u =>
-    u === null ? '' : parseFloat(u) >= 99 ? 'ov-good' : parseFloat(u) >= 95 ? 'ov-warn' : 'ov-bad';
+  const pctClass = u =>
+    u === null ? '' : parseFloat(u) >= 99 ? 'pct-ok' : parseFloat(u) >= 95 ? 'pct-warn' : 'pct-err';
 
   document.getElementById('overview-tbody').innerHTML = sorted.map(s => `
-    <tr class="ov-row" data-id="${esc(s.id)}">
-      <td class="ov-site-cell">
-        <span class="ov-site-name">${esc(s.name)}</span>
-        <span class="ov-site-domain">${esc(s.domain)}</span>
+    <tr class="ov-row is-clickable" data-id="${esc(s.id)}">
+      <td>
+        <div class="ov-site-cell">
+          <span class="ov-site-name">${esc(s.name)}</span>
+          <span class="ov-site-domain">${esc(s.domain)}</span>
+        </div>
       </td>
       <td class="num">${fmtNum(s.requests)}</td>
       <td class="num">${fmtBytes(s.bytes)}</td>
-      <td class="num ov-good">${fmtNum(s.ok)}</td>
+      <td class="num">${fmtNum(s.ok)}</td>
       <td class="num">${fmtNum(s.redirects)}</td>
-      <td class="num ${s.client_err > 0 ? 'ov-warn' : ''}">${fmtNum(s.client_err)}</td>
-      <td class="num ${s.server_err > 0 ? 'ov-bad' : ''}">${fmtNum(s.server_err)}</td>
-      <td class="num ${uptimeClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
+      <td class="num cell-emph ${s.client_err > 0 ? 'warn' : ''}">${fmtNum(s.client_err)}</td>
+      <td class="num cell-emph ${s.server_err > 0 ? 'err' : ''}">${fmtNum(s.server_err)}</td>
+      <td class="num ${pctClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
       <td class="num">${s.avgLatency !== null ? s.avgLatency + ' ms' : '—'}</td>
-      <td class="num">${statusDot(s.currentStatus)}</td>
+      <td>${statusBadge(s.currentStatus)}</td>
     </tr>
   `).join('');
 
@@ -2086,21 +3280,38 @@ function renderOverview() {
   });
 }
 
-document.querySelectorAll('#overview-period-btns .period-btn').forEach(btn => {
+document.querySelectorAll('#overview-period-btns button').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('#overview-period-btns .period-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    document.querySelectorAll('#overview-period-btns button').forEach(b => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
     overviewPeriod = btn.dataset.period;
     loadOverview();
   });
 });
 
-document.querySelectorAll('.sort-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    overviewSort = btn.dataset.sort;
-    renderOverview();
+function sortOverviewBy(th) {
+  const key = th.dataset.sort;
+  if (overviewSort === key) {
+    overviewSortDir = overviewSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    overviewSort = key;
+    overviewSortDir = key === 'name' ? 'asc' : 'desc';
+  }
+  document.querySelectorAll('#overview-table th.sortable').forEach(h => {
+    h.removeAttribute('data-dir');
+    h.setAttribute('aria-sort', 'none');
+  });
+  th.setAttribute('data-dir', overviewSortDir);
+  th.setAttribute('aria-sort', overviewSortDir === 'asc' ? 'ascending' : 'descending');
+  renderOverview();
+}
+
+document.querySelectorAll('#overview-table th.sortable').forEach(th => {
+  th.addEventListener('click', () => sortOverviewBy(th));
+  // th isn't natively focusable/actionable — tabindex+role="button" was
+  // added in markup, so mirror click activation for Enter/Space.
+  th.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortOverviewBy(th); }
   });
 });
 
@@ -2188,9 +3399,18 @@ document.getElementById('btn-update-now').addEventListener('click', () => {
 });
 
 async function startUpdateFlow() {
-  // Show release notes in modal if available
+  // Mark the update flow active so the global panel-restart banner (which
+  // reacts to any repeated network failure) steps aside — the update
+  // modal's own "Panel restarting…" step already covers this case, and
+  // showing both would be a confusing double-message.
+  _updateFlowActive = true;
+  // Show release notes + target version in modal if available
   try {
     const data = await api('GET', '/update/check');
+    const titleEl = document.getElementById('update-modal-title');
+    if (titleEl && data.latest) titleEl.textContent = `Updating to ${data.latest}`;
+    const detailEl = document.getElementById('update-pull-detail');
+    if (detailEl && data.latest) detailEl.textContent = `— grimport:${data.latest}`;
     const el = document.getElementById('update-modal-release-notes');
     if (el && data.releaseNotes) {
       el.innerHTML = renderMarkdown(data.releaseNotes);
@@ -2209,9 +3429,9 @@ function setUpdateStep(activeStatus) {
     const iconEl = document.getElementById(`ustep-${s}-icon`);
     const stepEl = document.getElementById(`ustep-${s}`);
     if (!iconEl) return;
-    if (i < activeIdx) { iconEl.innerHTML = ICON.check; stepEl.className = 'update-step done'; }
-    else if (i === activeIdx) { iconEl.innerHTML = ICON.rotateCw; stepEl.className = 'update-step active'; }
-    else { iconEl.innerHTML = ICON.circle; stepEl.className = 'update-step'; }
+    if (i < activeIdx) { iconEl.innerHTML = ICON.check; stepEl.className = 'step done'; }
+    else if (i === activeIdx) { iconEl.innerHTML = ICON.rotateCw; stepEl.className = 'step active'; }
+    else { iconEl.innerHTML = ICON.circle; stepEl.className = 'step'; }
   });
   // Progress bar: each step is worth 25%, active step animates within its slice
   const bar = document.getElementById('update-progressbar');
@@ -2220,8 +3440,6 @@ function setUpdateStep(activeStatus) {
     ? 100
     : Math.round((activeIdx / stepOrder.length) * 100) + 10; // +10 so it doesn't start at 0
   bar.style.width = `${Math.min(pct, 95)}%`;
-  if (activeStatus === 'done') bar.classList.add('update-progressbar--done');
-  else bar.classList.remove('update-progressbar--done');
 }
 
 async function pollUpdateStatus() {
@@ -2231,6 +3449,8 @@ async function pollUpdateStatus() {
 
   const finish = (health) => {
     clearInterval(pollInterval);
+    _updateFlowActive = false;
+    _networkFailStreak = 0;
     setUpdateStep('done');
     const doneIcon = document.getElementById('ustep-done-icon');
     if (doneIcon) doneIcon.innerHTML = ICON.check;
@@ -2287,6 +3507,7 @@ async function pollUpdateStatus() {
 
       if (status.status === 'error') {
         clearInterval(pollInterval);
+        _updateFlowActive = false;
         document.getElementById('update-status-msg').textContent = `Error: ${status.message}`;
         setUpdateStep('pulling');
         return;
@@ -2311,3 +3532,163 @@ async function pollUpdateStatus() {
   setUpdateStep('pulling');
   pollInterval = setInterval(check, 1500);
 }
+
+// ── Command Palette (⌘K) ──────────────────────────────────
+// Thin launcher over existing nav/modal functions (canvas 6j). Does not
+// duplicate any logic — every result just calls a function/handler that
+// already exists elsewhere in this file.
+(function () {
+  const backdrop = document.getElementById('cmdk-backdrop');
+  const input = document.getElementById('cmdk-input');
+  const resultsEl = document.getElementById('cmdk-results');
+  if (!backdrop || !input || !resultsEl) return;
+
+  let flatItems = []; // currently rendered, keyboard-navigable items
+  let activeIndex = 0;
+
+  function gotoView(view) {
+    const nav = document.querySelector(`.nav-item[data-view="${view}"]`);
+    if (nav) nav.click();
+  }
+
+  function actionDefs() {
+    const isAdmin = currentUser.role === 'admin';
+    const isViewer = currentUser.role === 'viewer';
+    const defs = [
+      { label: 'Overview', desc: 'Jump to Overview', run: () => gotoView('overview') },
+      { label: 'Activity', desc: 'Jump to Activity', run: () => gotoView('activity') },
+    ];
+    if (!isViewer) {
+      defs.push({ label: 'Deployments — open history', desc: 'Jump to Deployments', run: () => gotoView('deployments') });
+      defs.push({ label: 'Logs', desc: 'Jump to Logs', run: () => gotoView('logs') });
+    }
+    if (isAdmin) {
+      defs.push({ label: 'Domains', desc: 'Jump to Domains', run: () => gotoView('domains') });
+      defs.push({ label: 'Settings', desc: 'Panel settings', run: () => gotoView('panel-settings') });
+      defs.push({ label: 'New site', desc: 'Create a new site', run: () => { gotoView('sites'); document.getElementById('btn-new-site')?.click(); } });
+    }
+    defs.push({ label: 'Deploy to a site…', desc: 'Type a site name below, then ↵', run: () => { gotoView('sites'); input.value = ''; renderResults(); input.focus(); } });
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    defs.push({ label: isLight ? 'Switch to dark theme' : 'Switch to light theme', desc: 'Toggle appearance', run: () => document.getElementById('btn-theme')?.click() });
+    return defs;
+  }
+
+  function siteMatches(site, q) {
+    if (!q) return true;
+    return site.name.toLowerCase().includes(q) || (site.domain || '').toLowerCase().includes(q);
+  }
+
+  function renderResults() {
+    const q = input.value.trim().toLowerCase();
+
+    const actions = actionDefs().filter(a => !q || a.label.toLowerCase().includes(q));
+    const siteList = sites.filter(s => siteMatches(s, q));
+
+    flatItems = [];
+    let html = '';
+
+    if (actions.length) {
+      html += '<div class="cmdk-group"><div class="cmdk-group-label">Actions</div>';
+      actions.forEach(a => {
+        const idx = flatItems.length;
+        flatItems.push({ type: 'action', run: a.run });
+        html += `<div class="cmdk-item" id="cmdk-item-${idx}" data-idx="${idx}" role="option" aria-selected="false"><span class="cmdk-item-main">${esc(a.label)}</span><span class="cmdk-item-sub">${esc(a.desc)}</span></div>`;
+      });
+      html += '</div>';
+    }
+
+    if (siteList.length) {
+      html += '<div class="cmdk-group"><div class="cmdk-group-label">Sites</div>';
+      siteList.forEach(s => {
+        const idx = flatItems.length;
+        const { cls, label } = statusInfo(s.container);
+        flatItems.push({ type: 'site', run: () => { gotoView('sites'); openDeploy(s); } });
+        html += `<div class="cmdk-item" id="cmdk-item-${idx}" data-idx="${idx}" role="option" aria-selected="false">
+          <span class="cmdk-item-main">${esc(s.name)} <span class="cmdk-item-sub-inline">— deploy, logs, settings</span></span>
+          <span class="status status-${cls} cmdk-item-status"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    if (!flatItems.length) {
+      html = `<div class="cmdk-empty">No matches for "${esc(input.value)}"</div>`;
+    }
+
+    resultsEl.innerHTML = html;
+    activeIndex = 0;
+    highlightActive();
+
+    resultsEl.querySelectorAll('.cmdk-item').forEach(el => {
+      el.addEventListener('mouseenter', () => { activeIndex = Number(el.dataset.idx); highlightActive(); });
+      el.addEventListener('click', () => runActive());
+    });
+  }
+
+  function highlightActive() {
+    resultsEl.querySelectorAll('.cmdk-item').forEach(el => {
+      const isActive = Number(el.dataset.idx) === activeIndex;
+      el.classList.toggle('is-active', isActive);
+      el.setAttribute('aria-selected', String(isActive));
+    });
+    const active = resultsEl.querySelector('.cmdk-item.is-active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+    input.setAttribute('aria-activedescendant', active ? active.id : '');
+  }
+
+  function moveActive(delta) {
+    if (!flatItems.length) return;
+    activeIndex = (activeIndex + delta + flatItems.length) % flatItems.length;
+    highlightActive();
+  }
+
+  function runActive() {
+    const item = flatItems[activeIndex];
+    if (!item) return;
+    closePalette();
+    item.run();
+  }
+
+  function openPalette() {
+    // Close any other open modal/overflow menu first — palette is exclusive.
+    document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => { if (m !== backdrop) m.classList.add('hidden'); });
+    document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    input.value = '';
+    backdrop.classList.remove('hidden');
+    renderResults();
+    trapFocus(backdrop.querySelector('.cmdk'), document.activeElement);
+    setTimeout(() => input.focus(), 20);
+  }
+
+  function closePalette() {
+    backdrop.classList.add('hidden');
+    releaseFocusTrap();
+  }
+
+  function isPaletteOpen() {
+    return !backdrop.classList.contains('hidden');
+  }
+
+  document.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && key === 'k') {
+      e.preventDefault();
+      isPaletteOpen() ? closePalette() : openPalette();
+    }
+  });
+
+  document.querySelector('.search-kbd')?.addEventListener('click', e => {
+    e.preventDefault();
+    openPalette();
+  });
+
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closePalette(); });
+
+  input.addEventListener('input', renderResults);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1); return; }
+    if (e.key === 'Enter') { e.preventDefault(); runActive(); return; }
+  });
+})();

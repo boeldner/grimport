@@ -23,17 +23,27 @@ It's built for:
 
 ## Features
 
+**Panel UI**
+- Redesigned macOS-native look — vibrancy, refined typography, tightened spacing
+- Dark / light theme toggle
+- Command palette (⌘K) for jumping to sites and actions
+- Responsive layout with a dedicated phone monitoring view
+- First-run onboarding wizard for a fresh install
+- Accessibility: focus-visible states, ARIA roles, keyboard navigation, reduced-motion support
+
 **Hosting**
 - Container isolation — each site runs in its own `nginx:alpine` container (~10 MB)
 - Wildcard subdomains — set a base domain, get auto-generated URLs instantly
-- Per-site SPA mode, cache control headers, custom response headers
+- Per-site SPA mode, cache control headers, custom response headers, redirects
 - Maintenance mode — take a site offline with one click, serves a custom page
 - Basic auth — password-protect any site
+- Optional Node/Python runtimes with a build step, alongside static hosting
 
 **Deployment**
-- Drag-and-drop `.zip` upload from the panel
+- Drag-and-drop `.zip` upload from the panel, or deploy from a public zip URL
 - REST API with Bearer tokens — deploy from GitHub Actions, GitLab CI, scripts
 - Deploy history — keeps last 5 deployments per site, one-click rollback
+- Blue-green previews — stand up a preview container on a separate domain, then swap it live with zero downtime
 - Supports any zip layout: `dist/`, `build/`, `out/`, or flat root
 
 **SSL**
@@ -41,16 +51,51 @@ It's built for:
 - Per-site SSL toggle — enable HTTPS with a checkbox
 - Cloudflare proxy compatible — no Let's Encrypt needed behind CF
 
-**Monitoring**
+**Monitoring & analytics**
 - Uptime checks every 60 seconds per site, stored for 30 days
-- Activity log — deploy, rollback, start/stop, up/down events
+- Per-site and fleet-wide analytics — requests, bytes, status-code breakdown, latency
+- Activity log — deploy, rollback, start/stop, up/down events — with CSV export (admin)
 - Container log viewer with tail output
+
+**Notifications & alerts**
+- In-panel notification bell with per-event-type preferences
+- ntfy push alerts for site-down/site-up and other events
+- Outbound webhooks (deploy, rollback, site down/up) to Discord, Slack, or any URL
+
+**Multi-user & access control**
+- Roles: admin, editor, viewer
+- Per-site access grants for editors/viewers
+- Scoped, expiring API tokens — restrict a token to a role and a set of sites, with an optional expiry
+
+**Backups**
+- Built-in backup: on-demand or scheduled, configurable retention, one-click download
 
 **Panel**
 - Auth-protected with bcrypt + session, rate-limited login
-- API token management (create, revoke, audit last-used)
+- Self-service password change
 - Server & DNS guide — A record table, Cloudflare Tunnel setup
 - Container reconciliation — recovers cleanly from daemon restarts
+- One-click self-update — pulls the latest image and restarts in place
+
+---
+
+## What's new in 0.9.5
+
+A full redesign of the panel UI, plus a round of features that were previously roadmap items:
+
+- macOS-native redesigned UI with dark/light theme and a command palette (⌘K)
+- Responsive layout, including a dedicated phone monitoring view
+- Multi-user roles (admin / editor / viewer) with per-site access grants
+- API tokens now support role + site scoping and optional expiry
+- Blue-green preview deploys with one-click swap to production
+- Built-in analytics (requests, bytes, status codes, latency) per site and fleet-wide
+- In-panel notifications with per-event preferences, plus ntfy push alerts
+- Outbound webhooks for deploy/rollback/uptime events
+- Built-in scheduled backups with configurable retention, downloadable from the panel
+- One-click self-update from the panel
+- First-run onboarding wizard
+- Accessibility pass: focus-visible, ARIA roles, keyboard navigation, reduced-motion support
+- `SESSION_SECURE` is now opt-in (default off) — see [Configuration](docs/wiki/Configuration.md)
 
 ---
 
@@ -156,24 +201,31 @@ curl -X POST https://panel.yourdomain.com/api/deploy/SITE_ID \
 
 ## API reference
 
-All endpoints require a session cookie (browser) or `Authorization: Bearer grim_…` header.
+All endpoints require a session cookie (browser) or `Authorization: Bearer grim_…` header. Tokens can be scoped to a role and a set of sites, with an optional expiry.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/sites` | List all sites |
-| `POST` | `/api/sites` | Create a site |
+| `GET` | `/api/sites` | List sites you can access |
+| `POST` | `/api/sites` | Create a site (admin) |
 | `PUT` | `/api/sites/:id` | Update site settings |
-| `DELETE` | `/api/sites/:id` | Delete site + container |
-| `POST` | `/api/sites/:id/start` | Start container |
-| `POST` | `/api/sites/:id/stop` | Stop container |
+| `DELETE` | `/api/sites/:id` | Delete site + container (admin) |
+| `POST` | `/api/sites/:id/start` / `/stop` | Start / stop container |
+| `POST` | `/api/sites/:id/preview` | Create a blue-green preview container |
+| `POST` | `/api/sites/:id/preview/swap` | Swap preview to production |
 | `POST` | `/api/deploy/:id` | Deploy a zip (multipart/form-data, field `file`) |
+| `POST` | `/api/deploy/:id/url` | Deploy from a public zip URL |
 | `GET` | `/api/deploy/:id/history` | List deploy history |
 | `POST` | `/api/deploy/:id/rollback/:deploymentId` | Roll back to a previous deploy |
 | `GET` | `/api/uptime/:id` | Uptime checks for one site (`?period=24h\|7d\|30d`) |
-| `GET` | `/api/activity` | Activity log (`?limit=&site_id=`) |
-| `GET` | `/api/settings/tokens` | List API tokens |
-| `POST` | `/api/settings/tokens` | Create API token |
-| `DELETE` | `/api/settings/tokens/:id` | Revoke API token |
+| `GET` | `/api/analytics/:id` | Per-site analytics (`?period=24h\|7d\|30d`) |
+| `GET` | `/api/activity` | Activity log (`?limit=&site_id=&level=`) |
+| `GET` | `/api/settings/tokens` | List API tokens (admin) |
+| `POST` | `/api/settings/tokens` | Create a scoped, expiring API token (admin) |
+| `GET` | `/api/settings/webhooks` | List / create outbound webhooks (admin) |
+| `GET` | `/api/users` | List users and roles (admin) |
+| `POST` | `/api/backups` | Create a backup now (admin) |
+
+See the full endpoint list, including auth/role requirements, in the [API Reference](docs/wiki/API-Reference.md) wiki page.
 
 ---
 
