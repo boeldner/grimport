@@ -6,6 +6,7 @@ const db = require('../db');
 const { assertPublicUrl } = require('../validate');
 const { asyncHandler } = require('../async-handler');
 const { sendAlert, getNtfyConfig, setNtfyConfig, postNtfy, ALL_ALERT_EVENTS } = require('../alerts');
+const { requireHumanSession } = require('../auth');
 
 const router = Router();
 
@@ -52,8 +53,9 @@ router.get('/tokens', (req, res) => {
   res.json(tokens.map(t => ({ ...t, site_scope: t.site_scope ? JSON.parse(t.site_scope) : 'all' })));
 });
 
-// POST /api/settings/tokens
-router.post('/tokens', (req, res) => {
+// POST /api/settings/tokens — a token must not mint new tokens (kills
+// self-renewal-past-expiry and scope-escape).
+router.post('/tokens', requireHumanSession, (req, res) => {
   const { name, role, site_scope, expires_in_days } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   const tokenRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'admin';
@@ -97,8 +99,8 @@ router.post('/tokens', (req, res) => {
   });
 });
 
-// DELETE /api/settings/tokens/:id
-router.delete('/tokens/:id', (req, res) => {
+// DELETE /api/settings/tokens/:id — a token must not revoke tokens either.
+router.delete('/tokens/:id', requireHumanSession, (req, res) => {
   db.prepare('DELETE FROM api_tokens WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

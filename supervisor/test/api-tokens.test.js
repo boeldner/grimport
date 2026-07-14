@@ -13,8 +13,10 @@ fs.mkdirSync(path.join(work, 'sites'), { recursive: true });
 process.env.DATA_PATH = path.join(work, 'sites');
 
 const db = require('../src/db');
-const { requireAuth, requireSiteAccess } = require('../src/auth');
+const { requireAuth, requireSiteAccess, requireHumanSession, requireRole } = require('../src/auth');
 const settingsRouter = require('../src/routes/settings');
+const usersRouter = require('../src/routes/users');
+const backupsRouter = require('../src/routes/backups');
 
 db.prepare('INSERT INTO sites (id, name, domain) VALUES (?, ?, ?)').run('site1', 'Site One', 'site1.example.com');
 db.prepare('INSERT INTO sites (id, name, domain) VALUES (?, ?, ?)').run('site2', 'Site Two', 'site2.example.com');
@@ -32,8 +34,36 @@ function makeApp() {
   return app;
 }
 
+// Mirrors the real mounting in src/index.js — requireAuth reads a real
+// Bearer token off the request, so tokens minted via makeApp's fake-admin
+// session can be used against this app to exercise the actual production
+// guard ordering (requireRole then requireHumanSession for backups, etc).
+function makeRealApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/settings', requireAuth, requireRole('admin'), settingsRouter);
+  app.use('/api/users', requireAuth, requireHumanSession, usersRouter);
+  app.use('/api/backups', requireAuth, requireRole('admin'), requireHumanSession, backupsRouter);
+  app.get('/api/site/:id', requireAuth, requireSiteAccess('id'), (req, res) => {
+    res.json({ ok: true, role: req.user.role });
+  });
+  return app;
+}
+
 async function withServer(fn) {
   const app = makeApp();
+  const server = app.listen(0);
+  await new Promise(resolve => server.once('listening', resolve));
+  const port = server.address().port;
+  try {
+    await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+async function withRealServer(fn) {
+  const app = makeRealApp();
   const server = app.listen(0);
   await new Promise(resolve => server.once('listening', resolve));
   const port = server.address().port;
@@ -149,5 +179,93 @@ test('back-compat: a legacy token row with NULL site_scope/expires_at behaves as
     assert.strictEqual(res1.status, 200);
     const res2 = await fetch(`${base}/api/site/site2`, { headers: { Authorization: `Bearer ${legacyToken}` } });
     assert.strictEqual(res2.status, 200);
+  });
+});
+
+// ── requireHumanSession: API tokens can't manage tokens/users/backups ──
+
+test('requireHumanSession: 403 for a token principal, next() for a session user', () => {
+  let nextCalled = false;
+  const next = () => { nextCalled = true; };
+
+  const resToken = {
+    status(code) { this._status = code; return this; },
+    json(body) { this._body = body; return this; },
+  };
+  requireHumanSession({ user: { id: 'token', role: 'admin', username: 'api' } }, resToken, next);
+  assert.strictEqual(nextCalled, false);
+  assert.strictEqual(resToken._status, 403);
+  assert.match(resToken._body.error, /interactive admin session/);
+
+  nextCalled = false;
+  const resSession = { status() { throw new Error('should not be called'); } };
+  requireHumanSession({ user: { id: 'admin1', role: 'admin', username: 'admin' } }, resSession, next);
+  assert.strictEqual(nextCalled, true);
+});
+
+test('an admin-role API token is forbidden from minting/revoking tokens, user mutations, and backups', async () => {
+  await withServer(async (base) => {
+    const { body } = await createToken(base, { name: 'admin-token', role: 'admin' });
+
+    await withRealServer(async (realBase) => {
+      const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${body.token}` };
+
+      const mintRes = await fetch(`${realBase}/api/settings/tokens`, {
+        method: 'POST', headers: authHeaders, body: JSON.stringify({ name: 'nested' }),
+      });
+      assert.strictEqual(mintRes.status, 403);
+
+      const revokeRes = await fetch(`${realBase}/api/settings/tokens/${body.id}`, {
+        method: 'DELETE', headers: authHeaders,
+      });
+      assert.strictEqual(revokeRes.status, 403);
+
+      const usersRes = await fetch(`${realBase}/api/users`, { headers: authHeaders });
+      assert.strictEqual(usersRes.status, 403);
+
+      const createUserRes = await fetch(`${realBase}/api/users`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ username: 'x', password: 'password123', role: 'viewer' }),
+      });
+      assert.strictEqual(createUserRes.status, 403);
+
+      const backupsRes = await fetch(`${realBase}/api/backups`, { headers: authHeaders });
+      assert.strictEqual(backupsRes.status, 403);
+    });
+  });
+});
+
+// ── requireSiteAccess: scoped non-admin tokens reach their own sites ──
+
+test('a site-scoped editor token is allowed on its scoped site and forbidden on another', async () => {
+  await withServer(async (base) => {
+    const { body } = await createToken(base, { name: 'editor-scoped', role: 'editor', site_scope: ['site1'] });
+
+    const okRes = await fetch(`${base}/api/site/site1`, { headers: { Authorization: `Bearer ${body.token}` } });
+    assert.strictEqual(okRes.status, 200);
+
+    const forbiddenRes = await fetch(`${base}/api/site/site2`, { headers: { Authorization: `Bearer ${body.token}` } });
+    assert.strictEqual(forbiddenRes.status, 403);
+  });
+});
+
+test('a site-scoped viewer token is allowed on its scoped site and forbidden on another', async () => {
+  await withServer(async (base) => {
+    const { body } = await createToken(base, { name: 'viewer-scoped', role: 'viewer', site_scope: ['site2'] });
+
+    const okRes = await fetch(`${base}/api/site/site2`, { headers: { Authorization: `Bearer ${body.token}` } });
+    assert.strictEqual(okRes.status, 200);
+
+    const forbiddenRes = await fetch(`${base}/api/site/site1`, { headers: { Authorization: `Bearer ${body.token}` } });
+    assert.strictEqual(forbiddenRes.status, 403);
+  });
+});
+
+test('an unscoped non-admin token is forbidden from any site (no site_permissions row exists for a token principal)', async () => {
+  await withServer(async (base) => {
+    const { body } = await createToken(base, { name: 'unscoped-editor', role: 'editor' });
+
+    const res = await fetch(`${base}/api/site/site1`, { headers: { Authorization: `Bearer ${body.token}` } });
+    assert.strictEqual(res.status, 403);
   });
 });
