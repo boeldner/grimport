@@ -40,21 +40,54 @@ router.put('/', (req, res) => {
 // GET /api/settings/tokens
 router.get('/tokens', (req, res) => {
   const tokens = db.prepare(
-    'SELECT id, name, role, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
+    'SELECT id, name, role, site_scope, expires_at, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
   ).all();
-  res.json(tokens);
+  res.json(tokens.map(t => ({ ...t, site_scope: t.site_scope ? JSON.parse(t.site_scope) : 'all' })));
 });
 
 // POST /api/settings/tokens
 router.post('/tokens', (req, res) => {
-  const { name, role } = req.body;
+  const { name, role, site_scope, expires_in_days } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   const tokenRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'admin';
+
+  // site_scope: 'all' / undefined / null → unrestricted. A non-empty array of site ids
+  // scopes the token to just those sites (see auth.js requireSiteAccess).
+  let siteScopeValue = null;
+  if (Array.isArray(site_scope)) {
+    if (site_scope.length) {
+      const ids = site_scope.map(String);
+      const placeholders = ids.map(() => '?').join(',');
+      const found = db.prepare(`SELECT id FROM sites WHERE id IN (${placeholders})`).all(...ids);
+      if (found.length !== ids.length) return res.status(400).json({ error: 'site_scope contains an unknown site id' });
+      siteScopeValue = JSON.stringify(ids);
+    }
+  } else if (site_scope !== undefined && site_scope !== null && site_scope !== 'all') {
+    return res.status(400).json({ error: 'site_scope must be "all" or an array of site ids' });
+  }
+
+  // expires_in_days: optional number of days from now. Omitted/null/'' → never expires.
+  let expiresAt = null;
+  if (expires_in_days !== undefined && expires_in_days !== null && expires_in_days !== '') {
+    const days = Number(expires_in_days);
+    if (!Number.isFinite(days) || days <= 0) return res.status(400).json({ error: 'expires_in_days must be a positive number' });
+    expiresAt = Math.floor(Date.now() / 1000) + Math.round(days * 86400);
+  }
+
   const token = 'grim_' + nanoid(32);
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const id = nanoid(10);
-  db.prepare('INSERT INTO api_tokens (id, name, token_hash, role) VALUES (?, ?, ?, ?)').run(id, name.trim(), hash, tokenRole);
-  res.json({ id, name: name.trim(), role: tokenRole, token }); // token shown once
+  db.prepare(
+    'INSERT INTO api_tokens (id, name, token_hash, role, site_scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, name.trim(), hash, tokenRole, siteScopeValue, expiresAt);
+  res.json({
+    id,
+    name: name.trim(),
+    role: tokenRole,
+    site_scope: siteScopeValue ? JSON.parse(siteScopeValue) : 'all',
+    expires_at: expiresAt,
+    token, // token shown once
+  });
 });
 
 // DELETE /api/settings/tokens/:id

@@ -1883,6 +1883,36 @@ async function loadTokens() {
   }
 }
 
+function renderTokenScope(siteScope) {
+  if (!siteScope || siteScope === 'all') return '<span class="badge badge-accent">All sites</span>';
+  const chips = siteScope.map(sid => {
+    const s = sites.find(x => x.id === sid);
+    return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
+  }).filter(Boolean).join('');
+  return `<div class="chip-wrap">${chips || '<span style="color:var(--tx3)">None</span>'}</div>`;
+}
+
+function renderTokenScopeSites() {
+  const wrap = document.getElementById('token-scope-sites');
+  if (!sites.length) {
+    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
+    return;
+  }
+  wrap.innerHTML = sites.map(s => `
+    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
+      <input type="checkbox" name="token_site" value="${s.id}" />
+      <span class="g-checkbox-box"></span>
+      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
+    </label>
+  `).join('');
+}
+
+document.getElementById('token-scope-all').addEventListener('change', e => {
+  const wrap = document.getElementById('token-scope-sites');
+  wrap.classList.toggle('hidden', e.target.checked);
+  if (!e.target.checked) renderTokenScopeSites();
+});
+
 function renderTokens(tokens) {
   const list = document.getElementById('tokens-list');
   if (!tokens.length) {
@@ -1896,11 +1926,14 @@ function renderTokens(tokens) {
   }
   list.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Role</th><th>Scope</th><th>Expires</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody>
         ${tokens.map(t => `
           <tr>
             <td>${esc(t.name)}</td>
+            <td><span class="badge badge-neutral">${esc(t.role || 'admin')}</span></td>
+            <td>${renderTokenScope(t.site_scope)}</td>
+            <td class="cell-mono">${t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : 'never'}</td>
             <td class="cell-mono">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
             <td class="cell-mono">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
             <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></td>
@@ -1927,9 +1960,20 @@ document.getElementById('form-create-token').addEventListener('submit', async e 
   e.preventDefault();
   const name = e.target.elements['token_name'].value.trim();
   if (!name) return;
+  const role = e.target.elements['token_role'].value;
+  const expiry = e.target.elements['token_expiry'].value;
+  const scopeAll = document.getElementById('token-scope-all').checked;
+  const site_scope = scopeAll ? 'all' : [...document.querySelectorAll('#token-scope-sites input[name="token_site"]:checked')].map(cb => cb.value);
   try {
-    const result = await api('POST', '/settings/tokens', { name });
+    const result = await api('POST', '/settings/tokens', {
+      name,
+      role,
+      site_scope,
+      expires_in_days: expiry ? Number(expiry) : null,
+    });
     e.target.reset();
+    document.getElementById('token-scope-all').checked = true;
+    document.getElementById('token-scope-sites').classList.add('hidden');
     const reveal = document.getElementById('token-reveal');
     reveal.classList.add('hidden');
     document.getElementById('token-reveal-value').textContent = result.token;
