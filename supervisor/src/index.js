@@ -105,6 +105,7 @@ app.use('/api/activity',        requireAuth, require('./routes/activity'));
 app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
 app.use('/api/users',           requireAuth, require('./routes/users'));
 app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
+app.use('/api/backups',         requireAuth, requireRole('admin'), require('./routes/backups'));
 
 // ── Static files ───────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../public')));
@@ -129,11 +130,19 @@ process.on('unhandledRejection', (reason) => {
 const { reconcile } = require('./reconcile');
 const { startAnalyticsJob } = require('./analytics');
 const { startUptimeJob } = require('./uptime');
+const { startScheduledBackups } = require('./backups');
+
+const DATA_PATH = process.env.DATA_PATH || '/data/sites';
+const DB_PATH = process.env.DATA_PATH
+  ? path.join(process.env.DATA_PATH, '..', 'supervisor.db')
+  : path.join(__dirname, '../data/supervisor.db');
+const BACKUP_DIR = path.join(DATA_PATH, '..', 'backups');
 
 async function start() {
   await reconcile();
   startAnalyticsJob();
   startUptimeJob();
+  startScheduledBackups({ db, destDir: BACKUP_DIR, dbPath: DB_PATH, sitesDir: DATA_PATH });
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Webhost supervisor running on :${PORT}`);
   });

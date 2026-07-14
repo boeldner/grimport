@@ -1806,7 +1806,63 @@ async function loadPanelSettings() {
     const snippetEl = document.querySelector('#form-analytics-snippet [name="analytics_snippet"]');
     if (snippetEl) snippetEl.value = s.analytics_snippet || '';
   } catch (err) { toast(err.message, 'error'); }
+  if (currentUser?.role === 'admin') loadBackups();
 }
+
+// ── Backups ───────────────────────────────────────────────
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+async function loadBackups() {
+  const listEl = document.getElementById('backups-list');
+  const form = document.getElementById('form-backup-schedule');
+  if (!listEl) return;
+  try {
+    const data = await api('GET', '/backups');
+    if (form) {
+      form.elements['backup_interval_hours'].value = data.backup_interval_hours ?? 0;
+      form.elements['backup_keep'].value = data.backup_keep ?? 7;
+    }
+    if (!data.backups.length) {
+      listEl.innerHTML = '<p class="muted">No backups yet.</p>';
+      return;
+    }
+    listEl.innerHTML = data.backups.map(b => `
+      <div class="backup-row">
+        <span class="backup-name">${b.name}</span>
+        <span class="backup-meta muted">${fmtBytes(b.size)} · ${new Date(b.created * 1000).toLocaleString()}</span>
+      </div>
+    `).join('');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+document.getElementById('btn-backup-create')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-backup-create');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    await api('POST', '/backups');
+    toast('Backup created', 'success');
+    loadBackups();
+  } catch (err) { toast(err.message, 'error'); }
+  btn.disabled = false;
+  btn.textContent = 'Create backup now';
+});
+
+document.getElementById('form-backup-schedule')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const backup_interval_hours = Number(e.target.elements['backup_interval_hours'].value) || 0;
+  const backup_keep = Number(e.target.elements['backup_keep'].value) || 7;
+  try {
+    await api('PUT', '/backups/settings', { backup_interval_hours, backup_keep });
+    toast('Backup schedule saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
 
 document.getElementById('form-acme').addEventListener('submit', async e => {
   e.preventDefault();

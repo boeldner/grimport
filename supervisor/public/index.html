@@ -389,6 +389,33 @@
               <div id="settings-release-notes" class="release-notes hidden"></div>
             </div>
           </div>
+
+          <div class="card admin-only">
+            <div class="card-header"><span class="card-title">Backups</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Archives <code>supervisor.db</code> + all site data into a single zip. Restore is manual: stop the stack, replace the data directory from the zip, restart.</p>
+              <div class="form-actions">
+                <a class="btn" id="btn-backup-download" href="/api/backups/download" download>Download backup now</a>
+                <button class="btn btn-primary" id="btn-backup-create">Create backup now</button>
+              </div>
+              <div id="backups-list" class="backups-list" style="margin-top:12px"></div>
+
+              <form id="form-backup-schedule" class="settings-form" style="margin-top:16px">
+                <div class="field">
+                  <label class="field-label" for="f-backup-interval">Scheduled backup interval (hours)</label>
+                  <input class="g-input" id="f-backup-interval" type="number" min="0" step="1" name="backup_interval_hours" placeholder="0 = off" />
+                  <div class="field-help muted">0 disables scheduled backups.</div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="f-backup-keep">Retention (backups to keep)</label>
+                  <input class="g-input" id="f-backup-keep" type="number" min="1" step="1" name="backup_keep" />
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save schedule</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
         <!-- Server & DNS -->
