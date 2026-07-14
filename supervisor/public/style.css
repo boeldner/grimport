@@ -2784,3 +2784,39 @@ button:focus-visible,
   padding: 1px 5px;
   margin-right: 2px;
 }
+
+/* ── First-run onboarding wizard (task J1) ─────────────────────────── */
+.onboarding-modal { display: flex; flex-direction: column; gap: 16px; }
+.onboarding-steps {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.onboarding-step-dot {
+  width: 22px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+  transition: background 0.15s ease;
+}
+.onboarding-step-dot.is-active { background: var(--acc); }
+.onboarding-step-dot.is-done { background: var(--vio); }
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-step-dot { transition: none; }
+}
+.onboarding-panel { display: flex; flex-direction: column; gap: 14px; }
+.onboarding-panel.hidden { display: none; }
+.onboarding-lede { font-size: 14px; color: var(--tx2); line-height: 1.5; }
+.onboarding-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--tx2); line-height: 1.5; }
+.onboarding-actions { padding-top: 4px; }
+
+.onboarding-reminder-banner {
+  background: var(--warnSoft);
+  color: var(--warn);
+  border-bottom: 1px solid var(--warn);
+  justify-content: space-between;
+  gap: 12px;
+}
+.onboarding-reminder-banner .link-btn { color: inherit; text-decoration: underline; font-weight: 700; }
+.onboarding-reminder-banner .notif-dismiss { opacity: 1; color: inherit; }
+.onboarding-reminder-banner .notif-dismiss:hover { background: rgba(0,0,0,0.08); }

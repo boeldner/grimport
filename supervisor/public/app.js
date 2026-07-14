@@ -2108,6 +2108,113 @@ document.getElementById('btn-signout').addEventListener('click', async () => {
   window.location.href = '/login.html';
 });
 
+// ── First-run onboarding wizard (task J1) ──────────────────
+// Shown once, right after login, when GET /api/auth/me reports
+// needsOnboarding (admin still on the seeded password, or no base domain
+// configured, and the wizard has never been dismissed). Every step reuses
+// an existing endpoint — password change (PATCH /api/users/:id), settings
+// (PUT /api/settings) — nothing new is invented server-side beyond the
+// onboarding_done flag itself.
+let obStep = 1;
+let obPasswordChanged = false;
+
+function showOnboardingStep(n) {
+  obStep = n;
+  document.querySelectorAll('.onboarding-panel').forEach(p => {
+    p.classList.toggle('hidden', Number(p.dataset.onboardingPanel) !== n);
+  });
+  document.querySelectorAll('.onboarding-step-dot').forEach(d => {
+    const step = Number(d.dataset.step);
+    d.classList.toggle('is-active', step === n);
+    d.classList.toggle('is-done', step < n);
+  });
+  const steps = document.getElementById('onboarding-steps');
+  if (steps) steps.setAttribute('aria-valuenow', String(n));
+  const backBtn = document.getElementById('btn-onboarding-back');
+  if (backBtn) backBtn.classList.toggle('hidden', n === 1);
+  const nextBtn = document.getElementById('btn-onboarding-next');
+  if (nextBtn) nextBtn.textContent = n === 4 ? 'Finish' : 'Next';
+}
+
+function openOnboarding() {
+  obPasswordChanged = false;
+  const domainInput = document.querySelector('#onboarding-backdrop [name="site_base_domain"]');
+  const acmeInput = document.querySelector('#onboarding-backdrop [name="acme_email"]');
+  if (domainInput) domainInput.value = config.siteBaseDomain || '';
+  if (acmeInput) acmeInput.value = config.acmeEmail || '';
+  const pwForm = document.getElementById('form-onboarding-password');
+  if (pwForm) pwForm.reset();
+  showOnboardingStep(1);
+  openModal('onboarding-backdrop');
+}
+
+async function onboardingNext() {
+  const nextBtn = document.getElementById('btn-onboarding-next');
+  if (obStep === 2) {
+    const newPw = document.getElementById('ob-new-password').value;
+    const curPw = document.getElementById('ob-current-password').value;
+    if (newPw || curPw) {
+      if (newPw.length < 8) return toast('New password must be at least 8 characters', 'error');
+      if (!curPw) return toast('Current password required', 'error');
+      nextBtn.disabled = true;
+      try {
+        await api('PATCH', `/users/${currentUser.id}`, { current_password: curPw, password: newPw });
+        obPasswordChanged = true;
+        toast('Password changed', 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+        nextBtn.disabled = false;
+        return;
+      }
+      nextBtn.disabled = false;
+    }
+  } else if (obStep === 3) {
+    const domain = document.getElementById('ob-base-domain').value.trim().toLowerCase();
+    try {
+      await api('PUT', '/settings', { site_base_domain: domain });
+      config = await api('GET', '/config').catch(() => config);
+    } catch (err) { return toast(err.message, 'error'); }
+  } else if (obStep === 4) {
+    const email = document.getElementById('ob-acme-email').value.trim();
+    if (email) {
+      try {
+        await api('PUT', '/settings', { acme_email: email });
+        config = await api('GET', '/config').catch(() => config);
+      } catch (err) { return toast(err.message, 'error'); }
+    }
+    return finishOnboarding();
+  }
+  showOnboardingStep(obStep + 1);
+}
+
+function onboardingBack() {
+  if (obStep > 1) showOnboardingStep(obStep - 1);
+}
+
+function setOnboardingReminder(show) {
+  const banner = document.getElementById('onboarding-reminder-banner');
+  if (banner) banner.classList.toggle('hidden', !show);
+}
+
+async function finishOnboarding() {
+  try { await api('PUT', '/settings', { onboarding_done: true }); }
+  catch (err) { toast(err.message, 'error'); }
+  closeModal('onboarding-backdrop');
+  setOnboardingReminder(!obPasswordChanged);
+  document.querySelector('.nav-item[data-view="sites"]')?.click();
+}
+
+document.getElementById('btn-onboarding-next')?.addEventListener('click', onboardingNext);
+document.getElementById('btn-onboarding-back')?.addEventListener('click', onboardingBack);
+document.getElementById('btn-onboarding-skip')?.addEventListener('click', finishOnboarding);
+document.getElementById('btn-onboarding-skip-2')?.addEventListener('click', finishOnboarding);
+document.getElementById('btn-onboarding-reminder-dismiss')?.addEventListener('click', () => setOnboardingReminder(false));
+document.getElementById('btn-onboarding-reminder-fix')?.addEventListener('click', () => {
+  setOnboardingReminder(false);
+  document.querySelector('.nav-item[data-view="panel-settings"]')?.click();
+  document.getElementById('ptab-security')?.click();
+});
+
 // ── Init ──────────────────────────────────────────────────
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
@@ -2122,6 +2229,7 @@ async function init() {
   await loadSites();
   await loadNotifications();
   checkForUpdate();
+  if (me.needsOnboarding) openOnboarding();
   setInterval(loadSites, 15_000);
   setInterval(loadNotifications, 30_000);
   setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h

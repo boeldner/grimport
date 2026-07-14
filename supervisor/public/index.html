@@ -15,6 +15,14 @@
     <span class="panel-restart-spinner" aria-hidden="true"></span>
     <span>Panel is restarting — reconnecting automatically…</span>
   </div>
+  <!-- Onboarding reminder (task J1) — shown when the wizard was skipped
+       while the admin password still matches the seeded SUPERVISOR_SECRET.
+       Dismissible per-session only; the underlying condition (seeded
+       password) is what actually needs fixing. -->
+  <div id="onboarding-reminder-banner" class="panel-restart-banner onboarding-reminder-banner hidden" role="status">
+    <span>Your admin account still uses the install password. <button type="button" class="link-btn" id="btn-onboarding-reminder-fix">Set a new password</button></span>
+    <button type="button" class="notif-dismiss" id="btn-onboarding-reminder-dismiss" title="Dismiss">×</button>
+  </div>
   <!-- Phone-only top bar (H1 responsive) — hamburger opens the existing
        sidebar as an off-canvas drawer; no navigation logic is duplicated,
        it just toggles visibility of the same .sidebar element/nav-items. -->
@@ -1343,6 +1351,74 @@ systemctl start cloudflared</pre>
           <button type="submit" class="btn btn-primary">Save changes</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ── First-run onboarding wizard (task J1) ───────── -->
+  <div id="onboarding-backdrop" class="modal-backdrop hidden">
+    <div class="modal modal-wide onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+      <div class="modal-header">
+        <h2 id="onboarding-title">Welcome to Grimport</h2>
+        <button class="modal-close" id="btn-onboarding-skip" title="Skip for now"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+
+      <div class="onboarding-steps" id="onboarding-steps" role="progressbar" aria-valuemin="1" aria-valuemax="4" aria-valuenow="1">
+        <span class="onboarding-step-dot is-active" data-step="1"></span>
+        <span class="onboarding-step-dot" data-step="2"></span>
+        <span class="onboarding-step-dot" data-step="3"></span>
+        <span class="onboarding-step-dot" data-step="4"></span>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div class="onboarding-panel" data-onboarding-panel="1">
+        <p class="onboarding-lede">A self-hosted static site panel — deploy, monitor, and manage sites in one place. This quick setup gets you to a working panel in under a minute.</p>
+      </div>
+
+      <!-- Step 2: Admin password -->
+      <div class="onboarding-panel hidden" data-onboarding-panel="2">
+        <p class="settings-desc">Your admin account still uses the password set at install time. Set a new one now, or skip and change it later in Settings → Security.</p>
+        <form id="form-onboarding-password">
+          <div class="field">
+            <label class="field-label" for="ob-new-password">New password</label>
+            <input class="g-input" id="ob-new-password" type="password" name="new_password" autocomplete="new-password" placeholder="At least 8 characters" />
+            <div class="field-help muted" id="ob-password-hint">Minimum 8 characters</div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="ob-current-password">Current password</label>
+            <input class="g-input" id="ob-current-password" type="password" name="current_password" autocomplete="current-password" placeholder="The password you just logged in with" />
+          </div>
+        </form>
+      </div>
+
+      <!-- Step 3: Base domain -->
+      <div class="onboarding-panel hidden" data-onboarding-panel="3">
+        <p class="settings-desc">New sites suggest a subdomain of this automatically, e.g. <code>myapp.grim.host</code>. You can change this later in Settings → General.</p>
+        <div class="field">
+          <label class="field-label" for="ob-base-domain">Base domain</label>
+          <input class="g-input" id="ob-base-domain" type="text" name="site_base_domain" placeholder="grim.host" />
+          <div class="field-help muted">Optional — you can also set per-site domains manually.</div>
+        </div>
+      </div>
+
+      <!-- Step 4: SSL mode -->
+      <div class="onboarding-panel hidden" data-onboarding-panel="4">
+        <p class="settings-desc">Choose how HTTPS is handled for your sites:</p>
+        <ul class="onboarding-list">
+          <li><strong>Cloudflare Tunnel / proxy</strong> — Cloudflare terminates SSL at the edge. No email needed here; set SSL/TLS mode to "Full" in your Cloudflare dashboard.</li>
+          <li><strong>Let's Encrypt</strong> — the panel requests certificates directly. Requires a contact email below.</li>
+        </ul>
+        <div class="field">
+          <label class="field-label" for="ob-acme-email">Let's Encrypt email <span class="field-optional">optional — leave blank if using Cloudflare</span></label>
+          <input class="g-input" id="ob-acme-email" type="email" name="acme_email" placeholder="you@yourdomain.com" />
+        </div>
+      </div>
+
+      <div class="modal-actions onboarding-actions">
+        <button type="button" class="btn" id="btn-onboarding-skip-2">Skip for now</button>
+        <div style="flex:1"></div>
+        <button type="button" class="btn" id="btn-onboarding-back">Back</button>
+        <button type="button" class="btn btn-primary" id="btn-onboarding-next">Next</button>
+      </div>
     </div>
   </div>
 

@@ -26,17 +26,21 @@ router.get('/', (req, res) => {
     default_cache_enabled: getSetting('default_cache_enabled') !== '0',
     acme_email: getSetting('acme_email') || process.env.ACME_EMAIL || '',
     analytics_snippet: getSetting('analytics_snippet') || '',
+    onboarding_done: getSetting('onboarding_done') === '1',
   });
 });
 
 // PUT /api/settings
 router.put('/', (req, res) => {
-  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet } = req.body;
+  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet, onboarding_done } = req.body;
   if (site_base_domain !== undefined) setSetting('site_base_domain', site_base_domain.trim().toLowerCase());
   if (default_spa_mode !== undefined) setSetting('default_spa_mode', default_spa_mode ? '1' : '0');
   if (default_cache_enabled !== undefined) setSetting('default_cache_enabled', default_cache_enabled ? '1' : '0');
   if (acme_email !== undefined) setSetting('acme_email', acme_email.trim().toLowerCase());
   if (analytics_snippet !== undefined) setSetting('analytics_snippet', analytics_snippet.trim());
+  // onboarding_done is write-once in practice: the wizard sets it true on
+  // finish/skip and never unsets it, so first-run detection never re-fires.
+  if (onboarding_done !== undefined) setSetting('onboarding_done', onboarding_done ? '1' : '0');
   res.json({ ok: true, restart_required: acme_email !== undefined });
 });
 

@@ -64,17 +64,43 @@ router.post('/logout', (req, res) => {
   });
 });
 
+// First-run onboarding: show the wizard only for the admin, only once, and
+// only when there's real setup left to do. Gated on all three so an
+// existing/already-configured install never gets nagged:
+//   1. `onboarding_done` setting unset (dismissing the wizard sets it — for
+//      good; once set, this never re-evaluates the other two conditions).
+//   2. AND either the admin's password still matches the seeded
+//      SUPERVISOR_SECRET, or no base domain has been configured yet.
+function computeNeedsOnboarding(user) {
+  if (!user || user.role !== 'admin') return false;
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'onboarding_done'").get();
+  if (done?.value === '1') return false;
+
+  const baseDomain = db.prepare("SELECT value FROM settings WHERE key = 'site_base_domain'").get()?.value || '';
+  if (!baseDomain) return true;
+
+  const secret = process.env.SUPERVISOR_SECRET || 'changeme';
+  return bcrypt.compareSync(secret, user.password_hash);
+}
+
 // GET /api/auth/me
 router.get('/me', (req, res) => {
+  let user = null;
   if (req.session?.userId) {
-    return res.json({ authenticated: true, id: req.session.userId, role: req.session.role, username: req.session.username });
-  }
-  if (req.session?.authenticated) {
+    user = db.prepare('SELECT id, username, role, password_hash FROM users WHERE id = ?').get(req.session.userId);
+  } else if (req.session?.authenticated) {
     // Legacy session — look up admin
-    const admin = db.prepare("SELECT id, username, role FROM users WHERE role = 'admin' LIMIT 1").get();
-    if (admin) return res.json({ authenticated: true, id: admin.id, role: admin.role, username: admin.username });
+    user = db.prepare("SELECT id, username, role, password_hash FROM users WHERE role = 'admin' LIMIT 1").get();
   }
-  res.json({ authenticated: false });
+  if (!user) return res.json({ authenticated: false });
+
+  res.json({
+    authenticated: true,
+    id: user.id,
+    role: user.role,
+    username: user.username,
+    needsOnboarding: computeNeedsOnboarding(user),
+  });
 });
 
 module.exports = router;
