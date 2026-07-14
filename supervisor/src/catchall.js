@@ -9,10 +9,13 @@
  */
 
 const db = require('./db');
+const { eventEnabled } = require('./notification-prefs');
 
 const RATE_LIMIT_SECONDS = 6 * 60 * 60; // 6 hours
 
 function recordUnknownDomain(domain) {
+  if (!eventEnabled('unknown_domain')) return;
+
   // Don't spam — only record once per 6 h per domain
   const recent = db.prepare(
     `SELECT id FROM notifications

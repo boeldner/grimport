@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const db = require('../db');
 const { requireRole } = require('../auth');
+const { getEnabledEvents } = require('../notification-prefs');
 
 const router = Router();
 
@@ -15,14 +16,12 @@ router.get('/', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
 
   // Filter by enabled event types (setting: notification_events JSON array)
-  let enabledTypes = null;
-  try {
-    const raw = db.prepare("SELECT value FROM settings WHERE key = 'notification_events'").get()?.value;
-    if (raw) enabledTypes = JSON.parse(raw);
-  } catch {}
+  const enabledTypes = getEnabledEvents();
 
   let rows;
-  if (enabledTypes && enabledTypes.length < 3) {
+  if (enabledTypes.length === 0) {
+    rows = [];
+  } else if (enabledTypes.length < 3) {
     const placeholders = enabledTypes.map(() => '?').join(',');
     rows = db.prepare(
       `SELECT id, type, title, detail, data, read, created_at

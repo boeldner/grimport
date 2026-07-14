@@ -1395,6 +1395,44 @@ code {
 .uptime-dot-unknown { background: var(--tx3); }
 .uptime-live-label  { font-size: 11px; font-weight: 600; }
 
+.uptime-row-btn {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  border-radius: var(--r-control);
+}
+.uptime-row-btn:hover .uptime-row,
+.uptime-row-btn:focus-visible .uptime-row { opacity: 0.75; }
+
+/* ── Uptime history popover (site card click-through) ───── */
+.uptime-popover {
+  position: fixed;
+  z-index: 60;
+  width: 260px;
+  background: var(--bg2, #16161a);
+  border: 1px solid var(--bd, #2a2a2e);
+  border-radius: var(--r-panel, 10px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+  padding: 12px;
+  font-size: 12px;
+}
+.uptime-popover-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; font-weight: 600; color: var(--tx);
+}
+.uptime-popover-stats {
+  display: flex; gap: 14px; margin-bottom: 10px; color: var(--tx2);
+}
+.uptime-popover-stats b { color: var(--tx); font-variant-numeric: tabular-nums; }
+.uptime-popover-strip {
+  display: flex; align-items: flex-end; gap: 2px; height: 28px;
+}
+.uptime-popover-bar {
+  flex: 1; min-width: 2px; height: 100%; border-radius: 1px;
+}
+.uptime-popover-bar.up   { background: var(--ok); }
+.uptime-popover-bar.down { background: var(--err); }
+.uptime-popover-empty { color: var(--tx3); text-align: center; padding: 8px 0; }
+
 /* ── Activity feed (task C3 — canvas 3b) ─────────────────────
    Filter chips: .chip-row > .chip-group > .chip[.chip-err/.chip-warn][.is-active]
    Feed rows: .activity-item, emphasis via .activity-item-down/-up/-error */

@@ -67,12 +67,12 @@ router.post('/logout', (req, res) => {
 // GET /api/auth/me
 router.get('/me', (req, res) => {
   if (req.session?.userId) {
-    return res.json({ authenticated: true, role: req.session.role, username: req.session.username });
+    return res.json({ authenticated: true, id: req.session.userId, role: req.session.role, username: req.session.username });
   }
   if (req.session?.authenticated) {
     // Legacy session — look up admin
-    const admin = db.prepare("SELECT username, role FROM users WHERE role = 'admin' LIMIT 1").get();
-    if (admin) return res.json({ authenticated: true, role: admin.role, username: admin.username });
+    const admin = db.prepare("SELECT id, username, role FROM users WHERE role = 'admin' LIMIT 1").get();
+    if (admin) return res.json({ authenticated: true, id: admin.id, role: admin.role, username: admin.username });
   }
   res.json({ authenticated: false });
 });

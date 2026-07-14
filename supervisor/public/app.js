@@ -551,6 +551,7 @@ function renderSites() {
       if (action === 'preview-create')  openPreviewModal(site);
       if (action === 'preview-swap')    previewSwap(site);
       if (action === 'preview-discard') previewDiscard(site);
+      if (action === 'uptime-detail')   openUptimeDetail(site, btn);
       if (action === 'overflow') {
         const menu = document.getElementById(`overflow-${id}`);
         const wasHidden = menu?.classList.contains('hidden');
@@ -669,12 +670,67 @@ function uptimeStrip(siteId) {
   const dotCls = status === 'up' ? 'uptime-dot-up' : status === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown';
   const liveCls = status === 'up' ? 'status-up' : status === 'down' ? 'status-down' : 'status-muted';
   const liveLabel = status === 'up' ? 'Up' : status === 'down' ? 'Down' : '?';
-  return `<div class="uptime-row">
-    <span class="uptime-pct ${pctCls}">${pctText}</span>
-    <span class="uptime-label">uptime 24h</span>
-    <span class="uptime-dot ${dotCls}"></span>
-    <span class="uptime-live-label ${liveCls}">${liveLabel}</span>
-  </div>`;
+  return `<button type="button" class="uptime-row-btn" data-action="uptime-detail" data-id="${siteId}" title="View uptime history">
+    <span class="uptime-row">
+      <span class="uptime-pct ${pctCls}">${pctText}</span>
+      <span class="uptime-label">uptime 24h</span>
+      <span class="uptime-dot ${dotCls}"></span>
+      <span class="uptime-live-label ${liveCls}">${liveLabel}</span>
+    </span>
+  </button>`;
+}
+
+// ── Uptime history popover (click the uptime strip on a site card) ────
+let uptimePopoverEl = null;
+
+function closeUptimePopover() {
+  if (uptimePopoverEl) { uptimePopoverEl.remove(); uptimePopoverEl = null; }
+  document.removeEventListener('click', onUptimePopoverOutsideClick, true);
+}
+
+function onUptimePopoverOutsideClick(e) {
+  if (uptimePopoverEl && !uptimePopoverEl.contains(e.target)) closeUptimePopover();
+}
+
+async function openUptimeDetail(site, anchorEl) {
+  closeAllSiteOverflows();
+  const wasOpenForThisSite = uptimePopoverEl?.dataset.forSite === site.id;
+  closeUptimePopover();
+  if (wasOpenForThisSite) return; // toggle off on second click
+
+  const pop = document.createElement('div');
+  pop.className = 'uptime-popover';
+  pop.dataset.forSite = site.id;
+  pop.innerHTML = `<div class="uptime-popover-header"><span>${esc(site.name)} — 24h history</span></div>
+    <div class="uptime-popover-empty">Loading…</div>`;
+  document.body.appendChild(pop);
+  uptimePopoverEl = pop;
+
+  const rect = anchorEl.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 160);
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 268));
+  pop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+
+  setTimeout(() => document.addEventListener('click', onUptimePopoverOutsideClick, true), 0);
+
+  try {
+    const data = await api('GET', `/uptime/${site.id}?period=24h`);
+    if (uptimePopoverEl !== pop) return; // closed/replaced while loading
+    const strip = data.strip || [];
+    const bars = strip.length
+      ? `<div class="uptime-popover-strip">${strip.map(c => `<span class="uptime-popover-bar ${c.up ? 'up' : 'down'}" title="${new Date(c.checked_at * 1000).toLocaleString()} — ${c.up ? 'up' : 'down'}"></span>`).join('')}</div>`
+      : `<div class="uptime-popover-empty">No checks recorded yet</div>`;
+    pop.innerHTML = `
+      <div class="uptime-popover-header"><span>${esc(site.name)} — 24h history</span></div>
+      <div class="uptime-popover-stats">
+        <span>Uptime <b>${data.uptime !== null ? data.uptime + '%' : '—'}</b></span>
+        <span>Avg latency <b>${data.avgLatency !== null ? data.avgLatency + 'ms' : '—'}</b></span>
+      </div>
+      ${bars}`;
+  } catch (err) {
+    if (uptimePopoverEl === pop) pop.innerHTML = `<div class="uptime-popover-empty">Couldn't load uptime history</div>`;
+  }
 }
 
 function esc(str) {
@@ -1795,9 +1851,9 @@ document.getElementById('form-change-password').addEventListener('submit', async
   e.preventDefault();
   const form = e.target;
   try {
-    await api('PUT', '/settings/password', {
-      old_password: form.elements['old_password'].value,
-      new_password: form.elements['new_password'].value,
+    await api('PATCH', `/users/${currentUser.id}`, {
+      current_password: form.elements['old_password'].value,
+      password: form.elements['new_password'].value,
     });
     form.reset();
     setPasswordStrengthHint('');
@@ -1842,7 +1898,7 @@ document.getElementById('btn-signout').addEventListener('click', async () => {
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
   if (!me.authenticated) { window.location.href = '/login.html'; return; }
-  currentUser = { role: me.role || 'admin', username: me.username || '' };
+  currentUser = { id: me.id || '', role: me.role || 'admin', username: me.username || '' };
   applyRoleUI();
   config = await api('GET', '/config').catch(() => config);
   if (config.version) {
@@ -2520,10 +2576,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
 // ── Notification settings ─────────────────────────────────
 async function loadNotifSettings() {
   try {
-    const s = await api('GET', '/settings');
-    const events = s.notification_events
-      ? JSON.parse(s.notification_events)
-      : ['unknown_domain', 'site_down', 'site_up'];
+    const { events } = await api('GET', '/settings/notification-events');
     const form = document.getElementById('form-notif-settings');
     form.elements['notif_unknown_domain'].checked = events.includes('unknown_domain');
     form.elements['notif_site_down'].checked      = events.includes('site_down');
@@ -2539,7 +2592,7 @@ document.getElementById('form-notif-settings').addEventListener('submit', async 
   if (form.elements['notif_site_down'].checked)      events.push('site_down');
   if (form.elements['notif_site_up'].checked)        events.push('site_up');
   try {
-    await api('POST', '/settings', { notification_events: JSON.stringify(events) });
+    await api('PUT', '/settings/notification-events', { events });
     toast('Notification settings saved', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
@@ -2621,7 +2674,7 @@ function renderDeployments() {
       <td class="cell-mono">${esc(d.filename)}</td>
       <td class="num">${fmtBytes(d.size)}</td>
       <td>${timeAgo(d.deployed_at)} ${isCurrent ? '<span class="badge badge-ok">CURRENT</span>' : ''}</td>
-      <td>${isAdmin && !isCurrent ? `<button class="btn btn-sm btn-secondary" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button>` : ''}</td>
+      <td class="admin-only${isAdmin ? '' : ' hidden'}">${isAdmin && !isCurrent ? `<button class="btn btn-sm btn-secondary" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button>` : ''}</td>
     </tr>`;
     }).join('');
 

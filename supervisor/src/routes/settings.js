@@ -1,10 +1,8 @@
 // NOTE: mounted behind requireRole('admin') in index.js — all routes here are admin-only.
 const { Router } = require('express');
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
-const { asyncHandler } = require('../async-handler');
 
 const router = Router();
 
@@ -65,19 +63,32 @@ router.delete('/tokens/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// PUT /api/settings/password
-router.put('/password', asyncHandler(async (req, res) => {
-  const { old_password, new_password } = req.body;
-  if (!old_password || !new_password) return res.status(400).json({ error: 'old_password and new_password required' });
-  if (new_password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+// NOTE: password changes now go through PATCH /api/users/:id (self-service
+// path, checks the `users` table — see routes/users.js). The legacy
+// PUT /settings/password route (which wrote to the unused
+// settings.password_hash key and never touched the row `login` reads) has
+// been retired.
 
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'password_hash'").get();
-  const valid = await bcrypt.compare(old_password, row.value);
-  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+// PUT /api/settings/notification-events — which bell event types are enabled
+router.put('/notification-events', (req, res) => {
+  const { events } = req.body;
+  if (!Array.isArray(events) || !events.every(e => ['unknown_domain', 'site_down', 'site_up'].includes(e))) {
+    return res.status(400).json({ error: 'events must be an array of unknown_domain, site_down, site_up' });
+  }
+  setSetting('notification_events', JSON.stringify(events));
+  res.json({ ok: true, events });
+});
 
-  const hash = await bcrypt.hash(new_password, 12);
-  setSetting('password_hash', hash);
-  res.json({ ok: true });
-}));
+// GET /api/settings/notification-events
+router.get('/notification-events', (req, res) => {
+  const raw = getSetting('notification_events');
+  let events;
+  try {
+    events = raw ? JSON.parse(raw) : ['unknown_domain', 'site_down', 'site_up'];
+  } catch {
+    events = ['unknown_domain', 'site_down', 'site_up'];
+  }
+  res.json({ events });
+});
 
 module.exports = router;
