@@ -1949,8 +1949,32 @@ code {
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
+
+/* Tabs can outgrow narrow viewports (7 settings tabs, site-settings tabs,
+   DNS tabs) — scroll horizontally instead of wrapping/breaking layout.
+   Harmless on desktop where tabs already fit. */
+.tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+
+/* Phone-only chrome (topbar + bottom nav) — hidden until the phone
+   breakpoint below turns them on. */
+.phone-topbar,
+.phone-sidebar-scrim,
+.bottom-nav { display: none; }
+
+/* ── Tablet (~768px) ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  :root { --sidebar-w: 180px; }
+  .sidebar { padding: 14px 0 10px; }
+  .logo { padding: 0 12px 14px; font-size: 14px; }
+  .nav-item { padding: 7px 8px; font-size: 12.5px; }
+  .main { padding: 24px 20px; }
+  .sites-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .settings-grid { grid-template-columns: 1fr; }
+  .auth-grid { grid-template-columns: 1fr; }
+  .modal-wide { max-width: min(660px, calc(100vw - 32px)); }
+}
+
 @media (max-width: 640px) {
-  .sidebar { width: 200px; min-width: 160px; }
   .main { padding: 20px 16px; }
   .view-header { gap: 8px; }
   .view-header .header-actions { width: 100%; }
@@ -1959,6 +1983,132 @@ code {
   .modal { max-width: calc(100vw - 24px); width: 100%; margin: 12px; }
   .modal-wide { max-width: calc(100vw - 24px); }
   .site-card-actions { flex-wrap: wrap; }
+}
+
+/* ── Phone (~430px, canvas 7b: monitoring view) ──────────────
+   Sidebar becomes an off-canvas drawer (toggled via .phone-menu-open on
+   <body>, wired in app.js); the primary Monitor group (Sites/Overview/
+   Activity) moves to a fixed bottom tab bar reusing the same
+   .nav-item[data-view] click handling as the sidebar. Everything else
+   (Deployments/Logs/Domains/Settings) stays reachable via the drawer's
+   "More" tab. */
+@media (max-width: 430px) {
+  body { display: block; }
+
+  .phone-topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 48px;
+    padding: 0 12px;
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    background: var(--side);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    border-bottom: 1px solid var(--line);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .phone-topbar { background: var(--panel); }
+  }
+  .phone-menu-btn {
+    background: none;
+    border: none;
+    color: var(--tx);
+    font-size: 17px;
+    line-height: 1;
+    padding: 6px 8px;
+    border-radius: var(--r-control);
+    cursor: pointer;
+  }
+  .phone-menu-btn:hover { background: var(--line); }
+  .phone-topbar-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--tx); }
+
+  /* Sidebar → off-canvas drawer, hidden until body.phone-menu-open */
+  .sidebar {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    width: min(82vw, 300px);
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+    z-index: 120;
+    box-shadow: var(--shdw);
+  }
+  body.phone-menu-open .sidebar { transform: translateX(0); }
+  .phone-sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.44);
+    z-index: 110;
+  }
+  .phone-sidebar-scrim.hidden { display: none; }
+  body.phone-menu-open .phone-sidebar-scrim { display: block; }
+
+  .main { padding: 16px 12px 78px; }
+
+  /* Bottom tab bar (canvas 7b) */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 58px;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    background: var(--side);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    border-top: 1px solid var(--line);
+    z-index: 100;
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .bottom-nav { background: var(--panel); }
+  }
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 4px;
+    border-radius: 0;
+    background: none;
+    border: none;
+    color: var(--tx3);
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .bottom-nav-item::before { display: none; } /* no left-rail active marker in a bottom bar */
+  .bottom-nav-item.active { color: var(--acc); background: none; }
+  .bottom-nav-icon { font-size: 16px; line-height: 1; }
+
+  /* Site cards condense: name+uptime top line, domain·status·runtime below,
+     key actions (Logs/Start) prioritized — everything else stays reachable
+     via the overflow menu rather than being removed from the DOM. */
+  .sites-grid { grid-template-columns: 1fr; gap: 10px; }
+  .site-card { padding: 12px; gap: 8px; }
+  .site-actions .site-deploy-btn,
+  .site-actions [data-action="analytics"] { display: none; }
+  .site-actions { gap: 5px; }
+
+  .view-header { margin-bottom: 18px; }
+  .view-header h1 { font-size: 17px; }
+  .view-header-end { width: 100%; }
+  .search-wrap { flex: 1; }
+  .search-input { width: 100%; }
+
+  .modal-backdrop { padding: 10px; }
+  .modal { padding: 16px; max-width: 100%; max-height: calc(100vh - 20px); }
+  .modal-wide { max-width: 100%; }
+  .cmdk-backdrop { padding-top: 6vh; }
+  .cmdk { max-height: 80vh; }
+
+  .settings-grid { grid-template-columns: 1fr; }
+  .dns-record-row { grid-template-columns: 1fr; gap: 4px; }
+  .stat-tiles { flex-direction: column; }
+  .stat-tile { min-width: 0; }
 }
 
 /* ── Light mode overrides ────────────────────────────────── */

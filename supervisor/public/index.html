@@ -15,7 +15,16 @@
     <span class="panel-restart-spinner" aria-hidden="true"></span>
     <span>Panel is restarting — reconnecting automatically…</span>
   </div>
-  <aside class="sidebar vibrancy">
+  <!-- Phone-only top bar (H1 responsive) — hamburger opens the existing
+       sidebar as an off-canvas drawer; no navigation logic is duplicated,
+       it just toggles visibility of the same .sidebar element/nav-items. -->
+  <header class="phone-topbar">
+    <button type="button" class="phone-menu-btn" id="btn-phone-menu" aria-label="Open menu" aria-expanded="false" aria-controls="app-sidebar">☰</button>
+    <span class="phone-topbar-title">Grimport</span>
+  </header>
+  <div class="phone-sidebar-scrim hidden" id="phone-sidebar-scrim"></div>
+
+  <aside class="sidebar vibrancy" id="app-sidebar">
     <div class="logo">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="22" height="22" fill="none" aria-hidden="true">
         <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z"/>
@@ -78,6 +87,24 @@
       </div>
     </div>
   </aside>
+
+  <!-- Phone-only bottom nav (canvas 7b: Sites / Overview / Activity) — reuses
+       the exact same .nav-item[data-view] mechanism as the sidebar; the
+       existing view-switching listener in app.js picks these up too. -->
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Primary">
+    <a href="#" class="nav-item bottom-nav-item active" data-view="sites">
+      <span class="bottom-nav-icon" aria-hidden="true">▤</span><span>Sites</span>
+    </a>
+    <a href="#" class="nav-item bottom-nav-item" data-view="overview">
+      <span class="bottom-nav-icon" aria-hidden="true">◔</span><span>Overview</span>
+    </a>
+    <a href="#" class="nav-item bottom-nav-item" data-view="activity">
+      <span class="bottom-nav-icon" aria-hidden="true">☰</span><span>Activity</span>
+    </a>
+    <button type="button" class="bottom-nav-item bottom-nav-more" id="btn-bottom-nav-more" aria-label="More" aria-controls="app-sidebar">
+      <span class="bottom-nav-icon" aria-hidden="true">⋯</span><span>More</span>
+    </button>
+  </nav>
 
   <main class="main">
     <!-- Sites view -->

@@ -1661,6 +1661,40 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
   });
 });
 
+// ── Phone off-canvas sidebar + bottom nav (task H1, additive) ─────────────
+// The bottom-nav Sites/Overview/Activity items are plain .nav-item[data-view]
+// elements, already wired by the view-switching listener above — no separate
+// navigation logic here. This block only (a) mirrors the "active" class onto
+// whichever nav-item(s) share a data-view, so sidebar + bottom nav agree, and
+// (b) toggles the sidebar as an off-canvas drawer on phone widths.
+document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+  item.addEventListener('click', () => {
+    const view = item.dataset.view;
+    document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach(n => n.classList.add('active'));
+  });
+});
+
+(function () {
+  const menuBtn = document.getElementById('btn-phone-menu');
+  const moreBtn = document.getElementById('btn-bottom-nav-more');
+  const scrim = document.getElementById('phone-sidebar-scrim');
+  if (!menuBtn && !moreBtn) return;
+
+  function setOpen(open) {
+    document.body.classList.toggle('phone-menu-open', open);
+    scrim?.classList.toggle('hidden', !open);
+    menuBtn?.setAttribute('aria-expanded', String(open));
+  }
+  function toggleOpen() { setOpen(!document.body.classList.contains('phone-menu-open')); }
+
+  menuBtn?.addEventListener('click', toggleOpen);
+  moreBtn?.addEventListener('click', toggleOpen);
+  scrim?.addEventListener('click', () => setOpen(false));
+  document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => setOpen(false));
+  });
+})();
+
 // ── Settings page tabs ────────────────────────────────────
 document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
