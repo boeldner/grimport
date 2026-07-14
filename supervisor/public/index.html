@@ -35,12 +35,12 @@
         <svg id="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <button class="bell-btn" id="btn-bell" title="Notifications" aria-label="Notifications">
+      <button class="bell-btn" id="btn-bell" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="false" aria-controls="notif-dropdown">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         <span class="bell-badge hidden" id="bell-badge">0</span>
       </button>
       <!-- Notification dropdown — inside .logo so position:absolute is relative to it -->
-      <div class="notif-dropdown vibrancy hidden" id="notif-dropdown">
+      <div class="notif-dropdown vibrancy hidden" id="notif-dropdown" role="region" aria-label="Notifications">
         <div class="notif-header">
           <span>Notifications</span>
           <button class="notif-read-all" id="btn-notif-read-all">Mark all read</button>
@@ -50,7 +50,7 @@
         </div>
       </div>
     </div>
-    <nav>
+    <nav aria-label="Sidebar navigation">
       <span class="nav-section nav-section-monitor">Monitor</span>
       <a href="#" class="nav-item active" data-view="sites">Sites</a>
       <a href="#" class="nav-item" data-view="overview">Overview</a>
@@ -185,15 +185,15 @@
         <table class="data-table" id="overview-table">
           <thead>
             <tr>
-              <th class="sortable" data-sort="name">Site</th>
-              <th class="sortable num" data-sort="requests" data-dir="desc">Requests</th>
-              <th class="sortable num" data-sort="bytes">Bandwidth</th>
+              <th class="sortable" data-sort="name" tabindex="0" role="button" aria-sort="none">Site</th>
+              <th class="sortable num" data-sort="requests" data-dir="desc" tabindex="0" role="button" aria-sort="descending">Requests</th>
+              <th class="sortable num" data-sort="bytes" tabindex="0" role="button" aria-sort="none">Bandwidth</th>
               <th class="num">2xx</th>
               <th class="num">3xx</th>
               <th class="num">4xx</th>
               <th class="num">5xx</th>
-              <th class="sortable num" data-sort="uptime">Uptime</th>
-              <th class="sortable num" data-sort="latency">Latency</th>
+              <th class="sortable num" data-sort="uptime" tabindex="0" role="button" aria-sort="none">Uptime</th>
+              <th class="sortable num" data-sort="latency" tabindex="0" role="button" aria-sort="none">Latency</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -314,17 +314,17 @@
       </header>
       <div class="settings-page">
         <div class="tabs" role="tablist">
-          <button class="tab is-active" data-stab="general" role="tab" aria-selected="true">General</button>
-          <button class="tab" data-stab="server" role="tab" aria-selected="false">Server &amp; DNS</button>
-          <button class="tab" data-stab="tokens" role="tab" aria-selected="false">API Tokens</button>
-          <button class="tab" data-stab="webhooks" role="tab" aria-selected="false">Webhooks</button>
-          <button class="tab" data-stab="notifications" role="tab" aria-selected="false">Notifications</button>
-          <button class="tab admin-only" data-stab="users" role="tab" aria-selected="false">Users</button>
-          <button class="tab" data-stab="security" role="tab" aria-selected="false">Security</button>
+          <button class="tab is-active" id="ptab-general" data-stab="general" role="tab" aria-selected="true" aria-controls="spanel-general">General</button>
+          <button class="tab" id="ptab-server" data-stab="server" role="tab" aria-selected="false" aria-controls="spanel-server">Server &amp; DNS</button>
+          <button class="tab" id="ptab-tokens" data-stab="tokens" role="tab" aria-selected="false" aria-controls="spanel-tokens">API Tokens</button>
+          <button class="tab" id="ptab-webhooks" data-stab="webhooks" role="tab" aria-selected="false" aria-controls="spanel-webhooks">Webhooks</button>
+          <button class="tab" id="ptab-notifications" data-stab="notifications" role="tab" aria-selected="false" aria-controls="spanel-notifications">Notifications</button>
+          <button class="tab admin-only" id="ptab-users" data-stab="users" role="tab" aria-selected="false" aria-controls="spanel-users">Users</button>
+          <button class="tab" id="ptab-security" data-stab="security" role="tab" aria-selected="false" aria-controls="spanel-security">Security</button>
         </div>
 
         <!-- General -->
-        <div id="spanel-general" class="tab-panel">
+        <div id="spanel-general" class="tab-panel" role="tabpanel" aria-labelledby="ptab-general">
           <div class="card">
             <div class="card-header"><span class="card-title">Site defaults</span></div>
             <div class="card-body">
@@ -392,7 +392,7 @@
         </div>
 
         <!-- Server & DNS -->
-        <div id="spanel-server" class="tab-panel hidden">
+        <div id="spanel-server" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-server">
           <div class="card">
             <div class="card-header"><span class="card-title">Server</span></div>
             <div class="card-body">
@@ -541,7 +541,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- API Tokens -->
-        <div id="spanel-tokens" class="tab-panel hidden">
+        <div id="spanel-tokens" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-tokens">
           <div class="card">
             <div class="card-header"><span class="card-title">API Tokens</span></div>
             <div class="card-body">
@@ -567,7 +567,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Webhooks -->
-        <div id="spanel-webhooks" class="tab-panel hidden">
+        <div id="spanel-webhooks" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-webhooks">
           <div class="card">
             <div class="card-header"><span class="card-title">Webhooks</span></div>
             <div class="card-body">
@@ -586,7 +586,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Notifications -->
-        <div id="spanel-notifications" class="tab-panel hidden">
+        <div id="spanel-notifications" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-notifications">
           <div class="card">
             <div class="card-header"><span class="card-title">Bell notifications</span></div>
             <div class="card-body">
@@ -624,7 +624,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Users -->
-        <div id="spanel-users" class="tab-panel hidden admin-only">
+        <div id="spanel-users" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-users">
           <div class="card">
             <div class="card-header"><span class="card-title">User accounts</span></div>
             <div class="card-body">
@@ -645,7 +645,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Security -->
-        <div id="spanel-security" class="tab-panel hidden">
+        <div id="spanel-security" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-security">
           <div class="card">
             <div class="card-header"><span class="card-title">Change password</span></div>
             <div class="card-body">
@@ -656,7 +656,7 @@ systemctl start cloudflared</pre>
                 </div>
                 <div class="field">
                   <label class="field-label" for="f-new-password">New password</label>
-                  <input class="g-input" id="f-new-password" type="password" name="new_password" autocomplete="new-password" required minlength="8" />
+                  <input class="g-input" id="f-new-password" type="password" name="new_password" autocomplete="new-password" required minlength="8" aria-describedby="password-strength-hint" />
                   <div class="field-help muted" id="password-strength-hint">Minimum 8 characters</div>
                 </div>
                 <div class="form-actions">
@@ -672,9 +672,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: New Site ─────────────────────────────── -->
   <div id="modal-new-site" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-new-site-title">
       <div class="modal-header">
-        <h2>New site</h2>
+        <h2 id="modal-new-site-title">New site</h2>
         <button class="modal-close" data-close="modal-new-site"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-new-site">
@@ -685,16 +685,16 @@ systemctl start cloudflared</pre>
           </div>
           <div class="field">
             <label class="field-label" for="new-site-domain">Domain</label>
-            <input class="g-input" id="new-site-domain" type="text" name="domain" placeholder="wedding-page.grim.host" required />
+            <input class="g-input" id="new-site-domain" type="text" name="domain" placeholder="wedding-page.grim.host" required aria-describedby="new-site-domain-help" />
             <div class="field-help muted" id="new-site-domain-help">Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</div>
           </div>
           <div class="field">
             <span class="field-label">Runtime</span>
-            <div class="seg-ctl" id="new-site-runtime-seg" role="tablist">
-              <button type="button" class="is-active" data-runtime="static">Static</button>
-              <button type="button" data-runtime="php">PHP</button>
-              <button type="button" data-runtime="node">Node</button>
-              <button type="button" data-runtime="python">Python</button>
+            <div class="seg-ctl" id="new-site-runtime-seg" role="group" aria-label="Runtime">
+              <button type="button" class="is-active" data-runtime="static" aria-pressed="true">Static</button>
+              <button type="button" data-runtime="php" aria-pressed="false">PHP</button>
+              <button type="button" data-runtime="node" aria-pressed="false">Node</button>
+              <button type="button" data-runtime="python" aria-pressed="false">Python</button>
             </div>
             <input type="hidden" name="runtime" id="new-site-runtime" value="static" />
           </div>
@@ -736,18 +736,18 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Deploy ──────────────────────────────── -->
   <div id="modal-deploy" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-deploy-title">
       <div class="modal-header">
-        <h2>Deploy to <span id="deploy-site-name"></span></h2>
+        <h2 id="modal-deploy-title">Deploy to <span id="deploy-site-name"></span></h2>
         <button class="modal-close" data-close="modal-deploy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div class="modal-body">
         <div class="deploy-tabs" role="tablist">
-          <button class="deploy-tab active" data-dtab="upload" role="tab" aria-selected="true">Upload zip</button>
-          <button class="deploy-tab" data-dtab="url" role="tab" aria-selected="false">From URL</button>
+          <button class="deploy-tab active" id="deploy-tab-upload" data-dtab="upload" role="tab" aria-selected="true" aria-controls="dtab-upload">Upload zip</button>
+          <button class="deploy-tab" id="deploy-tab-url" data-dtab="url" role="tab" aria-selected="false" aria-controls="dtab-url">From URL</button>
         </div>
         <!-- Upload tab -->
-        <div id="dtab-upload">
+        <div id="dtab-upload" role="tabpanel" aria-labelledby="deploy-tab-upload">
           <div class="dropzone" id="dropzone">
             <div class="dropzone-inner">
               <span class="dropzone-icon">↑</span>
@@ -758,7 +758,7 @@ systemctl start cloudflared</pre>
           </div>
         </div>
         <!-- URL tab -->
-        <div id="dtab-url" class="hidden">
+        <div id="dtab-url" class="hidden" role="tabpanel" aria-labelledby="deploy-tab-url">
           <div class="field">
             <label class="field-label" for="deploy-url-input">Direct URL to a .zip file</label>
             <input class="g-input" type="url" id="deploy-url-input" placeholder="https://example.com/release.zip" />
@@ -779,38 +779,38 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Site Settings ───────────────────────── -->
   <div id="modal-settings" class="modal-backdrop hidden">
-    <div class="modal modal-wide">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title">
       <div class="modal-header">
-        <h2>Settings — <span id="settings-site-name"></span></h2>
+        <h2 id="modal-settings-title">Settings — <span id="settings-site-name"></span></h2>
         <button class="modal-close" data-close="modal-settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
 
       <!-- Tabs -->
       <div class="tabs" role="tablist">
-        <button class="tab is-active" data-stab="general" role="tab" aria-selected="true">General</button>
-        <button class="tab" data-stab="behaviour" role="tab" aria-selected="false">Behaviour</button>
-        <button class="tab" data-stab="access" role="tab" aria-selected="false">Access</button>
-        <button class="tab" data-stab="app" role="tab" aria-selected="false">App config</button>
+        <button class="tab is-active" id="mtab-general" data-stab="general" role="tab" aria-selected="true" aria-controls="stab-general">General</button>
+        <button class="tab" id="mtab-behaviour" data-stab="behaviour" role="tab" aria-selected="false" aria-controls="stab-behaviour">Behaviour</button>
+        <button class="tab" id="mtab-access" data-stab="access" role="tab" aria-selected="false" aria-controls="stab-access">Access</button>
+        <button class="tab" id="mtab-app" data-stab="app" role="tab" aria-selected="false" aria-controls="stab-app">App config</button>
       </div>
 
       <form id="form-settings">
         <input type="hidden" name="id" />
 
         <!-- Tab: General -->
-        <div class="tab-panel" id="stab-general">
+        <div class="tab-panel" id="stab-general" role="tabpanel" aria-labelledby="mtab-general">
           <div class="field">
             <label class="field-label" for="settings-name">Site name</label>
             <input class="g-input" id="settings-name" type="text" name="name" required />
           </div>
           <div class="field">
             <label class="field-label" for="settings-domain">Domain</label>
-            <input class="g-input" id="settings-domain" type="text" name="domain" required />
-            <div class="field-help warn">Changing the domain requires a container restart — existing traffic will briefly drop.</div>
+            <input class="g-input" id="settings-domain" type="text" name="domain" required aria-describedby="settings-domain-help" />
+            <div class="field-help warn" id="settings-domain-help">Changing the domain requires a container restart — existing traffic will briefly drop.</div>
           </div>
         </div>
 
         <!-- Tab: Behaviour -->
-        <div class="tab-panel hidden" id="stab-behaviour">
+        <div class="tab-panel hidden" id="stab-behaviour" role="tabpanel" aria-labelledby="mtab-behaviour">
           <div class="field-row-toggles" style="flex-direction:column;align-items:flex-start;gap:12px">
             <label class="g-toggle">
               <input type="checkbox" name="spa_mode" />
@@ -828,7 +828,7 @@ systemctl start cloudflared</pre>
               <span>Maintenance mode</span>
             </label>
             <label class="g-toggle" id="ssl-toggle-row">
-              <input type="checkbox" name="ssl_enabled" />
+              <input type="checkbox" name="ssl_enabled" aria-describedby="ssl-toggle-hint" />
               <span class="g-toggle-track"></span>
               <span>Enable HTTPS <span class="field-help muted" id="ssl-toggle-hint" style="display:inline">(set ACME_EMAIL first)</span></span>
             </label>
@@ -842,7 +842,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Tab: Access -->
-        <div class="tab-panel hidden" id="stab-access">
+        <div class="tab-panel hidden" id="stab-access" role="tabpanel" aria-labelledby="mtab-access">
           <div class="settings-subsection">
             <div class="settings-subsection-title">Basic auth <span class="settings-subsection-hint">optional — password-protect this site</span></div>
             <div class="auth-grid">
@@ -875,15 +875,15 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Tab: App config -->
-        <div class="tab-panel hidden" id="stab-app">
+        <div class="tab-panel hidden" id="stab-app" role="tabpanel" aria-labelledby="mtab-app">
           <p class="settings-desc" id="app-config-desc"></p>
           <div class="field">
             <span class="field-label">Runtime</span>
-            <div class="seg-ctl" id="settings-runtime-seg" role="tablist">
-              <button type="button" data-runtime="static">Static</button>
-              <button type="button" data-runtime="php">PHP</button>
-              <button type="button" data-runtime="node">Node</button>
-              <button type="button" data-runtime="python">Python</button>
+            <div class="seg-ctl" id="settings-runtime-seg" role="group" aria-label="Runtime">
+              <button type="button" data-runtime="static" aria-pressed="false">Static</button>
+              <button type="button" data-runtime="php" aria-pressed="false">PHP</button>
+              <button type="button" data-runtime="node" aria-pressed="false">Node</button>
+              <button type="button" data-runtime="python" aria-pressed="false">Python</button>
             </div>
             <input type="hidden" name="runtime" id="settings-runtime" value="static" />
           </div>
@@ -920,9 +920,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Analytics ─────────────────────────── -->
   <div id="modal-analytics" class="modal-backdrop hidden">
-    <div class="modal modal-wide">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="modal-analytics-title">
       <div class="modal-header">
-        <h2><span id="analytics-site-name"></span> — Analytics</h2>
+        <h2 id="modal-analytics-title"><span id="analytics-site-name"></span> — Analytics</h2>
         <div style="display:flex;gap:8px;align-items:center">
           <div class="seg-ctl" id="analytics-periods">
             <button class="analytics-period-btn" data-period="24h">24h</button>
@@ -990,24 +990,24 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: DNS Setup ──────────────────────────── -->
   <div id="modal-dns" class="modal-backdrop hidden">
-    <div class="modal modal-wide">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="modal-dns-title">
       <div class="modal-header">
-        <h2>DNS setup — <span id="dns-site-name"></span></h2>
+        <h2 id="modal-dns-title">DNS setup — <span id="dns-site-name"></span></h2>
         <button class="modal-close" data-close="modal-dns"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
 
-      <div id="dns-status-banner" class="dns-banner dns-banner-checking">
+      <div id="dns-status-banner" class="dns-banner dns-banner-checking" role="status" aria-live="polite">
         <span class="dns-banner-icon" id="dns-banner-icon"></span>
         <span id="dns-status-text">Checking DNS…</span>
         <button class="btn btn-sm" id="btn-recheck-dns" style="margin-left:auto">Recheck</button>
       </div>
 
-      <div class="seg-ctl">
-        <button class="dns-tab is-active" data-tab="standard">Standard DNS</button>
-        <button class="dns-tab" data-tab="cloudflare">Proxied / tunnel</button>
+      <div class="seg-ctl" role="tablist">
+        <button class="dns-tab is-active" id="dns-tabbtn-standard" data-tab="standard" role="tab" aria-selected="true" aria-controls="dns-tab-standard">Standard DNS</button>
+        <button class="dns-tab" id="dns-tabbtn-cloudflare" data-tab="cloudflare" role="tab" aria-selected="false" aria-controls="dns-tab-cloudflare">Proxied / tunnel</button>
       </div>
 
-      <div class="dns-tab-content" id="dns-tab-standard">
+      <div class="dns-tab-content" id="dns-tab-standard" role="tabpanel" aria-labelledby="dns-tabbtn-standard">
         <p class="dns-desc">Add this record in your DNS provider (Hetzner, Namecheap, Porkbun, etc.):</p>
         <div class="dns-record-table">
           <div class="dns-record-row dns-record-header">
@@ -1036,7 +1036,7 @@ systemctl start cloudflared</pre>
         </div>
       </div>
 
-      <div class="dns-tab-content hidden" id="dns-tab-cloudflare">
+      <div class="dns-tab-content hidden" id="dns-tab-cloudflare" role="tabpanel" aria-labelledby="dns-tabbtn-cloudflare">
         <p class="dns-desc">Add this record in Cloudflare DNS with the <strong>proxy enabled</strong> (orange cloud):</p>
         <div class="dns-record-table">
           <div class="dns-record-row dns-record-header">
@@ -1074,9 +1074,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Logs ────────────────────────────────── -->
   <div id="modal-logs" class="modal-backdrop hidden">
-    <div class="modal modal-wide">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="modal-logs-title">
       <div class="modal-header">
-        <h2>Logs — <span id="logs-site-name"></span></h2>
+        <h2 id="modal-logs-title">Logs — <span id="logs-site-name"></span></h2>
         <button class="modal-close" data-close="modal-logs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <pre id="logs-content" class="logs-output">Loading…</pre>
@@ -1089,9 +1089,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Deploy History ────────────────────── -->
   <div id="modal-history" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-history-title">
       <div class="modal-header">
-        <h2><span id="history-site-name"></span> — Deploy history</h2>
+        <h2 id="modal-history-title"><span id="history-site-name"></span> — Deploy history</h2>
         <button class="modal-close" data-close="modal-history"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div id="history-list" class="history-list"></div>
@@ -1103,9 +1103,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Connect unknown domain ────────────────── -->
   <div id="modal-connect-domain" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-connect-domain-title">
       <div class="modal-header">
-        <h2 class="modal-title">Connect domain</h2>
+        <h2 class="modal-title" id="modal-connect-domain-title">Connect domain</h2>
         <button class="modal-close" data-close="modal-connect-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <p class="settings-desc" style="margin-bottom:16px">
@@ -1130,9 +1130,9 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Create preview ──────────────────────── -->
   <div id="modal-preview" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-preview-title">
       <div class="modal-header">
-        <h2 class="modal-title">Create preview</h2>
+        <h2 class="modal-title" id="modal-preview-title">Create preview</h2>
         <button class="modal-close" data-close="modal-preview"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-create-preview">
@@ -1142,8 +1142,8 @@ systemctl start cloudflared</pre>
           </p>
           <div class="field">
             <label class="field-label" for="preview-domain-input">Preview domain</label>
-            <input class="g-input" id="preview-domain-input" type="text" name="preview_domain" placeholder="preview-shop.grim.host" required />
-            <div class="field-help muted">Must point to your server (or use <code>preview.localhost</code> locally).</div>
+            <input class="g-input" id="preview-domain-input" type="text" name="preview_domain" placeholder="preview-shop.grim.host" required aria-describedby="preview-domain-help" />
+            <div class="field-help muted" id="preview-domain-help">Must point to your server (or use <code>preview.localhost</code> locally).</div>
           </div>
         </div>
         <div class="modal-actions">
@@ -1156,7 +1156,7 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Update ────────────────────────────── -->
   <div id="modal-update" class="modal-backdrop hidden">
-    <div class="modal" style="max-width:420px">
+    <div class="modal" style="max-width:420px" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
       <div class="modal-header">
         <h2 class="modal-title" id="update-modal-title">Updating Grimport</h2>
       </div>
@@ -1183,7 +1183,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <div class="update-note-box">The panel will be unreachable for a few seconds. This screen keeps polling and resumes automatically — status survives the restart.</div>
-        <p class="settings-desc" id="update-status-msg">Starting update…</p>
+        <p class="settings-desc" id="update-status-msg" role="status" aria-live="polite">Starting update…</p>
 
         <!-- Shown only after update completes -->
         <div id="update-reload-box" class="update-reload-box hidden">
@@ -1201,16 +1201,16 @@ systemctl start cloudflared</pre>
 
   <!-- ── Modal: Edit User ──────────────────────────── -->
   <div id="modal-edit-user" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-edit-user-title">
       <div class="modal-header">
-        <h2>Edit user — <span id="edit-user-name"></span></h2>
+        <h2 id="modal-edit-user-title">Edit user — <span id="edit-user-name"></span></h2>
         <button class="modal-close" data-close="modal-edit-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <form id="form-edit-user">
         <input type="hidden" id="edit-user-id" />
         <div class="field">
           <span class="field-label">Role</span>
-          <div class="role-select-list" id="edit-user-role-list">
+          <div class="role-select-list" id="edit-user-role-list" role="radiogroup" aria-label="Role">
             <label class="role-select-opt">
               <input type="radio" name="role" value="admin" />
               <span class="role-select-body">
@@ -1252,10 +1252,11 @@ systemctl start cloudflared</pre>
     <div class="cmdk vibrancy" role="dialog" aria-modal="true" aria-label="Command palette">
       <div class="cmdk-input-row">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="cmdk-search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="cmdk-input" class="cmdk-input" placeholder="Type a command or search sites…" autocomplete="off" spellcheck="false" />
+        <input type="text" id="cmdk-input" class="cmdk-input" placeholder="Type a command or search sites…" autocomplete="off" spellcheck="false"
+          role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="cmdk-results" aria-activedescendant="" />
         <kbd class="cmdk-esc-kbd">esc</kbd>
       </div>
-      <div id="cmdk-results" class="cmdk-results"></div>
+      <div id="cmdk-results" class="cmdk-results" role="listbox" aria-label="Results"></div>
       <div class="cmdk-footer">
         <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
         <span><kbd>↵</kbd> open</span>

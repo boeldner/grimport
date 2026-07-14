@@ -146,7 +146,14 @@ function toast(a, b) {
 
   const el = document.createElement('div');
   el.className = `toast toast-${type} ${type}`;
-  el.setAttribute('role', 'status');
+  // errors interrupt (role="alert" ~ assertive live region); info/ok/warn
+  // just announce politely once idle (role="status").
+  if (type === 'error') {
+    el.setAttribute('role', 'alert');
+  } else {
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+  }
 
   const text = document.createElement('span');
   text.textContent = message;
@@ -332,9 +339,66 @@ if (typeof window !== 'undefined') {
   window.copyToClipboard = copyToClipboard;
 }
 
+// ── Focus trap (task H2, additive) ──────────────────────────
+// Keeps Tab/Shift+Tab cycling inside `container` while it's the active
+// modal/palette, and returns focus to whatever triggered it on close.
+// Used by openModal/closeModal below, plus confirmDialog() and the
+// command palette, which manage their own show/hide.
+let _focusTrapCleanup = null;
+
+function _focusableEls(container) {
+  return Array.from(container.querySelectorAll(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+}
+
+function trapFocus(container, triggerEl) {
+  if (!container) return;
+  releaseFocusTrap();
+  const previouslyFocused = triggerEl || document.activeElement;
+  const focusables = _focusableEls(container);
+  (focusables[0] || container).focus({ preventScroll: true });
+
+  function onKeydown(e) {
+    if (e.key !== 'Tab') return;
+    const items = _focusableEls(container);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  container.addEventListener('keydown', onKeydown);
+  _focusTrapCleanup = () => {
+    container.removeEventListener('keydown', onKeydown);
+    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      previouslyFocused.focus({ preventScroll: true });
+    }
+  };
+}
+
+function releaseFocusTrap() {
+  if (_focusTrapCleanup) {
+    const fn = _focusTrapCleanup;
+    _focusTrapCleanup = null;
+    fn();
+  }
+}
+
 // ── Modal helpers ─────────────────────────────────────────
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function openModal(id) {
+  const backdrop = document.getElementById(id);
+  if (!backdrop) return;
+  const trigger = document.activeElement;
+  backdrop.classList.remove('hidden');
+  const dialog = backdrop.querySelector('.modal');
+  trapFocus(dialog, trigger);
+}
+function closeModal(id) {
+  const backdrop = document.getElementById(id);
+  if (!backdrop) return;
+  backdrop.classList.add('hidden');
+  releaseFocusTrap();
+}
 
 // ── Styled confirmation dialog (Promise<boolean>) ──────────
 // confirmDialog({ title, body, confirmLabel, danger, warn, requireText })
@@ -346,8 +410,8 @@ function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, 
     backdrop.className = 'modal-backdrop';
     const btnClass = danger ? 'btn-danger' : (warn ? 'btn-warn' : 'btn-primary');
     backdrop.innerHTML = `
-      <div class="modal confirm-dialog">
-        <div class="modal-header"><h2>${esc(title)}</h2></div>
+      <div class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+        <div class="modal-header"><h2 id="confirm-dialog-title">${esc(title)}</h2></div>
         <div class="confirm-body">
           <p>${esc(body)}</p>
           ${requireText ? `
@@ -366,9 +430,12 @@ function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, 
     const confirmBtn = backdrop.querySelector('[data-role="confirm-ok"]');
     const cancelBtn = backdrop.querySelector('[data-role="confirm-cancel"]');
     const input = backdrop.querySelector('#confirm-type-input');
+    const dialogEl = backdrop.querySelector('.modal');
+    trapFocus(dialogEl, document.activeElement);
 
     function cleanup(result) {
       document.removeEventListener('keydown', onKey);
+      releaseFocusTrap();
       backdrop.remove();
       resolve(result);
     }
@@ -447,6 +514,7 @@ async function loadSites() {
   sites.forEach(s => { if (statusInfo(s.container).error) refreshDownDuration(s.id); });
 }
 
+const DNS_DOT_LABEL = { ok: 'DNS ok', wrong: 'DNS wrong', pending: 'DNS pending' };
 async function refreshDnsDot(siteId) {
   try {
     const data = await api('GET', `/dns/${siteId}`);
@@ -454,6 +522,11 @@ async function refreshDnsDot(siteId) {
     if (!dot) return;
     const cls = data.status === 'ok' ? 'ok' : data.status === 'wrong' ? 'wrong' : 'pending';
     dot.className = `dns-indicator dns-indicator-${cls}`;
+    // colour is never the only signal — mirror the state as text on the
+    // button that wraps this dot (the dot itself has no visible label).
+    const btn = dot.closest('.dns-status-btn');
+    if (btn) btn.title = DNS_DOT_LABEL[cls];
+    if (btn) btn.setAttribute('aria-label', DNS_DOT_LABEL[cls]);
   } catch {}
 }
 
@@ -630,13 +703,13 @@ function siteCard(site) {
   return `
     <div class="site-card${error ? ' site-card--error' : ''}">
       <div class="site-card-header">
-        <span class="status status-${cls}" data-status-for="${site.id}"><span class="status-glyph">●</span><span class="status-label">${esc(label)}</span></span>
+        <span class="status status-${cls}" data-status-for="${site.id}"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
       </div>
       <div class="site-domain-row">
         <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}<span class="site-domain-arrow">↗</span></a>
-        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status">
-          <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}"></span>
+        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status" aria-label="DNS status">
+          <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}" aria-hidden="true"></span>
         </button>
       </div>
       ${tags ? `<div class="site-tags">${tags}</div>` : ''}
@@ -823,8 +896,9 @@ let activeDeployTab = 'upload';
 
 document.querySelectorAll('.deploy-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.deploy-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
     tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
     activeDeployTab = tab.dataset.dtab;
     document.getElementById('dtab-upload').classList.toggle('hidden', activeDeployTab !== 'upload');
     document.getElementById('dtab-url').classList.toggle('hidden', activeDeployTab !== 'url');
@@ -853,8 +927,10 @@ function openDeploy(site) {
   document.getElementById('dropzone').classList.remove('dragging', 'has-file');
   document.getElementById('deploy-url-input').value = '';
   // Reset tabs
-  document.querySelectorAll('.deploy-tab').forEach(t => t.classList.remove('active'));
-  document.querySelector('.deploy-tab[data-dtab="upload"]').classList.add('active');
+  document.querySelectorAll('.deploy-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+  const uploadTab = document.querySelector('.deploy-tab[data-dtab="upload"]');
+  uploadTab.classList.add('active');
+  uploadTab.setAttribute('aria-selected', 'true');
   document.getElementById('dtab-upload').classList.remove('hidden');
   document.getElementById('dtab-url').classList.add('hidden');
   document.querySelector('#dropzone .dropzone-inner').innerHTML = `
@@ -1439,7 +1515,11 @@ function updateDnsIpFields(ip) {
 }
 
 function switchDnsTab(name) {
-  document.querySelectorAll('.dns-tab').forEach(t => t.classList.toggle('is-active', t.dataset.tab === name));
+  document.querySelectorAll('.dns-tab').forEach(t => {
+    const active = t.dataset.tab === name;
+    t.classList.toggle('is-active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
   document.querySelectorAll('.dns-tab-content').forEach(c => c.classList.add('hidden'));
   document.getElementById(`dns-tab-${name}`)?.classList.remove('hidden');
 }
@@ -1954,17 +2034,21 @@ let notifDropdownOpen = false;
 const bellBtn = document.getElementById('btn-bell');
 const notifDropdown = document.getElementById('notif-dropdown');
 
+function setNotifDropdownOpen(open) {
+  notifDropdownOpen = open;
+  notifDropdown.classList.toggle('hidden', !open);
+  bellBtn.setAttribute('aria-expanded', String(open));
+}
+
 bellBtn.addEventListener('click', e => {
   e.stopPropagation();
-  notifDropdownOpen = !notifDropdownOpen;
-  notifDropdown.classList.toggle('hidden', !notifDropdownOpen);
+  setNotifDropdownOpen(!notifDropdownOpen);
   if (notifDropdownOpen) loadNotifications();
 });
 
 document.addEventListener('click', e => {
   if (notifDropdownOpen && !notifDropdown.contains(e.target) && e.target !== bellBtn) {
-    notifDropdownOpen = false;
-    notifDropdown.classList.add('hidden');
+    setNotifDropdownOpen(false);
   }
 });
 
@@ -2009,7 +2093,7 @@ function renderNotifList(notifs) {
 
     let detailHtml = n.detail ? esc(n.detail) : '';
     if (n.type === 'unknown_domain' && data.domain) {
-      detailHtml += `${detailHtml ? ' — ' : ''}<span class="notif-link" data-domain="${esc(data.domain)}">connect it</span>`;
+      detailHtml += `${detailHtml ? ' — ' : ''}<button type="button" class="notif-link" data-domain="${esc(data.domain)}">connect it</button>`;
     }
 
     const actionsHtml = (n.type === 'site_down' && data.siteId) ? `
@@ -2042,8 +2126,7 @@ function renderNotifList(notifs) {
   list.querySelectorAll('.notif-link[data-domain]').forEach(el => {
     el.addEventListener('click', e => {
       e.stopPropagation();
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
+      setNotifDropdownOpen(false);
       openConnectDomain(el.dataset.domain);
     });
   });
@@ -2052,8 +2135,7 @@ function renderNotifList(notifs) {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const site = sites.find(s => s.id === btn.dataset.openLogs);
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
+      setNotifDropdownOpen(false);
       if (site) openLogs(site);
     });
   });
@@ -2061,8 +2143,7 @@ function renderNotifList(notifs) {
   list.querySelectorAll('[data-restart-site]').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
+      setNotifDropdownOpen(false);
       await siteAction(btn.dataset.restartSite, 'start');
     });
   });
@@ -2071,8 +2152,7 @@ function renderNotifList(notifs) {
   const updateItem = document.getElementById('notif-update-item');
   if (updateItem) {
     updateItem.addEventListener('click', () => {
-      notifDropdownOpen = false;
-      notifDropdown.classList.add('hidden');
+      setNotifDropdownOpen(false);
       openModal('modal-update');
       startUpdateFlow();
     });
@@ -2342,7 +2422,9 @@ function setNewSiteRuntime(runtime) {
   const isPhp = runtime === 'php';
   document.getElementById('new-site-runtime').value = runtime;
   document.querySelectorAll('#new-site-runtime-seg button').forEach(b => {
-    b.classList.toggle('is-active', b.dataset.runtime === runtime);
+    const active = b.dataset.runtime === runtime;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
   });
   document.getElementById('new-site-static-opts').classList.toggle('hidden', isApp || isPhp);
   document.getElementById('new-site-app-opts').classList.toggle('hidden', !isApp);
@@ -2359,7 +2441,9 @@ function setSettingsRuntime(runtime) {
   const isApp = runtime === 'node' || runtime === 'python';
   document.getElementById('settings-runtime').value = runtime;
   document.querySelectorAll('#settings-runtime-seg button').forEach(b => {
-    b.classList.toggle('is-active', b.dataset.runtime === runtime);
+    const active = b.dataset.runtime === runtime;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
   });
   document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
 }
@@ -2810,11 +2894,11 @@ async function loadDomains() {
       `${data.length} domain${data.length !== 1 ? 's' : ''}${wildcard}`;
 
     const containerStatus = s => {
-      if (s?.running) return '<span class="status status-running"><span class="status-glyph">●</span>Running</span>';
-      if (!s || s.status === 'none') return '<span class="status status-no-container"><span class="status-glyph">●</span>No container</span>';
-      if (s.status === 'restarting') return '<span class="status status-restarting"><span class="status-glyph">●</span>Restarting</span>';
-      if (s.status === 'paused') return '<span class="status status-paused"><span class="status-glyph">●</span>Paused</span>';
-      return '<span class="status status-stopped"><span class="status-glyph">●</span>Exited</span>';
+      if (s?.running) return '<span class="status status-running"><span class="status-glyph" aria-hidden="true">●</span>Running</span>';
+      if (!s || s.status === 'none') return '<span class="status status-no-container"><span class="status-glyph" aria-hidden="true">●</span>No container</span>';
+      if (s.status === 'restarting') return '<span class="status status-restarting"><span class="status-glyph" aria-hidden="true">●</span>Restarting</span>';
+      if (s.status === 'paused') return '<span class="status status-paused"><span class="status-glyph" aria-hidden="true">●</span>Paused</span>';
+      return '<span class="status status-stopped"><span class="status-glyph" aria-hidden="true">●</span>Exited</span>';
     };
 
     document.getElementById('domains-tbody').innerHTML = data.length === 0
@@ -2824,7 +2908,7 @@ async function loadDomains() {
         <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx);text-decoration:none">${esc(s.domain)} ↗</a></td>
         <td style="color:var(--tx2)">${esc(s.name)}</td>
         <td><span class="badge badge-runtime">${esc((s.runtime || 'static').toUpperCase())}</span></td>
-        <td>${s.ssl_enabled ? '<span class="status status-ssl-active"><span class="status-glyph">●</span>On</span>' : '<span class="status status-muted"><span class="status-glyph">●</span>Off</span>'}</td>
+        <td>${s.ssl_enabled ? '<span class="status status-ssl-active"><span class="status-glyph" aria-hidden="true">●</span>On</span>' : '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Off</span>'}</td>
         <td>${containerStatus(s.container)}</td>
       </tr>`).join('');
 
@@ -2907,9 +2991,9 @@ function renderOverview() {
   });
 
   const statusBadge = s =>
-    s === 'up'   ? '<span class="status status-ok"><span class="status-glyph">●</span>Up</span>' :
-    s === 'down' ? '<span class="status status-err"><span class="status-glyph">●</span>Down</span>' :
-                   '<span class="status status-muted"><span class="status-glyph">●</span>Unknown</span>';
+    s === 'up'   ? '<span class="status status-ok"><span class="status-glyph" aria-hidden="true">●</span>Up</span>' :
+    s === 'down' ? '<span class="status status-err"><span class="status-glyph" aria-hidden="true">●</span>Down</span>' :
+                   '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Unknown</span>';
 
   const pctClass = u =>
     u === null ? '' : parseFloat(u) >= 99 ? 'pct-ok' : parseFloat(u) >= 95 ? 'pct-warn' : 'pct-err';
@@ -2955,18 +3039,29 @@ document.querySelectorAll('#overview-period-btns button').forEach(btn => {
   });
 });
 
+function sortOverviewBy(th) {
+  const key = th.dataset.sort;
+  if (overviewSort === key) {
+    overviewSortDir = overviewSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    overviewSort = key;
+    overviewSortDir = key === 'name' ? 'asc' : 'desc';
+  }
+  document.querySelectorAll('#overview-table th.sortable').forEach(h => {
+    h.removeAttribute('data-dir');
+    h.setAttribute('aria-sort', 'none');
+  });
+  th.setAttribute('data-dir', overviewSortDir);
+  th.setAttribute('aria-sort', overviewSortDir === 'asc' ? 'ascending' : 'descending');
+  renderOverview();
+}
+
 document.querySelectorAll('#overview-table th.sortable').forEach(th => {
-  th.addEventListener('click', () => {
-    const key = th.dataset.sort;
-    if (overviewSort === key) {
-      overviewSortDir = overviewSortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      overviewSort = key;
-      overviewSortDir = key === 'name' ? 'asc' : 'desc';
-    }
-    document.querySelectorAll('#overview-table th.sortable').forEach(h => h.removeAttribute('data-dir'));
-    th.setAttribute('data-dir', overviewSortDir);
-    renderOverview();
+  th.addEventListener('click', () => sortOverviewBy(th));
+  // th isn't natively focusable/actionable — tabindex+role="button" was
+  // added in markup, so mirror click activation for Enter/Space.
+  th.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortOverviewBy(th); }
   });
 });
 
@@ -3247,7 +3342,7 @@ async function pollUpdateStatus() {
       actions.forEach(a => {
         const idx = flatItems.length;
         flatItems.push({ type: 'action', run: a.run });
-        html += `<div class="cmdk-item" data-idx="${idx}"><span class="cmdk-item-main">${esc(a.label)}</span><span class="cmdk-item-sub">${esc(a.desc)}</span></div>`;
+        html += `<div class="cmdk-item" id="cmdk-item-${idx}" data-idx="${idx}" role="option" aria-selected="false"><span class="cmdk-item-main">${esc(a.label)}</span><span class="cmdk-item-sub">${esc(a.desc)}</span></div>`;
       });
       html += '</div>';
     }
@@ -3258,9 +3353,9 @@ async function pollUpdateStatus() {
         const idx = flatItems.length;
         const { cls, label } = statusInfo(s.container);
         flatItems.push({ type: 'site', run: () => { gotoView('sites'); openDeploy(s); } });
-        html += `<div class="cmdk-item" data-idx="${idx}">
+        html += `<div class="cmdk-item" id="cmdk-item-${idx}" data-idx="${idx}" role="option" aria-selected="false">
           <span class="cmdk-item-main">${esc(s.name)} <span class="cmdk-item-sub-inline">— deploy, logs, settings</span></span>
-          <span class="status status-${cls} cmdk-item-status"><span class="status-glyph">●</span><span class="status-label">${esc(label)}</span></span>
+          <span class="status status-${cls} cmdk-item-status"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
         </div>`;
       });
       html += '</div>';
@@ -3282,10 +3377,13 @@ async function pollUpdateStatus() {
 
   function highlightActive() {
     resultsEl.querySelectorAll('.cmdk-item').forEach(el => {
-      el.classList.toggle('is-active', Number(el.dataset.idx) === activeIndex);
+      const isActive = Number(el.dataset.idx) === activeIndex;
+      el.classList.toggle('is-active', isActive);
+      el.setAttribute('aria-selected', String(isActive));
     });
     const active = resultsEl.querySelector('.cmdk-item.is-active');
     if (active) active.scrollIntoView({ block: 'nearest' });
+    input.setAttribute('aria-activedescendant', active ? active.id : '');
   }
 
   function moveActive(delta) {
@@ -3308,11 +3406,13 @@ async function pollUpdateStatus() {
     input.value = '';
     backdrop.classList.remove('hidden');
     renderResults();
+    trapFocus(backdrop.querySelector('.cmdk'), document.activeElement);
     setTimeout(() => input.focus(), 20);
   }
 
   function closePalette() {
     backdrop.classList.add('hidden');
+    releaseFocusTrap();
   }
 
   function isPaletteOpen() {

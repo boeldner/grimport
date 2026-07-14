@@ -2,6 +2,20 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 .hidden { display: none !important; }
 
+/* ── Reduced motion — global safety net (task H2, additive) ──
+   Catches any animation/transition not already covered by a specific
+   `@media (prefers-reduced-motion: reduce)` block elsewhere in this file
+   (shimmer, spinners, pulses, modal/toast entrances, etc). Functional
+   layout is unaffected — only durations collapse to ~instant. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ── Design tokens — macOS-native system (docs/design/design-system.md) ── */
 :root {
   /* surfaces */
@@ -264,7 +278,7 @@ body { display: flex; }
 .notif-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .notif-title { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notif-detail { font-size: 11px; color: var(--text-muted); }
-.notif-link { color: var(--acc); cursor: pointer; }
+.notif-link { color: var(--acc); cursor: pointer; background: none; border: none; padding: 0; font: inherit; }
 .notif-link:hover { text-decoration: underline; }
 .notif-time { font-size: 10px; font-family: var(--mono); color: var(--text-subtle); flex-shrink: 0; margin-top: 2px; }
 .notif-actions { display: flex; gap: 6px; margin-top: 4px; }
@@ -2168,6 +2182,30 @@ code {
 .tabs .tab:focus-visible,
 input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: none;
+  box-shadow: 0 0 0 3px var(--accSoft);
+  border-color: var(--acc);
+}
+
+/* ── Focus rings — broad fallback (task H2, additive) ─────────
+   Covers every other interactive element (nav links, icon-only buttons,
+   chips, tabs w/o the .tab class, sortable table headers, cmdk items,
+   card actions, …) that isn't already handled above, without needing an
+   exhaustive per-component list. `outline:none` here only takes effect
+   together with the matching `box-shadow`, so focus is never suppressed
+   without a visible replacement. */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accSoft);
+}
+/* radio/checkbox-style rows where the native input is visually hidden —
+   ring the whole row instead of the invisible input itself */
+.role-select-opt:focus-within {
   box-shadow: 0 0 0 3px var(--accSoft);
   border-color: var(--acc);
 }
