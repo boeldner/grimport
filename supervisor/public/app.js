@@ -1790,7 +1790,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
     if (tab.dataset.stab === 'server')        loadServerInfo();
     if (tab.dataset.stab === 'tokens')        loadTokens();
     if (tab.dataset.stab === 'webhooks')      loadWebhooks();
-    if (tab.dataset.stab === 'notifications') { loadNotifSettings(); loadNotifUnreadSummary(); }
+    if (tab.dataset.stab === 'notifications') { loadNotifSettings(); loadNotifUnreadSummary(); loadAlertSettings(); }
   });
 });
 
@@ -2812,6 +2812,48 @@ document.getElementById('form-notif-settings').addEventListener('submit', async 
   try {
     await api('PUT', '/settings/notification-events', { events });
     toast('Notification settings saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Alert channels (ntfy) ──────────────────────────────────
+async function loadAlertSettings() {
+  try {
+    const { ntfy } = await api('GET', '/settings/alerts');
+    const form = document.getElementById('form-alert-ntfy');
+    form.elements['ntfy_enabled'].checked = !!ntfy.enabled;
+    form.elements['ntfy_url'].value = ntfy.url || '';
+    const events = ntfy.events || [];
+    form.elements['ntfy_event_site_down'].checked     = events.includes('site_down');
+    form.elements['ntfy_event_site_up'].checked       = events.includes('site_up');
+    form.elements['ntfy_event_deploy_failed'].checked = events.includes('deploy_failed');
+    form.elements['ntfy_event_cert_expiry'].checked   = events.includes('cert_expiry');
+  } catch {}
+}
+
+document.getElementById('form-alert-ntfy').addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  const events = [];
+  if (form.elements['ntfy_event_site_down'].checked)     events.push('site_down');
+  if (form.elements['ntfy_event_site_up'].checked)       events.push('site_up');
+  if (form.elements['ntfy_event_deploy_failed'].checked) events.push('deploy_failed');
+  if (form.elements['ntfy_event_cert_expiry'].checked)   events.push('cert_expiry');
+  try {
+    await api('PUT', '/settings/alerts', {
+      ntfy: {
+        enabled: form.elements['ntfy_enabled'].checked,
+        url: form.elements['ntfy_url'].value.trim(),
+        events,
+      },
+    });
+    toast('Alert settings saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-alert-ntfy-test').addEventListener('click', async () => {
+  try {
+    await api('POST', '/settings/alerts/test');
+    toast('Test alert sent', 'success');
   } catch (err) { toast(err.message, 'error'); }
 });
 

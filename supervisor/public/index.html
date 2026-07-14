@@ -675,6 +675,51 @@ systemctl start cloudflared</pre>
               <button class="btn btn-danger" id="btn-notif-clear-all">Clear all notifications…</button>
             </div>
           </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Alert channels</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Push alerts to an ntfy topic (ntfy.sh or a self-hosted server) when events happen. URLs are checked to make sure they don't point at a private address.</p>
+              <form id="form-alert-ntfy" class="settings-form">
+                <label class="g-checkbox">
+                  <input type="checkbox" name="ntfy_enabled" value="1" />
+                  <span class="g-checkbox-box"></span>
+                  Enable ntfy alerts
+                </label>
+                <div class="field">
+                  <label for="alert-ntfy-url">ntfy topic URL</label>
+                  <input class="g-input" type="url" id="alert-ntfy-url" name="ntfy_url" placeholder="https://ntfy.sh/my-grimport-topic" />
+                </div>
+                <div class="field">
+                  <label>Alert on</label>
+                  <label class="g-checkbox">
+                    <input type="checkbox" name="ntfy_event_site_down" value="1" />
+                    <span class="g-checkbox-box"></span>
+                    A site goes down
+                  </label>
+                  <label class="g-checkbox">
+                    <input type="checkbox" name="ntfy_event_site_up" value="1" />
+                    <span class="g-checkbox-box"></span>
+                    A site recovers
+                  </label>
+                  <label class="g-checkbox">
+                    <input type="checkbox" name="ntfy_event_deploy_failed" value="1" />
+                    <span class="g-checkbox-box"></span>
+                    A deploy fails
+                  </label>
+                  <label class="g-checkbox">
+                    <input type="checkbox" name="ntfy_event_cert_expiry" value="1" />
+                    <span class="g-checkbox-box"></span>
+                    A certificate is about to expire
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                  <button type="button" class="btn" id="btn-alert-ntfy-test">Send test alert</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
         <!-- Users -->

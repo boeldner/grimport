@@ -3,6 +3,9 @@ const { Router } = require('express');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db');
+const { assertPublicUrl } = require('../validate');
+const { asyncHandler } = require('../async-handler');
+const { sendAlert, getNtfyConfig, setNtfyConfig, postNtfy, ALL_ALERT_EVENTS } = require('../alerts');
 
 const router = Router();
 
@@ -123,5 +126,39 @@ router.get('/notification-events', (req, res) => {
   }
   res.json({ events });
 });
+
+// GET /api/settings/alerts — ntfy alert-channel config
+router.get('/alerts', (req, res) => {
+  res.json({ ntfy: getNtfyConfig(), events: ALL_ALERT_EVENTS });
+});
+
+// PUT /api/settings/alerts — save ntfy alert-channel config
+router.put('/alerts', asyncHandler(async (req, res) => {
+  const { url, enabled, events } = req.body?.ntfy || req.body || {};
+
+  if (enabled && url) {
+    try { await assertPublicUrl(url); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+  }
+
+  if (events !== undefined && !(Array.isArray(events) && events.every(e => ALL_ALERT_EVENTS.includes(e)))) {
+    return res.status(400).json({ error: `events must be an array of ${ALL_ALERT_EVENTS.join(', ')}` });
+  }
+
+  const cfg = setNtfyConfig({ url, enabled, events });
+  res.json({ ok: true, ntfy: cfg });
+}));
+
+// POST /api/settings/alerts/test — send a test ntfy alert using the saved config
+router.post('/alerts/test', asyncHandler(async (req, res) => {
+  const ntfy = getNtfyConfig();
+  if (!ntfy.url) return res.status(400).json({ error: 'No ntfy URL configured' });
+
+  try { await assertPublicUrl(ntfy.url); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
+  postNtfy(ntfy.url, 'site_down', 'Test Site', 'This is a test alert from Grimport.');
+  res.json({ ok: true });
+}));
 
 module.exports = router;

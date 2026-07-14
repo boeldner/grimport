@@ -9,6 +9,7 @@ const db = require('../db');
 const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
 const { requireSiteAccess, requireRole } = require('../auth');
 const { fireWebhooks } = require('../webhooks');
+const { sendAlert } = require('../alerts');
 const { assertPublicUrl } = require('../validate');
 const { atomicExtract } = require('../extract');
 const { asyncHandler } = require('../async-handler');
@@ -131,6 +132,8 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
   } catch (err) {
     try { fs.unlinkSync(req.file.path); } catch {}
     console.error('Deploy error:', err);
+    fireWebhooks('deploy_failed', req.params.id, row.name, err.message);
+    sendAlert('deploy_failed', { siteName: row.name, detail: err.message });
     res.status(500).json({ error: err.message });
   }
 }));
@@ -255,6 +258,8 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
   } catch (err) {
     try { fs.unlinkSync(tmpPath); } catch {}
     console.error('URL deploy error:', err);
+    fireWebhooks('deploy_failed', req.params.id, row.name, err.message);
+    sendAlert('deploy_failed', { siteName: row.name, detail: err.message });
     res.status(500).json({ error: err.message });
   }
 }));
