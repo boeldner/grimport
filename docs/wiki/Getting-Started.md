@@ -36,7 +36,7 @@ docker compose up -d
 
 ## First login
 
-Open your panel domain in a browser. Log in with the password you set in `.env` as `SUPERVISOR_SECRET`.
+Open your panel domain in a browser. Log in with the password you set in `.env` as `SUPERVISOR_SECRET`. On a fresh install, the admin account sees a short onboarding wizard covering the essentials (base domain, first site) — it only appears once, and only until you've set a base domain and changed the default password.
 
 ## Deploy your first site
 

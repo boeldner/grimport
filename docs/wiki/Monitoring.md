@@ -34,13 +34,18 @@ Filter by site using the filter chips at the top of the view.
 
 Click the **Logs** button on any site card to see the last 100 lines of nginx output from that site's container. Useful for diagnosing 4xx/5xx errors.
 
+## Analytics
+
+**Settings → Analytics** (and per-site analytics views) show requests, bytes served, status-code breakdown (2xx/3xx/4xx/5xx), and average latency, aggregated hourly for `24h` / `7d` / `30d` windows. Data is parsed from nginx access logs on a background pass; trigger an immediate refresh with `POST /api/analytics/:id/refresh`.
+
 ## Alerting
 
-Grimport does not send alerts by default. Planned integrations:
-- **Outbound webhooks** — POST to a URL on site up/down events (Discord, Slack, custom)
-- **ntfy / Pushover** — push notifications for mobile alerts
+Grimport sends alerts through two channels:
+- **In-panel notifications** — the bell icon in the top bar shows unread events (unknown domain, site down, site up). Configure which event types appear under **Settings → Notifications**.
+- **ntfy push alerts** — configure a topic URL under **Settings → Alerts** to get a push notification on your phone for site-down/site-up and other events. Send a test alert from the same screen.
+- **Outbound webhooks** — POST to any URL on `deploy`, `rollback`, `site_down`, `site_up` (Discord, Slack, custom). Configure under **Settings → Webhooks**.
 
-Until those are available, you can poll the uptime API from an external tool:
+You can still poll the uptime API from an external tool if you prefer:
 ```bash
 # Check if a site is currently up
 curl -s -H "Authorization: Bearer grim_token" \

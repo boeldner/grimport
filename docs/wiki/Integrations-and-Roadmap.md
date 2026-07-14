@@ -3,7 +3,27 @@
 ## Current integrations
 
 ### CI/CD (via API tokens)
-Any tool that can make an HTTP request can deploy to Grimport. See [CI/CD Integration](CICD-Integration) for GitHub Actions, GitLab CI, and curl examples.
+Any tool that can make an HTTP request can deploy to Grimport. Tokens can now be scoped to a role and a set of sites, with an optional expiry. See [CI/CD Integration](CICD-Integration) for GitHub Actions, GitLab CI, and curl examples, and [API Reference](API-Reference#tokens) for token scoping.
+
+### Outbound webhooks
+POST to a user-defined URL on site events — `deploy`, `rollback`, `site_down`, `site_up`. Configure under **Settings → Webhooks**; each webhook can be enabled/disabled and test-fired individually. See [API Reference](API-Reference#webhooks).
+
+```json
+{
+  "event": "deploy",
+  "site": { "id": "...", "name": "...", "domain": "..." },
+  "timestamp": "2026-04-05T12:00:00Z"
+}
+```
+
+### ntfy alerts
+Push notifications to your phone when a site goes down/up or a deploy fails, via [ntfy](https://ntfy.sh). Configure the topic URL under **Settings → Alerts**, with a per-event enable list and a test-send button. See [API Reference](API-Reference#alerts-ntfy).
+
+### Analytics snippet injection
+Paste a tracking snippet (Plausible, Umami, or any `<script>`) once in **Settings → General**; it's injected into every served page without touching the deploy zip.
+
+### Built-in backups
+Scheduled or on-demand backups of the SQLite database and site files, with configurable retention, downloadable straight from the panel. See [Backups](Backups).
 
 ### Cloudflare
 - **Proxy** — works out of the box; see [DNS & Networking](DNS-and-Networking)
@@ -14,43 +34,22 @@ Automatic certificate issuance and renewal. See [SSL & HTTPS](SSL-and-HTTPS).
 
 ---
 
-## Planned integrations
+## Roadmap (post-1.0 wishlist)
 
-These are the most commonly requested additions, roughly in priority order.
-
-### Outbound webhooks
-**What:** POST to a user-defined URL on site events — deploy, rollback, site down, site up.
-
-**Use case:** Get a Discord or Slack message when a deploy completes, or when a site goes offline.
-
-**How it would work:** Settings → add a webhook URL. Events sent as JSON:
-```json
-{
-  "event": "deploy",
-  "site": { "id": "...", "name": "...", "domain": "..." },
-  "timestamp": "2026-04-05T12:00:00Z"
-}
-```
+Not committed, not scheduled — ideas under consideration, roughly in priority order.
 
 ### Cloudflare DNS auto-provisioning
 **What:** When you create a site or change its domain, Grimport automatically creates the A record via the Cloudflare API.
 
 **How it would work:** Settings → Cloudflare API token + Zone ID. Site creation calls `POST /dns/records`.
 
-### S3 / R2 / Backblaze B2 backup
-**What:** Scheduled export of all site files and the SQLite database to object storage.
+### S3 / R2 / Backblaze B2 backup destinations
+**What:** Send scheduled backups to object storage in addition to (or instead of) local disk.
 
-**How it would work:** Settings → S3 endpoint + key + bucket. Nightly backup job runs at configurable time. Keeps N versions.
+**How it would work:** Settings → S3 endpoint + key + bucket, alongside the existing local backup schedule.
 
-### ntfy / Pushover alerts
-**What:** Push notification to your phone when a site goes down or comes back up.
-
-**How it would work:** Settings → ntfy topic URL or Pushover API key. Uptime state changes trigger a push.
-
-### Plausible / Umami analytics snippet injection
-**What:** Automatically inject a Plausible or Umami tracking script into every served page without modifying the deploy zip.
-
-**How it would work:** Settings → analytics script URL. nginx adds the snippet via `sub_filter` into `</body>`. Per-site toggle to enable/disable.
+### Pushover / additional alert channels
+**What:** Alert channels beyond ntfy — Pushover, generic webhook-based push services.
 
 ### Git-based deploys
 **What:** Connect a site to a GitHub/GitLab repository branch. Push to main → Grimport pulls and deploys automatically (via webhook from the git host).
