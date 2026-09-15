@@ -2865,6 +2865,7 @@ button:focus-visible,
 /* ── PWA: touch targets + iOS safe areas (docs/roadmap/multi-user-platform.md §6) ── */
 @media (max-width: 430px) {
   .btn, .icon-btn, .site-overflow-menu button, .bottom-nav-item { min-height: 44px; }
+  .btn-icon-only, .btn-sm.btn-icon-only, .icon-btn { width: 44px; height: 44px; }
   .tab { min-height: 40px; }
   .phone-topbar { padding-top: env(safe-area-inset-top); height: calc(48px + env(safe-area-inset-top)); }
   .main { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }

@@ -6,8 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-15
+
+Phase 0 of the roadmap to 1.0: foundations.
+
 ### Added
-- CI workflow (tests, gitleaks, npm audit), PR template, pre-commit secret scan, CHANGELOG
+- Progressive web app: manifest, icons, service worker (app shell cached, API never cached), offline page, "new version" reload prompt, install hint; iOS safe areas and 44 px touch targets on phones
+- Sites list view next to the card grid (remembered per browser; phones always show cards)
+- Demo seed and screenshot tooling (`npm run demo-seed`, `demo-serve`, `screenshots`); all screenshots in the repo come from fictional demo data
+- CI workflow (tests, gitleaks, npm audit), PR template, pre-commit secret scan, CHANGELOG, definition of done in CONTRIBUTING
+- Roadmap to 1.0 (`docs/roadmap/multi-user-platform.md`)
+
+### Changed
+- Compact density pass: 13 px body text, smaller buttons, badges, cards, modals and tables, 200 px sidebar
+- Release workflow builds amd64 and arm64 on native runners (no more QEMU hangs)
+- Design sources and internal planning notes are no longer part of the repository
 
 ## [0.9.6] - 2026-09-15
 

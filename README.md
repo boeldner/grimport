@@ -77,8 +77,19 @@ It's built for:
 - Container reconciliation — recovers cleanly from daemon restarts
 - One-click self-update — pulls the latest image and restarts in place
 - Site container updates — pull fresh nginx/PHP/Node/Python images and recreate outdated containers one at a time
+- Installable PWA with offline app shell, phone tab bar, cards or list view for sites
 
 ---
+
+## What's new in 0.10.0
+
+Phase 0 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): foundations.
+
+- Installable as a progressive web app: home-screen icon, app shell works offline, reload prompt when the panel updates itself, iOS safe areas and larger touch targets on phones
+- Sites as a dense list next to the card grid
+- Compact density pass across the whole panel
+- Demo seed + screenshot tooling; every screenshot in this repo is rendered from fictional demo data
+- CI (tests, secret scan, dependency audit) and a pre-commit secret scan
 
 ## What's new in 0.9.6
 
