@@ -106,7 +106,7 @@ const GRIMPORT_PASS = process.env.GRIMPORT_PASS || 'changeme';
 // ------------------------------------------------------- output / scope --
 const DEFAULT_OUT = path.join(__dirname, '..', '..', 'docs', 'screenshots');
 const CURATED_DEFAULT = [
-  'sites', 'sites-overflow', 'notifications', 'modal-deploy', 'modal-settings-general',
+  'sites', 'sites-list', 'sites-overflow', 'notifications', 'modal-deploy', 'modal-settings-general',
   'modal-analytics', 'overview', 'activity', 'deployments', 'settings-general',
   'settings-tokens', 'sites-phone', 'sites-phone-custom-bar', 'login',
 ];
@@ -179,10 +179,14 @@ async function main() {
   await page.type('#password-input', GRIMPORT_PASS);
   await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('#btn-login')]);
 
+  // Any action right before a shot can pop a toast (e.g. "Tab bar saved");
+  // strip them so they never appear in a screenshot.
+  const dismissToasts = () => page.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
   const shot = async (name, opts = {}) => {
     if (ONLY && !ONLY.includes(name.split('__')[0])) return;
     const file = path.join(OUT, `${name}.png`);
     await new Promise(r => setTimeout(r, opts.wait ?? 250));
+    await dismissToasts();
     await page.screenshot({ path: file, fullPage: !!opts.fullPage });
     console.log('  shot', path.basename(file));
   };
@@ -214,6 +218,12 @@ async function main() {
     await new Promise(r => setTimeout(r, 500));
     await fakeSites();
     await shot(T('sites'));
+
+    // Sites list view (task B) — switch, shoot, then switch back to cards
+    // so every shot after this one keeps seeing the card grid it expects.
+    await page.evaluate(() => document.getElementById('sites-view-list').click());
+    await shot(T('sites-list'), { wait: 400 });
+    await page.evaluate(() => document.getElementById('sites-view-cards').click());
 
     await page.evaluate(() => document.querySelector('[data-action="overflow"]').click());
     await shot(T('sites-overflow'));
@@ -353,6 +363,20 @@ async function main() {
   }
 
   await browser.close();
+
+  // Default (curated) run only: keep docs/screenshot.png — the one image
+  // referenced from outside docs/screenshots/ — in sync automatically.
+  if (!args.all && !args.only && !args.out) {
+    const src = path.join(OUT, 'sites__dark.png');
+    const dest = path.join(__dirname, '..', '..', 'docs', 'screenshot.png');
+    try {
+      fs.copyFileSync(src, dest);
+      console.log(`  copied ${path.basename(src)} -> ${path.relative(path.join(__dirname, '..', '..'), dest)}`);
+    } catch (e) {
+      console.error(`Could not copy ${src} -> ${dest}: ${e.message}`);
+    }
+  }
+
   console.log(`Done. Output: ${OUT}`);
 }
 main().catch(e => { console.error(e); process.exit(1); });

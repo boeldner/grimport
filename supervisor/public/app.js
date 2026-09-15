@@ -514,6 +514,47 @@ if (siteSearchClear) {
   });
 }
 
+// ── Sites view toggle (cards / list) ────────────────────────
+// Remembered per browser; phones always show cards (the toggle itself is
+// hidden there via CSS, but the JS also forces cards below the same
+// breakpoint so a preference set on a wider window doesn't leak into it).
+const SITES_VIEW_KEY = 'grimport-sites-view';
+const SITES_VIEW_PHONE_MAX = 430;
+
+function getSitesViewPref() {
+  let v;
+  try { v = localStorage.getItem(SITES_VIEW_KEY); } catch {}
+  return v === 'list' ? 'list' : 'cards';
+}
+function setSitesViewPref(v) {
+  try { localStorage.setItem(SITES_VIEW_KEY, v); } catch {}
+}
+function currentSitesView() {
+  return window.innerWidth <= SITES_VIEW_PHONE_MAX ? 'cards' : getSitesViewPref();
+}
+
+const sitesViewCardsBtn = document.getElementById('sites-view-cards');
+const sitesViewListBtn = document.getElementById('sites-view-list');
+function updateSitesViewButtons() {
+  const pref = getSitesViewPref();
+  if (sitesViewCardsBtn) sitesViewCardsBtn.classList.toggle('is-active', pref === 'cards');
+  if (sitesViewListBtn) sitesViewListBtn.classList.toggle('is-active', pref === 'list');
+}
+updateSitesViewButtons();
+if (sitesViewCardsBtn) sitesViewCardsBtn.addEventListener('click', () => {
+  setSitesViewPref('cards'); updateSitesViewButtons(); renderSites();
+});
+if (sitesViewListBtn) sitesViewListBtn.addEventListener('click', () => {
+  setSitesViewPref('list'); updateSitesViewButtons(); renderSites();
+});
+// Crossing the phone breakpoint while resizing (or rotating) should
+// flip between the forced-cards phone layout and the stored preference.
+let _sitesViewResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_sitesViewResizeTimer);
+  _sitesViewResizeTimer = setTimeout(renderSites, 150);
+});
+
 // ── Sites list ────────────────────────────────────────────
 async function loadSites() {
   sites = await api('GET', '/sites');
@@ -620,7 +661,21 @@ function renderSites() {
     return;
   }
 
-  grid.innerHTML = filtered.map(s => siteCard(s)).join('');
+  const view = currentSitesView();
+  grid.classList.toggle('sites-grid', view === 'cards');
+  if (view === 'list') {
+    grid.innerHTML = `
+      <div class="table-scroll sites-table-scroll">
+        <table class="data-table sites-table">
+          <thead>
+            <tr><th>Status</th><th>Site</th><th>Runtime</th><th>Uptime</th><th></th></tr>
+          </thead>
+          <tbody>${filtered.map(s => siteRow(s)).join('')}</tbody>
+        </table>
+      </div>`;
+  } else {
+    grid.innerHTML = filtered.map(s => siteCard(s)).join('');
+  }
 
   grid.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', e => {
@@ -748,6 +803,71 @@ function siteCard(site) {
         </div>
       </div>
     </div>`;
+}
+
+// Dense table alternative to siteCard() for the Sites list view (task B).
+// Same data-action/data-id attributes as siteCard() so the single click
+// binding in renderSites() keeps working unchanged.
+function siteRow(site) {
+  const container = site.container;
+  const { cls, label, error } = statusInfo(container);
+  const isRunning = !!container?.running;
+  const runtime = site.runtime || 'static';
+
+  const badges = [
+    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
+    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
+    site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
+  ].filter(Boolean).join('');
+
+  const u = uptimeData[site.id];
+  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
+  const pct = hasPct ? parseFloat(u.uptime24h) : null;
+  const pctCls = pct === null ? '' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
+  const pctText = pct === null ? '— %' : `${pct}%`;
+  const liveStatus = u?.currentStatus;
+  const liveCls = liveStatus === 'up' ? 'status-up' : liveStatus === 'down' ? 'status-down' : 'status-muted';
+  const liveLabel = liveStatus === 'up' ? 'Up' : liveStatus === 'down' ? 'Down' : '?';
+
+  return `
+    <tr>
+      <td><span class="status status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span></td>
+      <td>
+        <div class="ov-site-cell">
+          <span class="ov-site-name-row">
+            <span class="ov-site-name">${esc(site.name)}</span>
+            ${site.preview_container_id ? `<span class="badge badge-vio">Preview</span>` : ''}
+            ${error ? `<span class="badge badge-err" title="${esc(errorHintText(container))}">Error</span>` : ''}
+          </span>
+          <span class="ov-site-domain">${esc(site.domain)}</span>
+        </div>
+      </td>
+      <td>${badges}</td>
+      <td>
+        <span class="sites-table-uptime">
+          <span class="${pctCls}">${pctText}</span>
+          <span class="status ${liveCls}">${GLYPH}${liveLabel}</span>
+        </span>
+      </td>
+      <td>
+        <div class="cell-actions">
+          <button class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}">Deploy</button>
+          <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}">${isRunning ? 'Stop' : 'Start'}</button>
+          <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
+          <div class="site-overflow">
+            <button class="btn btn-sm btn-secondary btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions" aria-label="More actions">${ICON.more}</button>
+            <div class="site-overflow-menu hidden" id="overflow-${site.id}" role="menu">
+              <button data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>
+              <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
+              <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
+              ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
+              ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>`;
 }
 
 function uptimeStrip(siteId) {

@@ -53,6 +53,10 @@ curl -s -H "Authorization: Bearer grim_token" \
   | jq .currentStatus
 ```
 
+## Sites: cards or list
+
+The Sites view offers two layouts, toggled with the cards/list control next to the search field (top right of the view). **Cards** is the default grid of site cards; **list** is a dense table with the same status, uptime and action buttons per row. The choice is remembered per browser (not synced across devices). On phones (≤430px) the toggle is hidden and Sites always shows cards, since the table doesn't fit that width usefully.
+
 ## Phone view
 
 Below about 430px the sidebar collapses into a bottom tab bar. By default it shows **Sites**, **Overview** and **Activity**; the **More** tab opens the full menu as a drawer. Which views appear, and in what order, is configurable: **Settings → General → Phone tab bar → Customize tabs…**, or on the phone itself via **More → Customize tab bar**. Up to four views fit next to "More"; views your role cannot access are never offered. The choice is stored in the browser, so each device can have its own bar.

@@ -58,7 +58,7 @@
   --r-card:    10px;
   --r-pill:    99px;
 
-  --sidebar-w:  216px;
+  --sidebar-w:  200px;
   --transition: 150ms ease;
 
   /* ── backward-compat aliases (old variable names still referenced
@@ -139,7 +139,7 @@ html, body {
   background: var(--content);
   color: var(--tx);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -147,7 +147,7 @@ html, body {
 
 /* ── Typography roles ───────────────────────────────────────
    title(20/600) heading(14/600) body(13/400) table(12/400) mono(11) */
-.tx-title   { font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--tx); }
+.tx-title   { font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--tx); }
 .tx-heading { font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--tx); }
 .tx-body    { font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--tx); }
 .tx-table   { font-size: 12px; font-weight: 400; line-height: 1.4; color: var(--tx); }
@@ -473,18 +473,18 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
   gap: 12px;
 }
-.view-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.025em; }
+.view-header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.025em; }
 .subtitle { color: var(--text-muted); margin-top: 3px; font-size: 13px; }
 
 /* ── Sites grid (task C1 — canvas 2a/2b) ─────────────────── */
 .sites-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  gap: 12px;
   align-items: stretch;
 }
 .site-card-skeleton { height: 176px; }
@@ -494,10 +494,10 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
   border: 1px solid var(--line);
   border-radius: var(--r-card);
   min-width: 0;
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   transition: border-color var(--transition);
   cursor: default;
 }
@@ -506,7 +506,7 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 
 .site-card-header { display: flex; align-items: center; gap: 8px; }
 .site-card-header .status { flex-shrink: 0; }
-.site-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-name { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* legacy status-dot kept only for the brief optimistic-update flash in
    siteAction(); the card itself now renders via .status/.status-glyph. */
@@ -620,12 +620,12 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 13px;
+  padding: 5px 11px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -658,7 +658,7 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
 }
 .btn-danger:hover { background: var(--err); border-color: var(--err); color: #fff; }
 
-.btn-sm { padding: 5px 9px; font-size: 12px; }
+.btn-sm { padding: 4px 9px; font-size: 12px; }
 .btn-xs { padding: 2px 7px; font-size: 11px; font-weight: 600; }
 
 /* ── Modals (standard + wide; --shdw float only, radius 10, --panel/--line) ── */
@@ -690,10 +690,10 @@ nav { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
   max-width: 480px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   box-shadow: var(--shdw);
   animation: modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1836,8 +1836,8 @@ code {
   letter-spacing: 0.04em;
 }
 .stat-tile-val {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--tx);
   line-height: 1.2;
@@ -1857,6 +1857,7 @@ code {
 .ov-site-cell { display: flex; flex-direction: column; gap: 2px; }
 .ov-site-name { font-weight: 600; color: var(--tx); }
 .ov-site-domain { font-size: 11px; color: var(--tx3); font-family: var(--mono); }
+.ov-site-name-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ── Logs view (task C3 — canvas 3d) ─────────────────────────
    Monospaced tail block; line-count via .seg-ctl, auto-refresh via .chip. */
@@ -2040,6 +2041,11 @@ code {
   .site-actions [data-action="analytics"] { display: none; }
   .site-actions { gap: 5px; }
 
+  /* The density pass shrinks .btn below a comfortable phone touch target;
+     restore its taller padding here. .btn-sm/.btn-xs are excluded — they
+     were already this compact by design and stay put. */
+  .btn:not(.btn-sm):not(.btn-xs) { padding: 7px 12px; }
+
   .view-header { margin-bottom: 18px; }
   .view-header h1 { font-size: 17px; }
   .view-header-end { width: 100%; }
@@ -2185,8 +2191,8 @@ button:focus-visible,
   border: 1px solid var(--line);
   border-radius: var(--r-control);
   color: var(--tx);
-  padding: 7px 10px;
-  font-size: 13px;
+  padding: 6px 9px;
+  font-size: 12.5px;
   font-family: inherit;
   width: 100%;
   outline: none;
@@ -2329,6 +2335,13 @@ button:focus-visible,
 }
 [data-theme="dark"] .seg-ctl button.is-active { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 
+/* icon-only segmented control (Sites view: cards / list) */
+.seg-ctl-icon button { padding: 5px 8px; display: inline-flex; align-items: center; }
+.seg-ctl-icon svg { display: block; }
+@media (max-width: 430px) {
+  .sites-view-toggle { display: none; }
+}
+
 /* role selector — radio cards w/ per-role description (Edit User, canvas 6i) */
 .role-select-list { display: flex; flex-direction: column; gap: 8px; }
 .role-select-opt {
@@ -2360,10 +2373,10 @@ button:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--line);
 }
-.card-title { font-size: 14px; font-weight: 600; color: var(--tx); }
+.card-title { font-size: 13px; font-weight: 600; color: var(--tx); }
 .card-body { padding: 16px; }
 .card-body + .card-body { border-top: 1px solid var(--line); }
 .card-footer {
@@ -2410,7 +2423,7 @@ button:focus-visible,
 .data-table .num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td {
   padding: 0 10px;
-  height: 28px;
+  height: 26px;
   border-bottom: 1px solid var(--line);
   color: var(--tx);
   vertical-align: middle;
@@ -2432,10 +2445,10 @@ button:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: var(--r-pill);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -2762,6 +2775,17 @@ button:focus-visible,
 .data-table td .badge + .badge { margin-left: 4px; }
 .data-table .cell-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .data-table .cell-url { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Sites list view (dense table alternative to the card grid) ──────
+   The overflow menu opens downward here (row context) instead of upward
+   like the card grid; the scroll wrapper only actually clips/scrolls
+   below the tablet breakpoint, so on desktop the menu is never cut off
+   by overflow-x. */
+.sites-table-uptime { display: inline-flex; align-items: center; gap: 8px; }
+.sites-table .site-overflow-menu { bottom: auto; top: calc(100% + 4px); }
+@media (min-width: 901px) {
+  .sites-table-scroll { overflow: visible; }
+}
 
 .muted { color: var(--tx3); }
 
