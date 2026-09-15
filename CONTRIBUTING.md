@@ -4,7 +4,7 @@
 
 1. Fork the repo and create a branch: `git checkout -b feat/my-thing`
 2. Make your changes — keep PRs focused on one thing
-3. Test manually with `docker compose up -d --build`
+3. Test manually with `docker compose up -d --build`, and run `cd supervisor && npm test` (Node 22 or newer)
 4. Open a pull request against `main`
 
 ## Project structure
@@ -63,3 +63,36 @@ Open an issue on GitHub. Include:
 - Grimport version (`/api/health` or the panel footer)
 - Docker + OS version
 - Relevant logs (`docker compose logs supervisor`)
+
+## Definition of done
+
+A feature or fix is not done until:
+
+1. Wiki page or section updated (`docs/wiki/`), including the "why", not only the "how".
+2. README: feature bullet and "What's new" line for the next version.
+3. API reference entry for every new or changed route, with auth requirements.
+4. Screenshot(s) regenerated from demo data and committed under `docs/screenshots/`.
+5. CHANGELOG.md entry under "Unreleased".
+6. Tests for backend behaviour; the auth matrix script extended for every new role/route pair.
+
+## No secrets, no real data
+
+Never commit `.env`, `data/`, tokens, real user names, real domains, or
+screenshots of a live panel. Screenshots come only from the demo seed —
+see "Screenshots" below.
+
+Run `tools/setup-hooks.sh` once and install gitleaks (`brew install
+gitleaks`) so the pre-commit hook scans staged changes before every
+commit. CI runs gitleaks too, so a missed secret still fails the build.
+
+## Screenshots
+
+Screenshots are generated from fictional demo data only, never from a
+live panel. See `supervisor/tools/README.md` for details. In short,
+from `supervisor/`:
+
+```bash
+npm run demo-seed
+npm run demo-serve
+npm run screenshots
+```

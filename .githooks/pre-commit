@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit secret scan. Blocks the commit on findings; if gitleaks is
+# not installed, warns but does not block (CI still runs gitleaks).
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! (cd "$repo_root" && gitleaks protect --staged --redact --config .gitleaks.toml); then
+    echo "pre-commit: gitleaks found a possible secret in staged changes. Commit blocked." >&2
+    echo "pre-commit: review the findings above, remove the secret, then commit again." >&2
+    exit 1
+  fi
+else
+  echo "pre-commit: gitleaks not installed, skipping secret scan (install: brew install gitleaks)" >&2
+fi
+
+exit 0

@@ -1,0 +1,25 @@
+# Gitleaks config for Grimport.
+# Extends the default gitleaks ruleset; we only add an allowlist here,
+# no custom rules. Keep this file minimal.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures, demo data and docs are not real secrets"
+
+# Directories that only ever hold test fixtures, docs, or demo/seed data.
+paths = [
+  '''supervisor/test/''',
+  '''docs/''',
+  '''supervisor/tools/''',
+]
+
+# Literal placeholder strings used across tests/fixtures — never real
+# credentials, just recognizable fakes.
+regexes = [
+  '''deadbeef''',
+  '''cafebabe''',
+  '''changeme''',
+  '''demo-password''',
+]
