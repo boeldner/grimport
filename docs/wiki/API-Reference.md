@@ -362,6 +362,20 @@ POST /update/apply
 ```
 `check` compares the running version against the latest GitHub release (cached 1h unless `force=1`). `apply` pulls the new image and performs an in-place self-update (spawns a helper container that swaps the running supervisor container, then exits).
 
+### Site container images
+
+_Auth: admin only (the router is mounted behind `requireRole('admin')`)._
+
+```
+GET  /update/images
+POST /update/images/pull
+POST /update/images/apply     { "pull": true, "site_ids": ["abc"], "force": false }
+GET  /update/images/status
+```
+`GET /images` compares each site container's image ID with the local image for its runtime tag (no registry access) and returns `{ images, sites: [{ id, name, runtime, image, container_image_id, local_image_id, outdated, missing }], outdated, total, job }`. `POST /pull` pulls every runtime tag in use and returns the fresh status plus `pulled: [{ tag, updated }]`. `POST /apply` starts a background rolling update: pull (unless `pull:false`), then recreate outdated containers one at a time — `site_ids` limits the set, `force:true` recreates even up-to-date ones. Returns `409` while a job is running. `GET /status` returns `{ status: idle|starting|pulling|recreating|done|error, message, total, done, current, results }`.
+
+Per site: `POST /sites/:id/recreate` (admin or editor with site access) pulls the site's runtime image and rebuilds its container; pass `{ "pull": false }` to skip the pull.
+
 ---
 
 ## Backups

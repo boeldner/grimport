@@ -12,6 +12,8 @@ function logActivity(event, detail) {
   } catch {}
 }
 
+const imageUpdater = require('../image-updater');
+
 const router = Router();
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -184,5 +186,55 @@ async function performUpdate() {
     } catch {}
   }
 }
+
+
+// ── Site container images ──────────────────────────────────
+// The panel updates itself via /apply above; site containers (nginx / php /
+// node / python) are separate images that also need refreshing over time.
+
+// GET /api/update/images — compare each site container with the local image
+// for its runtime tag. No registry access; pull first to see what's new.
+router.get('/images', async (req, res) => {
+  try {
+    res.json(await imageUpdater.status());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/update/images/pull — pull every runtime image in use, then report status.
+router.post('/images/pull', requireRole('admin'), async (req, res) => {
+  try {
+    const pulled = await imageUpdater.pullImages();
+    const st = await imageUpdater.status();
+    logActivity('images_pulled', pulled.filter(p => p.updated).map(p => p.tag).join(', ') || 'no changes');
+    res.json({ pulled, ...st });
+  } catch (err) {
+    res.status(502).json({ error: `Image pull failed: ${err.message}` });
+  }
+});
+
+// POST /api/update/images/apply — rolling recreate of outdated site containers.
+// body: { pull?: bool (default true), site_ids?: [..], force?: bool }
+router.post('/images/apply', requireRole('admin'), (req, res) => {
+  const { pull, site_ids, force } = req.body || {};
+  try {
+    imageUpdater.run({
+      pull: pull !== false,
+      siteIds: Array.isArray(site_ids) ? site_ids : null,
+      force: !!force,
+      actor: req.user?.username || 'system',
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+  logActivity('containers_update_started', force ? 'forced recreate' : 'outdated containers');
+  res.json({ ok: true, job: imageUpdater.getState() });
+});
+
+// GET /api/update/images/status — progress of the rolling update.
+router.get('/images/status', (req, res) => {
+  res.json(imageUpdater.getState());
+});
 
 module.exports = router;

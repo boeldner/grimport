@@ -15,6 +15,7 @@ const {
   containerLogs,
   siteDir,
 } = require('../docker');
+const imageUpdater = require('../image-updater');
 const { fireWebhooks } = require('../webhooks');
 const { requireRole, requireSiteAccess } = require('../auth');
 const { asyncHandler } = require('../async-handler');
@@ -29,19 +30,7 @@ function logActivity(siteId, siteName, event, detail, actor = 'system') {
   } catch {}
 }
 
-function parseSite(row) {
-  if (!row) return null;
-  return {
-    ...row,
-    spa_mode: !!row.spa_mode,
-    cache_enabled: !!row.cache_enabled,
-    maintenance_mode: !!row.maintenance_mode,
-    ssl_enabled: !!row.ssl_enabled,
-    basic_auth: row.basic_auth ? { username: JSON.parse(row.basic_auth).username } : null,
-    custom_headers: JSON.parse(row.custom_headers),
-    redirects: JSON.parse(row.redirects),
-  };
-}
+const { parseSite, parseSiteForContainer } = require('../site-model');
 
 // GET /api/sites — list sites (filtered by permissions for non-admins)
 router.get('/', asyncHandler(async (req, res) => {
@@ -189,8 +178,11 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHan
     req.params.id,
   );
 
-  const updated = parseSite(db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id));
-  const newContainerId = await applySiteSettings(updated);
+  const updatedRow = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+  const updated = parseSite(updatedRow);
+  // Container ops need the stored basic-auth password (it goes into .htpasswd);
+  // the response object above keeps it stripped.
+  const newContainerId = await applySiteSettings(parseSiteForContainer(updatedRow));
   if (newContainerId) {
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
     updated.container_id = newContainerId;
@@ -286,6 +278,24 @@ router.get('/:id/logs', requireSiteAccess(), asyncHandler(async (req, res) => {
   }
 }));
 
+// POST /api/sites/:id/recreate — rebuild the live container from the current
+// local runtime image (pulls first). ~2s downtime for that one site.
+router.post('/:id/recreate', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+  const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const job = imageUpdater.getState();
+  if (job.status === 'pulling' || job.status === 'recreating' || job.status === 'starting') {
+    return res.status(409).json({ error: 'A container update is already running' });
+  }
+  if (req.body?.pull !== false) {
+    try { await imageUpdater.pullImages(); } catch (err) {
+      return res.status(502).json({ error: `Image pull failed: ${err.message}` });
+    }
+  }
+  const containerId = await imageUpdater.recreateSite(row.id, req.user?.username || 'system');
+  res.json({ ok: true, container_id: containerId, container: await containerStatus(containerId) });
+}));
+
 // ── Blue-green preview ─────────────────────────────────────
 
 // POST /api/sites/:id/preview — create preview container
@@ -303,7 +313,7 @@ router.post('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'),
 
   db.prepare('UPDATE sites SET preview_domain = ? WHERE id = ?').run(preview_domain.trim(), row.id);
   const updated = db.prepare('SELECT * FROM sites WHERE id = ?').get(row.id);
-  const site = parseSite(updated);
+  const site = parseSiteForContainer(updated);
 
   const containerId = await createPreviewContainer(site);
   db.prepare('UPDATE sites SET preview_container_id = ? WHERE id = ?').run(containerId, row.id);

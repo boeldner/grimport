@@ -17,6 +17,20 @@ docker compose pull
 docker compose up -d
 ```
 
+## Updating site containers
+
+Every site runs in its own container started from a floating image tag (`nginx:alpine`, `php:8.3-apache`, `node:22-alpine`, `python:3.12-slim`). Updating the panel does **not** touch those containers, so over time they fall behind the images' security fixes.
+
+**Settings → General → Updates → Site containers** shows each site, the image it runs from, and whether the container is older than the image currently on the server.
+
+- **Pull latest images** fetches the current tags from the registry and re-compares.
+- **Update outdated containers** pulls, then recreates every outdated container one at a time with identical settings (labels, mounts, env, commands). Each affected site is unreachable for about two seconds; the rest keep serving.
+- A single site can be refreshed from its card: **⋯ → Update container**.
+
+Via the API: `GET /api/update/images` (status), `POST /api/update/images/pull`, `POST /api/update/images/apply` (`{ "site_ids": [...], "force": true }` to recreate specific sites even if current), `GET /api/update/images/status` (progress), and `POST /api/sites/:id/recreate` for one site.
+
+Traefik itself is pinned in `docker-compose.yml` (`traefik:v3.6`); bump it there and run `docker compose up -d`.
+
 ## Pinning a version
 
 Set `GRIMPORT_IMAGE` in `.env` to use a specific release instead of `latest`:

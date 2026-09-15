@@ -59,7 +59,13 @@ const ICON = {
   eye:          IC('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
   user:         IC('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
   zap:          IC('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>'),
+  more:         IC('<circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
+  lock:         IC('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', 10),
+  tool:         IC('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>', 10),
+  box:          IC('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
 };
+// status dot: an empty span the CSS paints as a 7px circle in currentColor
+const GLYPH = '<span class="status-glyph" aria-hidden="true"></span>';
 
 // ── State ─────────────────────────────────────────────────
 let sites = [];
@@ -163,7 +169,7 @@ function toast(a, b) {
   closeBtn.type = 'button';
   closeBtn.className = 'toast-dismiss';
   closeBtn.setAttribute('aria-label', 'Dismiss');
-  closeBtn.textContent = '×';
+  closeBtn.innerHTML = ICON.x;
   closeBtn.addEventListener('click', () => dismissToast(el));
   el.appendChild(closeBtn);
 
@@ -625,6 +631,7 @@ function renderSites() {
       if (action === 'preview-swap')    previewSwap(site);
       if (action === 'preview-discard') previewDiscard(site);
       if (action === 'uptime-detail')   openUptimeDetail(site, btn);
+      if (action === 'recreate')        recreateSiteContainer(site);
       if (action === 'overflow') {
         const menu = document.getElementById(`overflow-${id}`);
         const wasHidden = menu?.classList.contains('hidden');
@@ -679,14 +686,14 @@ function siteCard(site) {
   const tags = [
     runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
     site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
-    site.maintenance_mode ? `<span class="badge badge-maint">⛭ Maintenance</span>` : '',
-    site.basic_auth       ? `<span class="badge badge-auth">🔒 Basic Auth</span>` : '',
+    site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
   ].filter(Boolean).join('');
 
   const previewBadge = site.preview_container_id ? `
     <div class="preview-badge">
       <span class="preview-badge-label">Preview</span>
-      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener">${esc(site.preview_domain)} ↗</a>
+      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener"><span class="site-domain-text">${esc(site.preview_domain)}</span>${ICON.externalLink}</a>
       <span class="preview-badge-meta">deployed</span>
       <div class="preview-badge-actions">
         <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
@@ -703,11 +710,11 @@ function siteCard(site) {
   return `
     <div class="site-card${error ? ' site-card--error' : ''}">
       <div class="site-card-header">
-        <span class="status status-${cls}" data-status-for="${site.id}"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
+        <span class="status status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
       </div>
       <div class="site-domain-row">
-        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}<span class="site-domain-arrow">↗</span></a>
+        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="${esc(site.domain)}"><span class="site-domain-text">${esc(site.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a>
         <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status" aria-label="DNS status">
           <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}" aria-hidden="true"></span>
         </button>
@@ -722,11 +729,13 @@ function siteCard(site) {
         <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
         <button class="btn btn-sm btn-secondary" data-action="analytics" data-id="${site.id}">Analytics</button>
         <div class="site-overflow">
-          <button class="btn btn-sm btn-secondary" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions">⋯</button>
-          <div class="site-overflow-menu hidden" id="overflow-${site.id}">
-            <button data-action="history" data-id="${site.id}">${ICON.history} History</button>
-            <button data-action="settings" data-id="${site.id}">${ICON.settings} Settings</button>
-            ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}">${ICON.layers} Create preview</button>` : ''}
+          <button class="btn btn-sm btn-secondary btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions" aria-label="More actions">${ICON.more}</button>
+          <div class="site-overflow-menu hidden" id="overflow-${site.id}" role="menu">
+            <button data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>
+            <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
+            <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
+            ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
+            ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
           </div>
         </div>
       </div>
@@ -1046,7 +1055,7 @@ async function loadSiteAccessUsers() {
       return;
     }
     wrap.innerHTML = nonAdmins.map(u => `
-      <label class="g-checkbox" style="display:flex;margin-bottom:8px">
+      <label class="g-checkbox" style="margin-bottom:8px">
         <input type="checkbox" class="site-user-access-cb" data-uid="${u.id}"
           ${siteUsers.user_ids.includes(u.id) ? 'checked' : ''} />
         <span class="g-checkbox-box"></span>
@@ -1313,6 +1322,23 @@ async function siteAction(id, action) {
 // ── Analytics modal ───────────────────────────────────────
 let activeAnalyticsSiteId = null;
 let activeAnalyticsPeriod = '7d';
+
+// Pull the site's runtime image and rebuild its container from it (~2s downtime).
+async function recreateSiteContainer(site) {
+  const ok = await confirmDialog({
+    title: `Update container for "${site.name}"?`,
+    body: 'Pulls the latest runtime image and recreates the container with the same settings. The site is unreachable for about two seconds.',
+    confirmLabel: 'Update container',
+    warn: true,
+  });
+  if (!ok) return;
+  toast(`Updating container for ${site.name}…`, 'info');
+  try {
+    await api('POST', `/sites/${site.id}/recreate`);
+    toast(`${site.name}: container updated`, 'success');
+    await loadSites();
+  } catch (err) { toast(err.message, 'error'); }
+}
 
 function fmtBytes(b) {
   if (b >= 1e9) return (b / 1e9).toFixed(2) + ' GB';
@@ -1605,6 +1631,10 @@ const EVENT_ICONS = {
   preview_created:  ICON.layers,
   preview_swapped:  ICON.zap,
   preview_removed:  ICON.x,
+  images_pulled:    ICON.download,
+  containers_update_started: ICON.box,
+  container_recreated:       ICON.box,
+  container_recreate_failed: ICON.warning,
 };
 const EVENT_LABELS = {
   deployed:         'Deployed',
@@ -1621,6 +1651,13 @@ const EVENT_LABELS = {
   update_failed:    'Update failed',
   login:            'Signed in',
   logout:           'Signed out',
+  preview_created:  'Preview created',
+  preview_swapped:  'Preview went live',
+  preview_removed:  'Preview discarded',
+  images_pulled:    'Images pulled',
+  containers_update_started: 'Container update started',
+  container_recreated:       'Container updated',
+  container_recreate_failed: 'Container update failed',
 };
 
 let activitySiteFilter = null;
@@ -1796,6 +1833,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
 
 // ── Panel settings ────────────────────────────────────────
 async function loadPanelSettings() {
+  loadImageStatus();
   try {
     const s = await api('GET', '/settings');
     const form = document.getElementById('form-panel-settings');
@@ -1829,12 +1867,12 @@ async function loadBackups() {
       form.elements['backup_keep'].value = data.backup_keep ?? 7;
     }
     if (!data.backups.length) {
-      listEl.innerHTML = '<p class="muted">No backups yet.</p>';
+      listEl.innerHTML = '<p class="settings-desc muted">No backups yet.</p>';
       return;
     }
     listEl.innerHTML = data.backups.map(b => `
       <div class="backup-row">
-        <span class="backup-name">${b.name}</span>
+        <span class="backup-name" title="${esc(b.name)}">${esc(b.name)}</span>
         <span class="backup-meta muted">${fmtBytes(b.size)} · ${new Date(b.created * 1000).toLocaleString()}</span>
       </div>
     `).join('');
@@ -1955,7 +1993,7 @@ function renderTokenScopeSites() {
     return;
   }
   wrap.innerHTML = sites.map(s => `
-    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
+    <label class="g-checkbox" style="margin-bottom:8px">
       <input type="checkbox" name="token_site" value="${s.id}" />
       <span class="g-checkbox-box"></span>
       ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
@@ -1981,6 +2019,7 @@ function renderTokens(tokens) {
     return;
   }
   list.innerHTML = `
+    <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>Name</th><th>Role</th><th>Scope</th><th>Expires</th><th>Created</th><th>Last used</th><th></th></tr></thead>
       <tbody>
@@ -1992,10 +2031,11 @@ function renderTokens(tokens) {
             <td class="cell-mono">${t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : 'never'}</td>
             <td class="cell-mono">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
             <td class="cell-mono">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
-            <td><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></td>
+            <td><div class="cell-actions"><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></div></td>
           </tr>`).join('')}
       </tbody>
-    </table>`;
+    </table>
+    </div>`;
   list.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ok = await confirmDialog({
@@ -2072,6 +2112,119 @@ document.getElementById('form-change-password').addEventListener('submit', async
     form.reset();
     setPasswordStrengthHint('');
     toast('Password changed', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Site container images (Settings → General → Updates) ──
+let imageStatusPollTimer = null;
+
+function renderImageStatus(st) {
+  const summary = document.getElementById('img-update-summary');
+  const list = document.getElementById('img-update-list');
+  const applyBtn = document.getElementById('btn-images-apply');
+  if (!summary || !list) return;
+  const tracked = st.sites.filter(x => !x.missing);
+  const outdated = st.sites.filter(x => x.outdated);
+  if (!tracked.length) {
+    summary.innerHTML = '<span class="muted">No site containers yet.</span>';
+    list.classList.add('hidden');
+    if (applyBtn) applyBtn.disabled = true;
+    return;
+  }
+  summary.innerHTML = outdated.length
+    ? `<span class="badge badge-warn">${outdated.length} outdated</span><span><strong>${outdated.length}</strong> of ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run an older image than the one on this server.</span>`
+    : `<span class="badge badge-ok">Up to date</span><span>All ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run the newest locally available image. Pull to check the registry.</span>`;
+  list.innerHTML = st.sites.map(x => `
+    <div class="img-update-row">
+      <span class="img-update-name" title="${esc(x.name)}">${esc(x.name)}</span>
+      <span class="img-update-image">${esc(x.image)}${x.container_image_id ? ` · ${esc(x.container_image_id)}` : ''}</span>
+      ${x.missing
+        ? '<span class="status status-no-container">' + GLYPH + 'No container</span>'
+        : x.outdated
+          ? '<span class="status status-warn">' + GLYPH + 'Outdated</span>'
+          : '<span class="status status-ok">' + GLYPH + 'Current</span>'}
+    </div>`).join('');
+  list.classList.remove('hidden');
+  if (applyBtn) applyBtn.disabled = outdated.length === 0;
+}
+
+async function loadImageStatus() {
+  const summary = document.getElementById('img-update-summary');
+  if (!summary) return;
+  try {
+    const st = await api('GET', '/update/images');
+    renderImageStatus(st);
+    if (st.job && (st.job.status === 'pulling' || st.job.status === 'recreating' || st.job.status === 'starting')) {
+      pollImageJob();
+    }
+  } catch (err) {
+    summary.innerHTML = `<span class="field-help err">${esc(err.message)}</span>`;
+  }
+}
+
+function setImageButtonsBusy(busy) {
+  const pullBtn = document.getElementById('btn-images-pull');
+  const applyBtn = document.getElementById('btn-images-apply');
+  if (pullBtn) pullBtn.disabled = busy;
+  if (applyBtn && busy) applyBtn.disabled = true;
+}
+
+function showImageProgress(text, spinning) {
+  const el = document.getElementById('img-update-progress');
+  if (!el) return;
+  if (!text) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `${spinning ? '<span class="panel-restart-spinner" aria-hidden="true"></span>' : ''}<span>${esc(text)}</span>`;
+}
+
+function pollImageJob() {
+  clearInterval(imageStatusPollTimer);
+  setImageButtonsBusy(true);
+  imageStatusPollTimer = setInterval(async () => {
+    const job = await api('GET', '/update/images/status').catch(() => null);
+    if (!job) return;
+    if (job.status === 'pulling' || job.status === 'recreating' || job.status === 'starting') {
+      showImageProgress(job.message, true);
+      return;
+    }
+    clearInterval(imageStatusPollTimer);
+    setImageButtonsBusy(false);
+    showImageProgress(job.message, false);
+    if (job.status === 'done') toast(job.message, job.results.some(r => !r.ok) ? 'warn' : 'success');
+    if (job.status === 'error') toast(`Container update failed: ${job.message}`, 'error');
+    await loadImageStatus();
+    await loadSites();
+  }, 1500);
+}
+
+document.getElementById('btn-images-pull')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-images-pull');
+  btn.disabled = true;
+  showImageProgress('Pulling runtime images from the registry…', true);
+  try {
+    const st = await api('POST', '/update/images/pull');
+    const changed = (st.pulled || []).filter(p => p.updated).map(p => p.tag);
+    showImageProgress(changed.length ? `New image${changed.length !== 1 ? 's' : ''}: ${changed.join(', ')}` : 'All images already current.', false);
+    renderImageStatus(st);
+  } catch (err) {
+    showImageProgress('', false);
+    toast(err.message, 'error');
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btn-images-apply')?.addEventListener('click', async () => {
+  const ok = await confirmDialog({
+    title: 'Update outdated site containers?',
+    body: 'Containers are recreated one at a time with identical settings. Each affected site is unreachable for about two seconds.',
+    confirmLabel: 'Update containers',
+    warn: true,
+  });
+  if (!ok) return;
+  try {
+    await api('POST', '/update/images/apply', { pull: true });
+    showImageProgress('Starting…', true);
+    pollImageJob();
   } catch (err) { toast(err.message, 'error'); }
 });
 
@@ -2510,6 +2663,7 @@ function renderWebhookList(webhooks) {
     return;
   }
   list.innerHTML = `
+    <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Enabled</th><th></th></tr></thead>
       <tbody>
@@ -2519,7 +2673,7 @@ function renderWebhookList(webhooks) {
           return `
           <tr>
             <td>${esc(w.name)}</td>
-            <td class="cell-mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(w.url)}</td>
+            <td class="cell-mono cell-url" title="${esc(w.url)}">${esc(w.url)}</td>
             <td>${events.map(ev => `<span class="badge badge-neutral">${esc(ev)}</span>`).join(' ')}</td>
             <td>
               <label class="g-toggle" title="${w.enabled ? 'Enabled' : 'Disabled'}">
@@ -2528,15 +2682,16 @@ function renderWebhookList(webhooks) {
               </label>
             </td>
             <td>
-              <div style="display:flex;gap:6px;justify-content:flex-end">
+              <div class="cell-actions">
                 <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
-                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete">${ICON.trash}</button>
+                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete" aria-label="Delete webhook">${ICON.trash}</button>
               </div>
             </td>
           </tr>`;
         }).join('')}
       </tbody>
-    </table>`;
+    </table>
+    </div>`;
 
   list.querySelectorAll('.webhook-toggle').forEach(input => {
     input.addEventListener('change', async () => {
@@ -2751,6 +2906,7 @@ function renderUserList(users) {
     return;
   }
   list.innerHTML = `
+    <div class="table-scroll">
     <table class="data-table">
       <thead><tr><th>User</th><th>Role</th><th>Site access</th><th></th></tr></thead>
       <tbody>
@@ -2770,7 +2926,7 @@ function renderUserList(users) {
             <td>${renderUserSites(u)}</td>
             <td>
               ${!isSelf ? `
-                <div style="display:flex;gap:6px;justify-content:flex-end">
+                <div class="cell-actions">
                   <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
                   <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">Delete…</button>
                 </div>` : ''}
@@ -2778,7 +2934,8 @@ function renderUserList(users) {
           </tr>`;
         }).join('')}
       </tbody>
-    </table>`;
+    </table>
+    </div>`;
 
   list.querySelectorAll('[data-delete-user]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -2845,7 +3002,7 @@ function renderEditUserSites(siteData) {
     return;
   }
   wrap.innerHTML = sites.map(s => `
-    <label class="g-checkbox" style="display:flex;margin-bottom:8px">
+    <label class="g-checkbox" style="margin-bottom:8px">
       <input type="checkbox" name="site_access" value="${s.id}"
         ${siteData.all || (siteData.sites || []).includes(s.id) ? 'checked' : ''} />
       <span class="g-checkbox-box"></span>
@@ -3144,21 +3301,21 @@ async function loadDomains() {
       `${data.length} domain${data.length !== 1 ? 's' : ''}${wildcard}`;
 
     const containerStatus = s => {
-      if (s?.running) return '<span class="status status-running"><span class="status-glyph" aria-hidden="true">●</span>Running</span>';
-      if (!s || s.status === 'none') return '<span class="status status-no-container"><span class="status-glyph" aria-hidden="true">●</span>No container</span>';
-      if (s.status === 'restarting') return '<span class="status status-restarting"><span class="status-glyph" aria-hidden="true">●</span>Restarting</span>';
-      if (s.status === 'paused') return '<span class="status status-paused"><span class="status-glyph" aria-hidden="true">●</span>Paused</span>';
-      return '<span class="status status-stopped"><span class="status-glyph" aria-hidden="true">●</span>Exited</span>';
+      if (s?.running) return `<span class="status status-running">${GLYPH}Running</span>`;
+      if (!s || s.status === 'none') return `<span class="status status-no-container">${GLYPH}No container</span>`;
+      if (s.status === 'restarting') return `<span class="status status-restarting">${GLYPH}Restarting</span>`;
+      if (s.status === 'paused') return `<span class="status status-paused">${GLYPH}Paused</span>`;
+      return `<span class="status status-stopped">${GLYPH}Exited</span>`;
     };
 
     document.getElementById('domains-tbody').innerHTML = data.length === 0
       ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No sites yet</td></tr>`
       : data.map(s => `
       <tr>
-        <td><a href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx);text-decoration:none">${esc(s.domain)} ↗</a></td>
+        <td><a class="site-domain" href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx)"><span class="site-domain-text">${esc(s.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a></td>
         <td style="color:var(--tx2)">${esc(s.name)}</td>
         <td><span class="badge badge-runtime">${esc((s.runtime || 'static').toUpperCase())}</span></td>
-        <td>${s.ssl_enabled ? '<span class="status status-ssl-active"><span class="status-glyph" aria-hidden="true">●</span>On</span>' : '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Off</span>'}</td>
+        <td>${s.ssl_enabled ? `<span class="status status-ssl-active">${GLYPH}On</span>` : `<span class="status status-muted">${GLYPH}Off</span>`}</td>
         <td>${containerStatus(s.container)}</td>
       </tr>`).join('');
 
@@ -3241,9 +3398,9 @@ function renderOverview() {
   });
 
   const statusBadge = s =>
-    s === 'up'   ? '<span class="status status-ok"><span class="status-glyph" aria-hidden="true">●</span>Up</span>' :
-    s === 'down' ? '<span class="status status-err"><span class="status-glyph" aria-hidden="true">●</span>Down</span>' :
-                   '<span class="status status-muted"><span class="status-glyph" aria-hidden="true">●</span>Unknown</span>';
+    s === 'up'   ? `<span class="status status-ok">${GLYPH}Up</span>` :
+    s === 'down' ? `<span class="status status-err">${GLYPH}Down</span>` :
+                   `<span class="status status-muted">${GLYPH}Unknown</span>`;
 
   const pctClass = u =>
     u === null ? '' : parseFloat(u) >= 99 ? 'pct-ok' : parseFloat(u) >= 95 ? 'pct-warn' : 'pct-err';
@@ -3605,7 +3762,7 @@ async function pollUpdateStatus() {
         flatItems.push({ type: 'site', run: () => { gotoView('sites'); openDeploy(s); } });
         html += `<div class="cmdk-item" id="cmdk-item-${idx}" data-idx="${idx}" role="option" aria-selected="false">
           <span class="cmdk-item-main">${esc(s.name)} <span class="cmdk-item-sub-inline">— deploy, logs, settings</span></span>
-          <span class="status status-${cls} cmdk-item-status"><span class="status-glyph" aria-hidden="true">●</span><span class="status-label">${esc(label)}</span></span>
+          <span class="status status-${cls} cmdk-item-status">${GLYPH}<span class="status-label">${esc(label)}</span></span>
         </div>`;
       });
       html += '</div>';

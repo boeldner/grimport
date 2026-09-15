@@ -13,12 +13,9 @@ const DATA_PATH = process.env.DATA_PATH || '/data/sites';
 // because bind-mounts in dynamically created containers are resolved by the host daemon.
 const HOST_DATA_PATH = process.env.HOST_DATA_PATH || DATA_PATH;
 
-const RUNTIME_IMAGES = {
-  static: 'nginx:alpine',
-  php:    'php:8.3-apache',
-  node:   'node:22-alpine',
-  python: 'python:3.12-slim',
-};
+// Single source of truth for runtime image tags lives in images.js so the
+// container-update job and the container factories can never disagree.
+const { RUNTIME_IMAGES, STATIC_IMAGE } = require('./images');
 
 function siteDir(siteId) {
   return path.join(DATA_PATH, siteId);
@@ -82,7 +79,7 @@ async function createSiteContainer(site) {
   // Pull image if not present (silent, best-effort)
   try {
     await new Promise((resolve, reject) => {
-      docker.pull('nginx:alpine', (err, stream) => {
+      docker.pull(STATIC_IMAGE, (err, stream) => {
         if (err) return resolve(); // ignore pull errors, image may already be local
         docker.modem.followProgress(stream, resolve);
       });
@@ -93,7 +90,7 @@ async function createSiteContainer(site) {
 
   const container = await docker.createContainer({
     name: containerName(site.id),
-    Image: 'nginx:alpine',
+    Image: STATIC_IMAGE,
     Labels: {
       'webhost.site': 'true',
       'webhost.site.id': site.id,
@@ -197,6 +194,32 @@ async function applySiteSettings(site) {
     } catch {}
   }
   return createAppContainer(site);
+}
+
+/**
+ * Recreate a site's live container from the current local image.
+ * Stops + removes the old container (if any), then builds a fresh one with
+ * identical config via createSiteContainer(). Used by the image-update job
+ * so containers pick up newly pulled nginx/php/node/python images.
+ * Returns the new container ID (caller persists it).
+ */
+async function recreateSiteContainer(site) {
+  if (site.container_id) {
+    try {
+      const old = docker.getContainer(site.container_id);
+      try { await old.stop({ t: 5 }); } catch {}
+      await old.remove();
+    } catch {}
+  }
+  // A leftover container with the same name (e.g. stale DB link) would make
+  // createContainer fail with 409 — remove it by name as well.
+  try {
+    const leftover = docker.getContainer(containerName(site.id));
+    await leftover.inspect();
+    try { await leftover.stop({ t: 5 }); } catch {}
+    await leftover.remove();
+  } catch {}
+  return createSiteContainer(site);
 }
 
 async function startSiteContainer(containerId) {
@@ -416,7 +439,7 @@ async function createPreviewContainer(site) {
 
   const container = await docker.createContainer({
     name: previewContainerName(site.id),
-    Image: 'nginx:alpine',
+    Image: STATIC_IMAGE,
     Labels: {
       'webhost.site': 'true',
       'webhost.site.id': site.id,
@@ -507,6 +530,10 @@ module.exports = {
   swapPreview:           withAudit('swapPreview',           swapPreview,           siteMeta),
   removePreviewContainer:withAudit('removePreviewContainer',removePreviewContainer,siteMeta),
   applySiteSettings:     withAudit('applySiteSettings',     applySiteSettings,     siteMeta),
+  recreateSiteContainer: withAudit('recreateSiteContainer', recreateSiteContainer, siteMeta),
+  docker,
+  RUNTIME_IMAGES,
+  STATIC_IMAGE,
   startSiteContainer:    withAudit('startSiteContainer',    startSiteContainer,    idMeta),
   stopSiteContainer:     withAudit('stopSiteContainer',     stopSiteContainer,     idMeta),
   removeSiteContainer:   withAudit('removeSiteContainer',   removeSiteContainer,   idMeta),

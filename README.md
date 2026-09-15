@@ -76,8 +76,22 @@ It's built for:
 - Server & DNS guide — A record table, Cloudflare Tunnel setup
 - Container reconciliation — recovers cleanly from daemon restarts
 - One-click self-update — pulls the latest image and restarts in place
+- Site container updates — pull fresh nginx/PHP/Node/Python images and recreate outdated containers one at a time
 
 ---
+
+## What's new in 0.9.6
+
+A UI audit release plus one long-missing piece of housekeeping:
+
+- Site container updates: Settings → General → Updates shows which site containers run an outdated runtime image, pulls fresh images and recreates outdated containers one at a time (rolling, ~2s per site). Also per site via the card's overflow menu, and via `POST /api/sites/:id/recreate`.
+- Fixed toggles and checkboxes rendering stacked and centered in forms
+- Fixed buttons stretching to full width inside forms and tables overflowing settings cards
+- Fixed the uptime popover rendering as a black box in light mode
+- Wider settings column, scrollable tables, no more wrapping tab labels
+- All icon glyphs are inline SVG now (no emoji / text-symbol icons)
+- Retired the last remnants of the old red brand colours
+- Fixed basic-auth passwords being dropped from `.htpasswd` after saving site settings
 
 ## What's new in 0.9.5
 
@@ -210,6 +224,7 @@ All endpoints require a session cookie (browser) or `Authorization: Bearer grim_
 | `PUT` | `/api/sites/:id` | Update site settings |
 | `DELETE` | `/api/sites/:id` | Delete site + container (admin) |
 | `POST` | `/api/sites/:id/start` / `/stop` | Start / stop container |
+| `POST` | `/api/sites/:id/recreate` | Pull the runtime image and recreate the container |
 | `POST` | `/api/sites/:id/preview` | Create a blue-green preview container |
 | `POST` | `/api/sites/:id/preview/swap` | Swap preview to production |
 | `POST` | `/api/deploy/:id` | Deploy a zip (multipart/form-data, field `file`) |
@@ -224,6 +239,8 @@ All endpoints require a session cookie (browser) or `Authorization: Bearer grim_
 | `GET` | `/api/settings/webhooks` | List / create outbound webhooks (admin) |
 | `GET` | `/api/users` | List users and roles (admin) |
 | `POST` | `/api/backups` | Create a backup now (admin) |
+| `GET` | `/api/update/images` | Which site containers run an outdated image (admin) |
+| `POST` | `/api/update/images/apply` | Pull images + rolling recreate of outdated containers (admin) |
 
 See the full endpoint list, including auth/role requirements, in the [API Reference](docs/wiki/API-Reference.md) wiki page.
 
