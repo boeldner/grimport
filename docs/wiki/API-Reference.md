@@ -148,6 +148,8 @@ Supported zip layouts:
 - Flat root: `index.html` at the top level
 - Single subfolder: `dist/index.html` → unwrapped automatically
 
+Rejections: `413` when a zip exceeds the entry, size or per-site disk quota limits (message names the limit), `429` after 30 deploys per 10 minutes per user or token. See [Deploying Sites](Deploying-Sites#limits).
+
 ### Deploy from a URL
 ```
 POST /deploy/:id/url

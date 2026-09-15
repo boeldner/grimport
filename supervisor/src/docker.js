@@ -2,10 +2,14 @@ const Dockerode = require('dockerode');
 const path = require('path');
 const fs = require('fs');
 const { generateNginxConfig, generateHtpasswd, generateErrorHtml, ERROR_PAGES } = require('./nginx');
-const { isValidHostname } = require('./validate');
+const { RUNTIME_IMAGES, STATIC_IMAGE, PREVIEW_IMAGE } = require('./images');
+const spec = require('./container-spec');
+const { createNetworks } = require('./networks');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
+// Management network (Traefik + supervisor). Site containers never join it —
+// each site gets its own network from networks.js (docs/wiki/Security-Model.md).
 const NETWORK = process.env.DOCKER_NETWORK || 'webhost-net';
 const LETSENCRYPT_MODE = !!process.env.ACME_EMAIL;
 const DATA_PATH = process.env.DATA_PATH || '/data/sites';
@@ -13,9 +17,17 @@ const DATA_PATH = process.env.DATA_PATH || '/data/sites';
 // because bind-mounts in dynamically created containers are resolved by the host daemon.
 const HOST_DATA_PATH = process.env.HOST_DATA_PATH || DATA_PATH;
 
-// Single source of truth for runtime image tags lives in images.js so the
-// container-update job and the container factories can never disagree.
-const { RUNTIME_IMAGES, STATIC_IMAGE } = require('./images');
+// Per-container resource caps (env-overridable; per-user quotas come in Phase 2).
+const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
+const LIMITS = {
+  static: { memoryMb: num(process.env.SITE_MEMORY_STATIC_MB, 256), cpus: num(process.env.SITE_CPUS, 0.5), pids: num(process.env.SITE_PIDS, 256) },
+  app:    { memoryMb: num(process.env.SITE_MEMORY_APP_MB, 512),    cpus: num(process.env.SITE_CPUS, 0.5), pids: num(process.env.SITE_PIDS, 256) },
+};
+// uid/gid the node/python containers run as (see container-spec.js)
+const APP_UID = 1000;
+const APP_GID = 1000;
+
+const networks = createNetworks({ docker });
 
 function siteDir(siteId) {
   return path.join(DATA_PATH, siteId);
@@ -25,8 +37,46 @@ function appDir(siteId) {
   return path.join(DATA_PATH, siteId, 'app');
 }
 
-function containerName(siteId) {
-  return `webhost-site-${siteId}`;
+function previewDir(siteId) {
+  return path.join(DATA_PATH, siteId, 'preview_html');
+}
+
+function limitsFor(runtime) {
+  return runtime && runtime !== 'static' ? LIMITS.app : LIMITS.static;
+}
+
+function specOpts(site, network) {
+  return { hostDataPath: HOST_DATA_PATH, network, letsencrypt: LETSENCRYPT_MODE, limits: limitsFor(site.runtime) };
+}
+
+/**
+ * Make a directory tree owned by the app container's uid so a non-root
+ * node/python process can write there (npm install, sqlite files, uploads).
+ * Best-effort: on macOS dev boxes or when not running as root this is a no-op.
+ */
+function chownTree(dir, uid = APP_UID, gid = APP_GID) {
+  const walk = p => {
+    try { fs.chownSync(p, uid, gid); } catch { return; }
+    let entries = [];
+    try { entries = fs.readdirSync(p, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(p, e.name);
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) walk(full);
+      else { try { fs.chownSync(full, uid, gid); } catch {} }
+    }
+  };
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) return; // not root: can't chown
+  walk(dir);
+}
+
+function pullImage(image) {
+  return new Promise(resolve => {
+    docker.pull(image, (err, stream) => {
+      if (err || !stream) return resolve(); // image may already be local; createContainer will tell
+      docker.modem.followProgress(stream, resolve);
+    });
+  });
 }
 
 /**
@@ -54,8 +104,20 @@ function writeNginxConfig(site) {
 }
 
 /**
+ * Ensure the site's private network exists and Traefik is attached.
+ * Static sites and previews live on `internal` networks (no egress at all);
+ * app runtimes get a routable bridge fenced by the egress guard.
+ */
+async function prepareSiteNetwork(site) {
+  const runtime = site.runtime || 'static';
+  const { name } = await networks.ensureSiteNetwork(site.id, { internal: runtime === 'static' });
+  await networks.connectTraefik(name);
+  return name;
+}
+
+/**
  * Create and start a site container.
- * Branches on site.runtime: static/php use nginx/apache; node/python use app container.
+ * Branches on site.runtime: static uses nginx; php/node/python use an app container.
  * Returns the container ID.
  */
 async function createSiteContainer(site) {
@@ -63,7 +125,6 @@ async function createSiteContainer(site) {
   if (runtime !== 'static') return createAppContainer(site);
   const dir = siteDir(site.id);
   const htmlDir = path.join(dir, 'html');
-  const nginxConf = path.join(dir, 'nginx.conf');
   const maintenanceDir = path.join(dir, 'maintenance');
 
   fs.mkdirSync(htmlDir, { recursive: true });
@@ -76,60 +137,30 @@ async function createSiteContainer(site) {
     fs.cpSync(defaultPage, htmlDir, { recursive: true });
   }
 
-  // Pull image if not present (silent, best-effort)
-  try {
-    await new Promise((resolve, reject) => {
-      docker.pull(STATIC_IMAGE, (err, stream) => {
-        if (err) return resolve(); // ignore pull errors, image may already be local
-        docker.modem.followProgress(stream, resolve);
-      });
-    });
-  } catch {}
+  await pullImage(STATIC_IMAGE);
+  const network = await prepareSiteNetwork(site);
+  const container = await docker.createContainer(spec.buildSiteContainerSpec(site, specOpts(site, network)));
+  await container.start();
+  return container.id;
+}
 
-  if (!isValidHostname(site.domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.domain}`);
+/**
+ * Create and start a backend app container (node/python/php).
+ */
+async function createAppContainer(site) {
+  const runtime = site.runtime || 'static';
+  const image = RUNTIME_IMAGES[runtime];
+  if (!image) throw new Error(`Unknown runtime: ${runtime}`);
 
-  const container = await docker.createContainer({
-    name: containerName(site.id),
-    Image: STATIC_IMAGE,
-    Labels: {
-      'webhost.site': 'true',
-      'webhost.site.id': site.id,
-      'traefik.enable': 'true',
-      // HTTP router — always present
-      [`traefik.http.routers.${site.id}-http.rule`]: `Host(\`${site.domain}\`)`,
-      [`traefik.http.routers.${site.id}-http.entrypoints`]: 'web',
-      [`traefik.http.routers.${site.id}-http.service`]: site.id,
-      // HTTPS router — only in letsencrypt mode with ssl_enabled
-      // In Cloudflare Tunnel mode ACME_EMAIL is not set — SSL is handled externally,
-      // adding redirect labels would cause redirect loops.
-      ...(site.ssl_enabled && LETSENCRYPT_MODE ? {
-        [`traefik.http.routers.${site.id}.rule`]: `Host(\`${site.domain}\`)`,
-        [`traefik.http.routers.${site.id}.entrypoints`]: 'websecure',
-        [`traefik.http.routers.${site.id}.tls`]: 'true',
-        [`traefik.http.routers.${site.id}.tls.certresolver`]: 'letsencrypt',
-        [`traefik.http.routers.${site.id}.service`]: site.id,
-        [`traefik.http.middlewares.${site.id}-https.redirectscheme.scheme`]: 'https',
-        [`traefik.http.routers.${site.id}-http.middlewares`]: `${site.id}-https`,
-      } : {}),
-      [`traefik.http.services.${site.id}.loadbalancer.server.port`]: '80',
-    },
-    HostConfig: {
-      Binds: [
-        `${path.join(HOST_DATA_PATH, site.id, 'html')}:/usr/share/nginx/html:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, 'maintenance')}:/usr/share/nginx/maintenance:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, 'nginx.conf')}:/etc/nginx/conf.d/default.conf:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, '.htpasswd')}:/etc/nginx/.htpasswd:ro`,
-      ],
-      RestartPolicy: { Name: 'unless-stopped' },
-      NetworkMode: NETWORK,
-    },
-    NetworkingConfig: {
-      EndpointsConfig: {
-        [NETWORK]: {},
-      },
-    },
-  });
+  const dir = siteDir(site.id);
+  const isPhp = runtime === 'php';
+  const workDir = path.join(dir, isPhp ? 'html' : 'app');
+  fs.mkdirSync(workDir, { recursive: true });
+  if (!isPhp) chownTree(workDir);
 
+  await pullImage(image);
+  const network = await prepareSiteNetwork(site);
+  const container = await docker.createContainer(spec.buildSiteContainerSpec(site, specOpts(site, network)));
   await container.start();
   return container.id;
 }
@@ -141,6 +172,14 @@ async function createSiteContainer(site) {
  */
 async function restartSiteContainer(containerId) {
   await docker.getContainer(containerId).restart({ t: 2 });
+}
+
+async function stopAndRemove(containerId) {
+  try {
+    const c = docker.getContainer(containerId);
+    try { await c.stop({ t: 5 }); } catch {}
+    await c.remove();
+  } catch {}
 }
 
 /**
@@ -163,11 +202,7 @@ async function applySiteSettings(site) {
     } catch {}
 
     if (domainChanged) {
-      try {
-        const old = docker.getContainer(site.container_id);
-        try { await old.stop({ t: 5 }); } catch {}
-        await old.remove();
-      } catch {}
+      await stopAndRemove(site.container_id);
       return createSiteContainer(site);
     }
   }
@@ -186,13 +221,7 @@ async function applySiteSettings(site) {
     return null;
   }
   // node / python — recreate so new start_cmd / env_vars / app_port apply
-  if (site.container_id) {
-    try {
-      const old = docker.getContainer(site.container_id);
-      try { await old.stop({ t: 5 }); } catch {}
-      await old.remove();
-    } catch {}
-  }
+  if (site.container_id) await stopAndRemove(site.container_id);
   return createAppContainer(site);
 }
 
@@ -200,24 +229,18 @@ async function applySiteSettings(site) {
  * Recreate a site's live container from the current local image.
  * Stops + removes the old container (if any), then builds a fresh one with
  * identical config via createSiteContainer(). Used by the image-update job
- * so containers pick up newly pulled nginx/php/node/python images.
+ * so containers pick up newly pulled images and — since Phase 1 — move from
+ * the shared network onto their own per-site network.
  * Returns the new container ID (caller persists it).
  */
 async function recreateSiteContainer(site) {
-  if (site.container_id) {
-    try {
-      const old = docker.getContainer(site.container_id);
-      try { await old.stop({ t: 5 }); } catch {}
-      await old.remove();
-    } catch {}
-  }
+  if (site.container_id) await stopAndRemove(site.container_id);
   // A leftover container with the same name (e.g. stale DB link) would make
   // createContainer fail with 409 — remove it by name as well.
   try {
-    const leftover = docker.getContainer(containerName(site.id));
+    const leftover = docker.getContainer(spec.containerName(site.id));
     await leftover.inspect();
-    try { await leftover.stop({ t: 5 }); } catch {}
-    await leftover.remove();
+    await stopAndRemove(spec.containerName(site.id));
   } catch {}
   return createSiteContainer(site);
 }
@@ -234,6 +257,20 @@ async function removeSiteContainer(containerId) {
   const c = docker.getContainer(containerId);
   try { await c.stop({ t: 5 }); } catch {}
   await c.remove();
+}
+
+/**
+ * Remove everything Docker-side that belongs to a site: live container,
+ * preview container and the site's private network.
+ */
+async function removeSiteResources(site) {
+  if (site.container_id) await stopAndRemove(site.container_id);
+  if (site.preview_container_id) await stopAndRemove(site.preview_container_id);
+  // Also by name, in case the DB link was stale
+  for (const name of [spec.containerName(site.id), spec.previewContainerName(site.id)]) {
+    try { await docker.getContainer(name).inspect(); await stopAndRemove(name); } catch {}
+  }
+  await networks.removeSiteNetwork(site.id);
 }
 
 /**
@@ -277,32 +314,18 @@ async function containerLogs(containerId, lines = 100) {
 
 /**
  * Build the site app using an ephemeral container (node/python only).
- * Runs site.build_cmd inside the runtime image with /app bind-mounted.
+ * Runs site.build_cmd inside the runtime image with /app bind-mounted,
+ * as uid 1000 on the site's own network with the same caps/limits as the app.
  */
 async function runBuildStep(site) {
   if (!site.build_cmd) return;
   const image = RUNTIME_IMAGES[site.runtime];
   if (!image) throw new Error(`Unknown runtime: ${site.runtime}`);
 
-  const hostAppDir = path.join(HOST_DATA_PATH, site.id, 'app');
-
-  // Pull image silently first
-  await new Promise(resolve => {
-    docker.pull(image, (err, stream) => {
-      if (err || !stream) return resolve();
-      docker.modem.followProgress(stream, resolve);
-    });
-  });
-
-  const buildContainer = await docker.createContainer({
-    Image: image,
-    Cmd: ['sh', '-c', site.build_cmd],
-    WorkingDir: '/app',
-    HostConfig: {
-      Binds: [`${hostAppDir}:/app`],
-      AutoRemove: false,
-    },
-  });
+  chownTree(appDir(site.id));
+  await pullImage(image);
+  const network = await prepareSiteNetwork(site);
+  const buildContainer = await docker.createContainer(spec.buildStepContainerSpec(site, specOpts(site, network)));
 
   await buildContainer.start();
   const result = await buildContainer.wait();
@@ -314,88 +337,6 @@ async function runBuildStep(site) {
 }
 
 /**
- * Create and start a backend app container (node/python/php).
- */
-async function createAppContainer(site) {
-  const runtime = site.runtime || 'static';
-  const image = RUNTIME_IMAGES[runtime];
-  if (!image) throw new Error(`Unknown runtime: ${runtime}`);
-
-  const dir = siteDir(site.id);
-
-  // php uses html/ mounted to /var/www/html, port 80 — same as static but with apache
-  const isPhp = runtime === 'php';
-  const htmlDir = path.join(dir, 'html');
-  const appDirPath = path.join(dir, 'app');
-
-  fs.mkdirSync(isPhp ? htmlDir : appDirPath, { recursive: true });
-
-  const envVars = (() => {
-    try { return Object.entries(JSON.parse(site.env_vars || '{}')).map(([k, v]) => `${k}=${v}`); }
-    catch { return []; }
-  })();
-
-  const appPort = site.app_port || 3000;
-  const servicePort = isPhp ? '80' : String(appPort);
-
-  if (!isValidHostname(site.domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.domain}`);
-
-  // Traefik labels — same pattern as static containers
-  const labels = {
-    'webhost.site': 'true',
-    'webhost.site.id': site.id,
-    'traefik.enable': 'true',
-    [`traefik.http.routers.${site.id}-http.rule`]: `Host(\`${site.domain}\`)`,
-    [`traefik.http.routers.${site.id}-http.entrypoints`]: 'web',
-    [`traefik.http.routers.${site.id}-http.service`]: site.id,
-    ...(site.ssl_enabled && LETSENCRYPT_MODE ? {
-      [`traefik.http.routers.${site.id}.rule`]: `Host(\`${site.domain}\`)`,
-      [`traefik.http.routers.${site.id}.entrypoints`]: 'websecure',
-      [`traefik.http.routers.${site.id}.tls`]: 'true',
-      [`traefik.http.routers.${site.id}.tls.certresolver`]: 'letsencrypt',
-      [`traefik.http.routers.${site.id}.service`]: site.id,
-      [`traefik.http.middlewares.${site.id}-https.redirectscheme.scheme`]: 'https',
-      [`traefik.http.routers.${site.id}-http.middlewares`]: `${site.id}-https`,
-    } : {}),
-    [`traefik.http.services.${site.id}.loadbalancer.server.port`]: servicePort,
-  };
-
-  const binds = isPhp
-    ? [`${path.join(HOST_DATA_PATH, site.id, 'html')}:/var/www/html`]
-    : [`${path.join(HOST_DATA_PATH, site.id, 'app')}:/app`];
-
-  const containerDef = {
-    name: containerName(site.id),
-    Image: image,
-    Labels: labels,
-    Env: envVars,
-    WorkingDir: isPhp ? '/var/www/html' : '/app',
-    HostConfig: {
-      Binds: binds,
-      RestartPolicy: { Name: 'unless-stopped' },
-      NetworkMode: NETWORK,
-    },
-    NetworkingConfig: { EndpointsConfig: { [NETWORK]: {} } },
-  };
-
-  if (!isPhp && site.start_cmd) {
-    containerDef.Cmd = ['sh', '-c', site.start_cmd];
-  }
-
-  // Pull image silently
-  await new Promise(resolve => {
-    docker.pull(image, (err, stream) => {
-      if (err || !stream) return resolve();
-      docker.modem.followProgress(stream, resolve);
-    });
-  });
-
-  const container = await docker.createContainer(containerDef);
-  await container.start();
-  return container.id;
-}
-
-/**
  * Update env vars + restart an app container.
  */
 async function applyAppSettings(site) {
@@ -404,24 +345,16 @@ async function applyAppSettings(site) {
   }
 }
 
-function previewDir(siteId) {
-  return path.join(DATA_PATH, siteId, 'preview_html');
-}
-
-function previewContainerName(siteId) {
-  return `webhost-preview-${siteId}`;
-}
-
 /**
  * Create a preview container for a site, serving from preview_html/.
- * The preview gets its own domain (site.preview_domain).
+ * The preview gets its own domain (site.preview_domain) and shares the
+ * live site's private network.
  */
 async function createPreviewContainer(site) {
   const dir = siteDir(site.id);
   const prevHtmlDir = path.join(dir, 'preview_html');
-  const nginxConf = path.join(dir, 'nginx.conf'); // reuse same nginx config (same settings)
-
   fs.mkdirSync(prevHtmlDir, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'maintenance'), { recursive: true });
 
   // Copy current live content into preview dir so it starts with the same content
   const htmlDir = path.join(dir, 'html');
@@ -431,38 +364,12 @@ async function createPreviewContainer(site) {
 
   // Write a preview nginx config with the preview domain
   const previewNginxConf = path.join(dir, 'nginx-preview.conf');
-  const { generateNginxConfig } = require('./nginx');
-  const previewSite = { ...site, domain: site.preview_domain };
-  fs.writeFileSync(previewNginxConf, generateNginxConfig(previewSite));
+  fs.writeFileSync(previewNginxConf, generateNginxConfig({ ...site, domain: site.preview_domain }));
+  if (!fs.existsSync(path.join(dir, '.htpasswd'))) fs.writeFileSync(path.join(dir, '.htpasswd'), '');
 
-  if (!isValidHostname(site.preview_domain)) throw new Error(`Refusing Traefik label for invalid domain: ${site.preview_domain}`);
-
-  const container = await docker.createContainer({
-    name: previewContainerName(site.id),
-    Image: STATIC_IMAGE,
-    Labels: {
-      'webhost.site': 'true',
-      'webhost.site.id': site.id,
-      'webhost.preview': 'true',
-      'traefik.enable': 'true',
-      [`traefik.http.routers.${site.id}-preview-http.rule`]: `Host(\`${site.preview_domain}\`)`,
-      [`traefik.http.routers.${site.id}-preview-http.entrypoints`]: 'web',
-      [`traefik.http.routers.${site.id}-preview-http.service`]: `${site.id}-preview`,
-      [`traefik.http.services.${site.id}-preview.loadbalancer.server.port`]: '80',
-    },
-    HostConfig: {
-      Binds: [
-        `${path.join(HOST_DATA_PATH, site.id, 'preview_html')}:/usr/share/nginx/html:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, 'maintenance')}:/usr/share/nginx/maintenance:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, 'nginx-preview.conf')}:/etc/nginx/conf.d/default.conf:ro`,
-        `${path.join(HOST_DATA_PATH, site.id, '.htpasswd')}:/etc/nginx/.htpasswd:ro`,
-      ],
-      RestartPolicy: { Name: 'unless-stopped' },
-      NetworkMode: NETWORK,
-    },
-    NetworkingConfig: { EndpointsConfig: { [NETWORK]: {} } },
-  });
-
+  await pullImage(PREVIEW_IMAGE);
+  const network = await prepareSiteNetwork(site);
+  const container = await docker.createContainer(spec.buildPreviewContainerSpec(site, { ...specOpts(site, network), limits: LIMITS.static }));
   await container.start();
   return container.id;
 }
@@ -500,13 +407,7 @@ async function swapPreview(site) {
  * Remove the preview container and delete preview_html.
  */
 async function removePreviewContainer(site) {
-  if (site.preview_container_id) {
-    try {
-      const c = docker.getContainer(site.preview_container_id);
-      try { await c.stop({ t: 5 }); } catch {}
-      await c.remove();
-    } catch {}
-  }
+  if (site.preview_container_id) await stopAndRemove(site.preview_container_id);
   const previewHtmlDir = path.join(siteDir(site.id), 'preview_html');
   const previewConf = path.join(siteDir(site.id), 'nginx-preview.conf');
   if (fs.existsSync(previewHtmlDir)) fs.rmSync(previewHtmlDir, { recursive: true, force: true });
@@ -523,6 +424,7 @@ module.exports = {
   appDir,
   previewDir,
   writeNginxConfig,
+  chownTree,
   createSiteContainer:   withAudit('createSiteContainer',   createSiteContainer,   siteMeta),
   createAppContainer:    withAudit('createAppContainer',    createAppContainer,    siteMeta),
   runBuildStep:          withAudit('runBuildStep',          runBuildStep,          siteMeta),
@@ -531,12 +433,17 @@ module.exports = {
   removePreviewContainer:withAudit('removePreviewContainer',removePreviewContainer,siteMeta),
   applySiteSettings:     withAudit('applySiteSettings',     applySiteSettings,     siteMeta),
   recreateSiteContainer: withAudit('recreateSiteContainer', recreateSiteContainer, siteMeta),
-  docker,
-  RUNTIME_IMAGES,
-  STATIC_IMAGE,
+  removeSiteResources:   withAudit('removeSiteResources',   removeSiteResources,   siteMeta),
   startSiteContainer:    withAudit('startSiteContainer',    startSiteContainer,    idMeta),
   stopSiteContainer:     withAudit('stopSiteContainer',     stopSiteContainer,     idMeta),
   removeSiteContainer:   withAudit('removeSiteContainer',   removeSiteContainer,   idMeta),
+  applyAppSettings,
   containerStatus,
   containerLogs,
+  docker,
+  networks,
+  NETWORK,
+  LIMITS,
+  RUNTIME_IMAGES,
+  STATIC_IMAGE,
 };

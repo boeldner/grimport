@@ -14,6 +14,7 @@ Welcome to the Grimport wiki — self-hosted static site publishing panel.
 | Keep old deployments, roll back with one click | [Deploy History & Rollback](Deploy-History-and-Rollback) |
 | Uptime checks, activity log | [Monitoring](Monitoring) |
 | Installing as an app, offline shell, update prompt | [Mobile and PWA](Mobile-and-PWA) |
+| Per-site networks, container hardening, deploy limits, rate limits | [Security Model](Security-Model) |
 | GitHub Actions, GitLab CI, curl | [CI/CD Integration](CICD-Integration) |
 | All API endpoints and authentication | [API Reference](API-Reference) |
 | Backup site data and database | [Backups](Backups) |

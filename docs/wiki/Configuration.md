@@ -19,6 +19,20 @@ Copy `.env.example` to `.env` and edit before starting.
 | `HTTPS_PORT` | `443` | Host port mapped to port 443 inside Traefik |
 | `NODE_ENV` | `development` | Set to `production` to enable HSTS and stricter headers |
 | `GRIMPORT_IMAGE` | `ghcr.io/boeldner/grimport:latest` | Override to pin a specific release, e.g. `ghcr.io/boeldner/grimport:0.9.5` |
+| `SITE_NET_POOL` | `10.99.0.0/16` | Pool from which every site gets its own /24 network (see [Security Model](Security-Model)) |
+| `SITE_MEMORY_STATIC_MB` | `256` | Memory cap for static site containers |
+| `SITE_MEMORY_APP_MB` | `512` | Memory cap for PHP / Node / Python containers |
+| `SITE_CPUS` | `0.5` | CPU cap per site container |
+| `SITE_PIDS` | `256` | Process cap per site container |
+| `TRAEFIK_CONTAINER` | `webhost-traefik` | Container the supervisor attaches to each site network |
+| `EGRESS_GUARD_INTERVAL` | `60` | Seconds between re-applying the egress rules |
+| `EGRESS_NEW_CONN_PER_SEC` | `50` | New outbound connections per second an app site may open |
+| `DEPLOY_MAX_ENTRIES` | `20000` | Maximum files in a deploy zip |
+| `DEPLOY_MAX_TOTAL_MB` | `1024` | Maximum uncompressed size of a deploy zip |
+| `DEPLOY_MAX_FILE_MB` | `250` | Maximum size of a single file in a deploy zip |
+| `SITE_DISK_QUOTA_MB` | `2048` | Disk a site may use (files + deploy history) |
+| `API_RATE_LIMIT` | `600` | API requests per 15 minutes per user/token/IP; `0` disables |
+| `DEPLOY_RATE_LIMIT` | `30` | Deploys per 10 minutes per user/token; `0` disables |
 
 ### `SESSION_SECURE` is opt-in
 

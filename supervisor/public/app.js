@@ -2369,7 +2369,7 @@ function renderImageStatus(st) {
     return;
   }
   summary.innerHTML = outdated.length
-    ? `<span class="badge badge-warn">${outdated.length} outdated</span><span><strong>${outdated.length}</strong> of ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run an older image than the one on this server.</span>`
+    ? `<span class="badge badge-warn">${outdated.length} outdated</span><span><strong>${outdated.length}</strong> of ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run an older image or still sit on the shared network.</span>`
     : `<span class="badge badge-ok">Up to date</span><span>All ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run the newest locally available image. Pull to check the registry.</span>`;
   list.innerHTML = st.sites.map(x => `
     <div class="img-update-row">
@@ -2378,7 +2378,7 @@ function renderImageStatus(st) {
       ${x.missing
         ? '<span class="status status-no-container">' + GLYPH + 'No container</span>'
         : x.outdated
-          ? '<span class="status status-warn">' + GLYPH + 'Outdated</span>'
+          ? '<span class="status status-warn" title="' + esc(x.outdated_reason === 'network' ? 'Still on the shared network; recreate to isolate it' : x.outdated_reason === 'image+network' ? 'Older image and still on the shared network' : 'Older image than the one on this server') + '">' + GLYPH + 'Outdated (' + esc(x.outdated_reason === 'image+network' ? 'image + network' : x.outdated_reason || 'image') + ')</span>'
           : '<span class="status status-ok">' + GLYPH + 'Current</span>'}
     </div>`).join('');
   list.classList.remove('hidden');

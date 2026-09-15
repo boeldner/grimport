@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-15
+
+Phase 1 of the roadmap to 1.0: tenant isolation. Ships before the first invitation goes out. See the new [Security Model](docs/wiki/Security-Model.md) page.
+
+### Added
+- One Docker network per site (`webhost-site-<id>`, a /24 from `SITE_NET_POOL`); static sites and previews on `internal` networks, Traefik attached per network, the supervisor attached to none
+- Egress guard sidecar (`egress-guard` in docker-compose.yml): app sites cannot reach private ranges, other sites or cloud metadata, and new outbound connections are rate-capped
+- Container hardening: memory/CPU/PID caps, no swap, all capabilities dropped, no-new-privileges, nofile ulimit; static sites on `nginxinc/nginx-unprivileged` with a read-only root filesystem; Node and Python as uid 1000; PHP keeps only the four capabilities Apache needs
+- Deploy limits: entry count, uncompressed size, single-file size, symlink and NUL-byte rejection, post-extraction size check, per-site disk quota (HTTP 413)
+- Rate limits: 600 API requests / 15 min per user, token or IP; 30 deploys / 10 min (HTTP 429, `API_RATE_LIMIT`, `DEPLOY_RATE_LIMIT`)
+- Settings > General > Updates shows why a container is outdated (image, network or both); the rolling update migrates legacy containers onto their own networks
+- New environment variables: `SITE_NET_POOL`, `SITE_MEMORY_STATIC_MB`, `SITE_MEMORY_APP_MB`, `SITE_CPUS`, `SITE_PIDS`, `TRAEFIK_CONTAINER`, `EGRESS_GUARD_INTERVAL`, `EGRESS_NEW_CONN_PER_SEC`, `DEPLOY_MAX_ENTRIES`, `DEPLOY_MAX_TOTAL_MB`, `DEPLOY_MAX_FILE_MB`, `SITE_DISK_QUOTA_MB`
+
+### Changed
+- Static site containers listen on 8080 (unprivileged nginx); the generated nginx.conf and Traefik labels follow
+- Deleting a site removes its container, preview container and network
+- Reconcile re-attaches Traefik to every site network at boot and every five minutes
+
+### Upgrade notes
+- After the panel update, open Settings > General > Updates and run "Update outdated containers": every existing site is recreated on its own network (about two seconds of downtime each)
+- To get the egress guard, pull the repository (`install.sh --update` or `git pull`) and run `docker compose up -d`
+
 ## [0.10.0] - 2026-09-15
 
 Phase 0 of the roadmap to 1.0: foundations.

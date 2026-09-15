@@ -78,8 +78,19 @@ It's built for:
 - One-click self-update — pulls the latest image and restarts in place
 - Site container updates — pull fresh nginx/PHP/Node/Python images and recreate outdated containers one at a time
 - Installable PWA with offline app shell, phone tab bar, cards or list view for sites
+- Tenant isolation: one network per site, hardened containers, egress guard, deploy limits and rate limits (see the [Security Model](docs/wiki/Security-Model.md))
 
 ---
+
+## What's new in 0.11.0
+
+Phase 1 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): tenant isolation, documented in the [Security Model](docs/wiki/Security-Model.md).
+
+- Every site in its own Docker network; static sites cannot reach anything but Traefik, the panel is unreachable from any site
+- Egress guard: app sites cannot touch private ranges, other sites or cloud metadata; outbound connection rate is capped
+- Hardened containers: memory/CPU/PID caps, all capabilities dropped, no-new-privileges, unprivileged nginx with a read-only root filesystem, Node/Python as uid 1000
+- Deploy limits (entries, size, symlinks, per-site disk quota) and API/deploy rate limits
+- Existing sites migrate with one click in Settings > General > Updates
 
 ## What's new in 0.10.0
 

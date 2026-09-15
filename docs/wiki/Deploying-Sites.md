@@ -37,6 +37,17 @@ Grimport detects the single-subfolder pattern and automatically extracts the con
 **Webflow export:**
 Webflow zips are flat root — export directly and deploy without modification.
 
+## Limits
+
+Every zip is checked before the live directory is touched (see [Security Model](Security-Model) for the reasoning):
+
+- Upload size up to 250 MB; at most 20 000 entries (`DEPLOY_MAX_ENTRIES`); at most 1024 MB uncompressed (`DEPLOY_MAX_TOTAL_MB`); no single file above 250 MB (`DEPLOY_MAX_FILE_MB`).
+- Symlinks and paths that would escape the site directory are rejected.
+- A site may use 2048 MB on disk in total, counting the current files, the deploy history and the new upload (`SITE_DISK_QUOTA_MB`). Old deployments are pruned automatically (last 5 are kept); delete the site's history or ask an admin to raise the quota if you hit it.
+- 30 deploys, URL deploys or rollbacks per 10 minutes per user (`DEPLOY_RATE_LIMIT`).
+
+A rejected deploy returns HTTP 413 with the limit that was hit, or 429 when the rate limit applies. The live site is never touched by a rejected deploy.
+
 ## Site settings
 
 Access per-site settings with the gear icon on the site card.

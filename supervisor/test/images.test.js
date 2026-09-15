@@ -34,7 +34,7 @@ function makeDocker({ images = {}, containers = {}, pullEffect = {} } = {}) {
       inspect: async () => {
         const c = containers[id];
         if (!c) { const e = new Error('no such container'); e.statusCode = 404; throw e; }
-        return { Image: c.imageId, Config: { Image: c.tag }, State: { Running: !!c.running } };
+        return { Image: c.imageId, Config: { Image: c.tag }, State: { Running: !!c.running }, NetworkSettings: { Networks: c.networks || { [`webhost-site-${c.siteId || id.replace(/^c/, 's')}`]: {} } } };
       },
     }),
     pull: (tag, cb) => {
@@ -53,10 +53,10 @@ const NODE_CUR  = 'sha256:cccc00000000000000000000000000000000000000000000000000
 
 // ── Tests ─────────────────────────────────────────────────
 test('imageForRuntime maps every runtime and falls back to the static image', () => {
-  assert.strictEqual(imageForRuntime('static'), 'nginx:alpine');
-  assert.strictEqual(imageForRuntime(undefined), 'nginx:alpine');
+  assert.strictEqual(imageForRuntime('static'), 'nginxinc/nginx-unprivileged:alpine');
+  assert.strictEqual(imageForRuntime(undefined), 'nginxinc/nginx-unprivileged:alpine');
   assert.strictEqual(imageForRuntime('node'), RUNTIME_IMAGES.node);
-  assert.strictEqual(imageForRuntime('bogus'), 'nginx:alpine');
+  assert.strictEqual(imageForRuntime('bogus'), 'nginxinc/nginx-unprivileged:alpine');
 });
 
 test('shortId strips the sha256 prefix and truncates to 12 chars', () => {
@@ -73,10 +73,10 @@ test('status() flags containers whose image id differs from the local tag', asyn
     { id: 's5', name: 'Gone', container_id: 'c-missing' },
   ]);
   const docker = makeDocker({
-    images: { 'nginx:alpine': NGINX_NEW, 'node:22-alpine': NODE_CUR },
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW, 'node:22-alpine': NODE_CUR },
     containers: {
-      c1: { imageId: NGINX_NEW, tag: 'nginx:alpine', running: true },
-      c2: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true },
+      c1: { imageId: NGINX_NEW, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
+      c2: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
       c3: { imageId: NODE_CUR, tag: 'node:22-alpine', running: false },
     },
   });
@@ -95,14 +95,16 @@ test('status() flags containers whose image id differs from the local tag', asyn
   assert.strictEqual(byId.s4.missing, true);
   assert.strictEqual(byId.s5.missing, true, 'unreachable container counts as missing, never outdated');
   assert.strictEqual(byId.s5.outdated, false);
-  assert.deepStrictEqual(st.images.map(i => i.tag).sort(), ['nginx:alpine', 'node:22-alpine']);
+  assert.deepStrictEqual(st.images.map(i => i.tag).sort(), ['nginxinc/nginx-unprivileged:alpine', 'node:22-alpine']);
+  assert.strictEqual(byId.s1.isolated, true);
+  assert.strictEqual(byId.s2.outdated_reason, 'image');
 });
 
 test('status() never reports outdated when the image is not present locally', async () => {
   const db = makeDb([{ id: 's1', name: 'A', container_id: 'c1' }]);
   const docker = makeDocker({
     images: {},
-    containers: { c1: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true } },
+    containers: { c1: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true } },
   });
   const u = createImageUpdater({ docker, db, recreate: async () => 'x' });
   const st = await u.status();
@@ -116,15 +118,15 @@ test('pullImages() pulls the static image plus each runtime in use and reports w
     { id: 's2', name: 'B', runtime: 'php' },
   ]);
   const docker = makeDocker({
-    images: { 'nginx:alpine': NGINX_OLD, 'php:8.3-apache': NODE_CUR },
-    pullEffect: { 'nginx:alpine': NGINX_NEW },
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_OLD, 'php:8.3-apache': NODE_CUR },
+    pullEffect: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW },
   });
   const events = [];
   const u = createImageUpdater({ docker, db, recreate: async () => 'x', log: (e, d) => events.push([e, d]) });
   const pulled = await u.pullImages();
 
-  assert.deepStrictEqual(docker.calls.pulls.sort(), ['nginx:alpine', 'php:8.3-apache']);
-  const nginx = pulled.find(p => p.tag === 'nginx:alpine');
+  assert.deepStrictEqual(docker.calls.pulls.sort(), ['nginxinc/nginx-unprivileged:alpine', 'php:8.3-apache']);
+  const nginx = pulled.find(p => p.tag === 'nginxinc/nginx-unprivileged:alpine');
   const php = pulled.find(p => p.tag === 'php:8.3-apache');
   assert.strictEqual(nginx.updated, true);
   assert.strictEqual(nginx.local_image_id, 'bbbb00000000');
@@ -157,13 +159,13 @@ test('run() pulls, recreates only outdated containers one by one, and reports pr
     { id: 's4', name: 'NoContainer' },
   ]);
   const docker = makeDocker({
-    images: { 'nginx:alpine': NGINX_OLD },
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_OLD },
     containers: {
-      c1: { imageId: NGINX_NEW, tag: 'nginx:alpine', running: true },
-      c2: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true },
-      c3: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true },
+      c1: { imageId: NGINX_NEW, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
+      c2: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
+      c3: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
     },
-    pullEffect: { 'nginx:alpine': NGINX_NEW },
+    pullEffect: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW },
   });
   const order = [];
   const u = createImageUpdater({
@@ -198,10 +200,10 @@ test('run() with force + siteIds recreates exactly the listed sites even if up t
     { id: 's2', name: 'B', container_id: 'c2' },
   ]);
   const docker = makeDocker({
-    images: { 'nginx:alpine': NGINX_NEW },
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW },
     containers: {
-      c1: { imageId: NGINX_NEW, tag: 'nginx:alpine', running: true },
-      c2: { imageId: NGINX_NEW, tag: 'nginx:alpine', running: true },
+      c1: { imageId: NGINX_NEW, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
+      c2: { imageId: NGINX_NEW, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
     },
   });
   const order = [];
@@ -217,10 +219,10 @@ test('run() records per-site failures without aborting the rest', async () => {
     { id: 's2', name: 'Good', container_id: 'c2' },
   ]);
   const docker = makeDocker({
-    images: { 'nginx:alpine': NGINX_NEW },
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW },
     containers: {
-      c1: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true },
-      c2: { imageId: NGINX_OLD, tag: 'nginx:alpine', running: true },
+      c1: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
+      c2: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true },
     },
   });
   const events = [];
@@ -238,4 +240,27 @@ test('run() records per-site failures without aborting the rest', async () => {
   assert.ok(events.some(x => x.e === 'container_recreate_failed' && x.meta.level === 'error'));
   // a finished job can be started again
   assert.doesNotThrow(() => u.run({ pull: false }));
+});
+
+test('status() flags a container still on the shared network as outdated (network) so the rolling update isolates it', async () => {
+  const db = makeDb([
+    { id: 's1', name: 'Legacy', container_id: 'c1' },
+    { id: 's2', name: 'Both', container_id: 'c2' },
+  ]);
+  const docker = makeDocker({
+    images: { 'nginxinc/nginx-unprivileged:alpine': NGINX_NEW },
+    containers: {
+      c1: { imageId: NGINX_NEW, tag: 'nginxinc/nginx-unprivileged:alpine', running: true, networks: { 'webhost-net': {} } },
+      c2: { imageId: NGINX_OLD, tag: 'nginxinc/nginx-unprivileged:alpine', running: true, networks: { 'webhost-net': {} } },
+    },
+  });
+  const u = createImageUpdater({ docker, db, recreate: async () => 'x' });
+  const st = await u.status();
+  const byId = Object.fromEntries(st.sites.map(s => [s.id, s]));
+  assert.strictEqual(byId.s1.isolated, false);
+  assert.strictEqual(byId.s1.network, 'webhost-net');
+  assert.strictEqual(byId.s1.outdated, true);
+  assert.strictEqual(byId.s1.outdated_reason, 'network');
+  assert.strictEqual(byId.s2.outdated_reason, 'image+network');
+  assert.strictEqual(st.outdated, 2);
 });

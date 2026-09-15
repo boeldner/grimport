@@ -145,7 +145,7 @@ function generateNginxConfig(site) {
   const errorCodes = Object.keys(ERROR_PAGES).join(' ');
 
   return `server {
-  listen 80;
+  listen 8080;
   server_name ${site.domain};
   root ${root};
   index index.html;

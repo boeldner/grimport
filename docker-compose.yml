@@ -61,6 +61,13 @@ services:
       - ACME_EMAIL=${ACME_EMAIL:-}
       - GRIMPORT_IMAGE=${GRIMPORT_IMAGE:-ghcr.io/boeldner/grimport:latest}
       - PUBLIC_IP=${PUBLIC_IP:-}
+      # ── Tenant isolation (docs/wiki/Security-Model.md) ───────────────────
+      - SITE_NET_POOL=${SITE_NET_POOL:-10.99.0.0/16}
+      - SITE_MEMORY_STATIC_MB=${SITE_MEMORY_STATIC_MB:-256}
+      - SITE_MEMORY_APP_MB=${SITE_MEMORY_APP_MB:-512}
+      - SITE_CPUS=${SITE_CPUS:-0.5}
+      - SITE_PIDS=${SITE_PIDS:-256}
+      - TRAEFIK_CONTAINER=${TRAEFIK_CONTAINER:-webhost-traefik}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
@@ -100,6 +107,31 @@ services:
       traefik:
         condition: service_healthy
 
+  # ── Egress guard ──────────────────────────────────────────────────────────
+  # Host-network sidecar that fences app-site containers with iptables rules in
+  # the DOCKER-USER chain: no private ranges, no site-to-site, capped new
+  # connections. Static sites are on `internal` networks and need no rules.
+  # Idles harmlessly on Docker Desktop. See docs/wiki/Security-Model.md.
+  egress-guard:
+    image: alpine:3.20
+    container_name: webhost-egress-guard
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - SITE_NET_POOL=${SITE_NET_POOL:-10.99.0.0/16}
+      - EGRESS_GUARD_INTERVAL=${EGRESS_GUARD_INTERVAL:-60}
+      - EGRESS_NEW_CONN_PER_SEC=${EGRESS_NEW_CONN_PER_SEC:-50}
+    volumes:
+      - ./egress/apply-rules.sh:/apply-rules.sh:ro
+    command: sh -c "apk add --no-cache iptables >/dev/null && sh /apply-rules.sh"
+
+# webhost-net is the MANAGEMENT network: only Traefik and the supervisor live
+# here. Every site gets its own `webhost-site-<id>` network, created by the
+# supervisor from SITE_NET_POOL; Traefik is attached to each of them, the
+# supervisor never is. See docs/wiki/Security-Model.md.
 networks:
   webhost-net:
     name: webhost-net

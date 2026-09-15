@@ -11,7 +11,10 @@
  * Dependencies are injected so the module is unit-testable without Docker.
  */
 
-const STATIC_IMAGE = 'nginx:alpine';
+// nginx-unprivileged runs as uid 101 and listens on 8080; the generated
+// nginx.conf and the Traefik service port label match (see container-spec.js).
+const STATIC_IMAGE = 'nginxinc/nginx-unprivileged:alpine';
+const PREVIEW_IMAGE = STATIC_IMAGE;
 const RUNTIME_IMAGES = {
   static: STATIC_IMAGE,
   php:    'php:8.3-apache',
@@ -50,7 +53,8 @@ function createImageUpdater({ docker, db, recreate, parseSite = r => r, log = ()
   async function containerImage(containerId) {
     try {
       const info = await docker.getContainer(containerId).inspect();
-      return { imageId: info?.Image || null, tag: info?.Config?.Image || null, running: !!info?.State?.Running };
+      const networks = Object.keys(info?.NetworkSettings?.Networks || {});
+      return { imageId: info?.Image || null, tag: info?.Config?.Image || null, running: !!info?.State?.Running, networks };
     } catch { return null; }
   }
 
@@ -78,6 +82,9 @@ function createImageUpdater({ docker, db, recreate, parseSite = r => r, log = ()
         local_image_id: shortId(localIds[tag]),
         running: false,
         outdated: false,
+        outdated_reason: null,
+        network: null,
+        isolated: false,
         missing: !row.container_id,
       };
       if (row.container_id) {
@@ -85,7 +92,15 @@ function createImageUpdater({ docker, db, recreate, parseSite = r => r, log = ()
         if (ci) {
           entry.container_image_id = shortId(ci.imageId);
           entry.running = ci.running;
-          entry.outdated = !!(localIds[tag] && ci.imageId && ci.imageId !== localIds[tag]);
+          entry.network = ci.networks[0] || null;
+          // Isolated = runs on its own per-site network (Phase 1 security model).
+          // Legacy containers on the shared network count as outdated so the
+          // rolling update migrates them.
+          entry.isolated = ci.networks.length === 1 && ci.networks[0] === `webhost-site-${row.id}`;
+          const imageStale = !!(localIds[tag] && ci.imageId && ci.imageId !== localIds[tag]);
+          const networkStale = !entry.isolated;
+          entry.outdated = imageStale || networkStale;
+          entry.outdated_reason = imageStale && networkStale ? 'image+network' : imageStale ? 'image' : networkStale ? 'network' : null;
         } else {
           entry.missing = true;
         }
@@ -197,4 +212,4 @@ function createImageUpdater({ docker, db, recreate, parseSite = r => r, log = ()
   return { status, pullImages, recreateSite, run, getState, imageForRuntime };
 }
 
-module.exports = { createImageUpdater, imageForRuntime, RUNTIME_IMAGES, STATIC_IMAGE, shortId };
+module.exports = { createImageUpdater, imageForRuntime, RUNTIME_IMAGES, STATIC_IMAGE, PREVIEW_IMAGE, shortId };

@@ -11,10 +11,41 @@ const { requireSiteAccess, requireRole } = require('../auth');
 const { fireWebhooks } = require('../webhooks');
 const { sendAlert } = require('../alerts');
 const { assertPublicUrl } = require('../validate');
-const { atomicExtract } = require('../extract');
+const { atomicExtract, inspectZip } = require('../extract');
 const { asyncHandler } = require('../async-handler');
+const { dirSizeBytes } = require('../disk');
+const { deployLimiter } = require('../rate-limit');
 
 const HISTORY_KEEP = 5; // zips to retain per site
+const MB = 1024 * 1024;
+const QUOTA_BYTES = (() => { const n = Number(process.env.SITE_DISK_QUOTA_MB); return (Number.isFinite(n) && n > 0 ? n : 2048) * MB; })();
+
+/**
+ * Per-site disk quota: the new deploy's uncompressed size plus everything the
+ * site already keeps on disk except the directory being replaced.
+ * Throws an error with .status = 413 when the quota would be exceeded.
+ */
+function assertQuota(siteId, zipPath, targetDir) {
+  const { totalBytes } = inspectZip(zipPath);
+  const dir = siteDir(siteId);
+  let existing = 0;
+  for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    const full = path.join(dir, name);
+    if (path.resolve(full) === path.resolve(targetDir)) continue; // replaced by this deploy
+    existing += dirSizeBytes(full);
+  }
+  // The zip itself is kept in history/ as well.
+  let zipSize = 0;
+  try { zipSize = fs.statSync(zipPath).size; } catch {}
+  const projected = existing + totalBytes + zipSize;
+  if (projected > QUOTA_BYTES) {
+    const err = new Error(`Site would use ${Math.round(projected / MB)} MB, quota is ${Math.round(QUOTA_BYTES / MB)} MB — delete old deployments or ask an admin to raise SITE_DISK_QUOTA_MB`);
+    err.status = 413;
+    throw err;
+  }
+}
+
+const limitDeploys = deployLimiter();
 
 function historyDir(siteId) {
   return path.join(siteDir(siteId), 'history');
@@ -76,7 +107,7 @@ const upload = multer({
 });
 
 // POST /api/deploy/:id — upload a zip and deploy it to a site
-router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.single('file'), asyncHandler(async (req, res) => {
+router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
@@ -94,7 +125,9 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
       ? appDir(req.params.id)
       : path.join(siteDir(req.params.id), 'html'));
 
-    // Non-destructive: throws before touching live dir if the zip is bad.
+    // Quota + limits first, then non-destructive extract (throws before
+    // touching the live dir if the zip is bad).
+    assertQuota(req.params.id, req.file.path, targetDir);
     const { fileCount } = atomicExtract(req.file.path, targetDir);
 
     const site = {
@@ -134,7 +167,7 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), upload.
     console.error('Deploy error:', err);
     fireWebhooks('deploy_failed', req.params.id, row.name, err.message);
     sendAlert('deploy_failed', { siteName: row.name, detail: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }));
 
@@ -147,7 +180,7 @@ router.get('/:id/history', requireSiteAccess(), (req, res) => {
 });
 
 // POST /api/deploy/:id/rollback/:deploymentId
-router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
 
@@ -190,7 +223,7 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
 }));
 
 // POST /api/deploy/:id/url — deploy from a public zip URL
-router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, asyncHandler(async (req, res) => {
   const { url } = req.body;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
 
@@ -233,6 +266,7 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
     const isAppRuntime = runtime === 'node' || runtime === 'python';
     const targetDir = path.resolve(isAppRuntime ? appDir(req.params.id) : path.join(siteDir(req.params.id), 'html'));
 
+    assertQuota(req.params.id, tmpPath, targetDir);
     // Non-destructive: throws before touching live dir if the zip is bad.
     const { fileCount } = atomicExtract(tmpPath, targetDir);
 
@@ -260,7 +294,7 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), asy
     console.error('URL deploy error:', err);
     fireWebhooks('deploy_failed', req.params.id, row.name, err.message);
     sendAlert('deploy_failed', { siteName: row.name, detail: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 }));
 

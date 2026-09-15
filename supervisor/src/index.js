@@ -31,6 +31,11 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 
+// ── Per-principal API rate limit (session user > token > IP) ──────────────
+// 600 req / 15 min by default (API_RATE_LIMIT, 0 disables); /api/health is exempt.
+const { apiLimiter } = require('./rate-limit');
+app.use('/api', apiLimiter());
+
 // ── Unknown domain catch-all (runs before auth, after session) ─
 const { catchallMiddleware } = require('./catchall');
 app.use(catchallMiddleware);
@@ -144,6 +149,10 @@ const BACKUP_DIR = path.join(DATA_PATH, '..', 'backups');
 
 async function start() {
   await reconcile();
+  // Traefik loses its dynamic attachments to per-site networks whenever it is
+  // recreated (compose pull/up). Re-attach periodically so sites never go dark.
+  const { networks } = require('./docker');
+  setInterval(() => networks.reconnectTraefikToAll().catch(() => {}), 5 * 60 * 1000).unref();
   startAnalyticsJob();
   startUptimeJob();
   startScheduledBackups({ db, destDir: BACKUP_DIR, dbPath: DB_PATH, sitesDir: DATA_PATH });

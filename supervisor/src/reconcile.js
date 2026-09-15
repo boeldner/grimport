@@ -1,6 +1,6 @@
 const Dockerode = require('dockerode');
 const db = require('./db');
-const { containerStatus } = require('./docker');
+const { containerStatus, networks } = require('./docker');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
@@ -67,6 +67,24 @@ async function reconcile() {
         console.error(`[reconcile] Failed to remove orphan ${c.Id}:`, err.message);
       }
     }
+  }
+
+  // Phase 3: per-site networks — Traefik loses its dynamic network
+  // connections when compose recreates it, so re-attach it to every site
+  // network; drop networks whose site no longer exists.
+  try {
+    const connected = await networks.reconnectTraefikToAll();
+    const siteIds = new Set(db.prepare('SELECT id FROM sites').all().map(r => r.id));
+    const nets = await networks.listSiteNetworks();
+    for (const n of nets) {
+      if (n.siteId && !siteIds.has(n.siteId)) {
+        console.warn(`[reconcile] Orphan network ${n.name} — removing`);
+        await networks.removeSiteNetwork(n.siteId);
+      }
+    }
+    console.log(`[reconcile] Traefik attached to ${connected} of ${nets.length} site networks`);
+  } catch (err) {
+    console.error('[reconcile] Network reconcile failed:', err.message);
   }
 
   console.log('[reconcile] Done');

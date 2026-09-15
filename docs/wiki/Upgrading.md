@@ -17,6 +17,16 @@ docker compose pull
 docker compose up -d
 ```
 
+## Upgrading to 0.11 (tenant isolation)
+
+0.11 gives every site its own network and a hardened container. After the panel has updated itself:
+
+1. Open **Settings → General → Updates → Site containers**. Every existing site shows **Outdated (network)**.
+2. Click **Update outdated containers**. Sites are recreated one at a time on their own network (about two seconds of downtime each).
+3. Pull the repository on the server (`install.sh --update` or `git pull`) and run `docker compose up -d` once to add the `egress-guard` sidecar. Without it app sites (PHP/Node/Python) still run isolated but with unrestricted egress.
+
+See [Security Model](Security-Model) for what changes.
+
 ## Updating site containers
 
 Every site runs in its own container started from a floating image tag (`nginx:alpine`, `php:8.3-apache`, `node:22-alpine`, `python:3.12-slim`). Updating the panel does **not** touch those containers, so over time they fall behind the images' security fixes.

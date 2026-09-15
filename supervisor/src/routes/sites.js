@@ -11,6 +11,7 @@ const {
   startSiteContainer,
   stopSiteContainer,
   removeSiteContainer,
+  removeSiteResources,
   containerStatus,
   containerLogs,
   siteDir,
@@ -214,9 +215,7 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
-  if (row.container_id) {
-    await removeSiteContainer(row.container_id);
-  }
+  await removeSiteResources(parseSite(row));
 
   const dir = siteDir(req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
