@@ -147,6 +147,86 @@ try { db.exec('ALTER TABLE api_tokens ADD COLUMN site_scope TEXT'); } catch {}
 // expires_at: unix seconds, NULL = never expires
 try { db.exec('ALTER TABLE api_tokens ADD COLUMN expires_at INTEGER'); } catch {}
 
+// ── Multi-user platform (Phase 2) ──────────────────────────────────────────
+// Platform roles + capabilities on users, site ownership + membership roles,
+// per-user notifications and tokens, invitations, domain requests.
+try { db.exec("ALTER TABLE users ADD COLUMN platform_role TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN capabilities TEXT NOT NULL DEFAULT '{}'"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN display_name TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN last_login_at INTEGER"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN invited_by TEXT"); } catch {}
+try { db.exec("ALTER TABLE sites ADD COLUMN owner_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE sites ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"); } catch {}
+try { db.exec("ALTER TABLE notifications ADD COLUMN user_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE api_tokens ADD COLUMN user_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE activity ADD COLUMN target_user_id TEXT"); } catch {}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS site_members (
+    site_id   TEXT NOT NULL,
+    user_id   TEXT NOT NULL,
+    site_role TEXT NOT NULL DEFAULT 'viewer',   -- owner | editor | viewer
+    added_by  TEXT,
+    added_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (site_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS invitations (
+    id            TEXT PRIMARY KEY,
+    token_hash    TEXT NOT NULL UNIQUE,
+    label         TEXT NOT NULL,
+    platform_role TEXT NOT NULL DEFAULT 'member',
+    capabilities  TEXT NOT NULL DEFAULT '{}',
+    created_by    TEXT,
+    created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+    expires_at    INTEGER NOT NULL,
+    used_by       TEXT,
+    used_at       INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS domain_requests (
+    id           TEXT PRIMARY KEY,
+    site_id      TEXT NOT NULL,
+    domain       TEXT NOT NULL,
+    requested_by TEXT,
+    status       TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected
+    decided_by   TEXT,
+    decided_at   INTEGER,
+    note         TEXT,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_site_members_user ON site_members(user_id);
+`);
+
+// One-time backfill of the new columns from the legacy role model.
+// Runs until every user has a platform_role; idempotent afterwards.
+(function migrateToPlatformRoles() {
+  const pending = db.prepare('SELECT id, role, created_at FROM users WHERE platform_role IS NULL ORDER BY created_at ASC, rowid ASC').all();
+  if (!pending.length) return;
+  const hasOwner = db.prepare("SELECT 1 FROM users WHERE platform_role = 'owner'").get();
+  let ownerAssigned = !!hasOwner;
+  const set = db.prepare('UPDATE users SET platform_role = ? WHERE id = ?');
+  for (const u of pending) {
+    let pr;
+    if (u.role === 'admin') { pr = ownerAssigned ? 'admin' : 'owner'; ownerAssigned = true; }
+    else pr = 'guest'; // editors/viewers keep their per-site grants as site roles below
+    set.run(pr, u.id);
+  }
+  // site_permissions -> site_members (editor grant -> editor, viewer -> viewer)
+  const grants = db.prepare('SELECT sp.user_id, sp.site_id, u.role FROM site_permissions sp JOIN users u ON u.id = sp.user_id').all();
+  const ins = db.prepare('INSERT OR IGNORE INTO site_members (site_id, user_id, site_role) VALUES (?, ?, ?)');
+  for (const g of grants) ins.run(g.site_id, g.user_id, g.role === 'editor' ? 'editor' : 'viewer');
+  console.log(`[migrate] platform roles assigned to ${pending.length} user(s), ${grants.length} site grant(s) migrated`);
+})();
+// Sites and tokens without an owner belong to the platform owner.
+(function backfillOwnership() {
+  const owner = db.prepare("SELECT id FROM users WHERE platform_role = 'owner' LIMIT 1").get();
+  if (!owner) return;
+  db.prepare('UPDATE sites SET owner_id = ? WHERE owner_id IS NULL').run(owner.id);
+  db.prepare('UPDATE api_tokens SET user_id = ? WHERE user_id IS NULL').run(owner.id);
+})();
+
 // Seed first admin user from existing password_hash setting (one-time migration)
 const { nanoid } = require('nanoid');
 const adminExists = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
@@ -162,8 +242,11 @@ if (!adminExists) {
       console.warn('[security] SUPERVISOR_SECRET is "changeme" — change it in .env before going public!');
     }
   }
-  db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)')
-    .run(nanoid(10), 'admin', hash, 'admin');
+  const adminId = nanoid(10);
+  db.prepare('INSERT INTO users (id, username, password_hash, role, platform_role) VALUES (?, ?, ?, ?, ?)')
+    .run(adminId, 'admin', hash, 'admin', 'owner');
+  db.prepare('UPDATE sites SET owner_id = ? WHERE owner_id IS NULL').run(adminId);
+  db.prepare('UPDATE api_tokens SET user_id = ? WHERE user_id IS NULL').run(adminId);
   console.log('[auth] Created initial admin user (username: admin)');
 }
 

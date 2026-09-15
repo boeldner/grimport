@@ -1,75 +1,61 @@
 const { Router } = require('express');
 const db = require('../db');
-const { requireRole } = require('../auth');
+const { isPanelAdmin } = require('../auth');
 const { getEnabledEvents } = require('../notification-prefs');
 
 const router = Router();
 
-// The bell (public/index.html #btn-bell) has no nav-admin/admin-only class,
-// so editors/viewers see and use it. GET stays open to any authenticated
-// user; the mutating routes below are admin-only since notifications are a
-// shared, un-scoped (no site_id) global feed and mutations here affect the
-// feed for every user.
+// Notifications are per user since 0.12: rows with user_id = me, plus rows
+// with user_id NULL for panel admins. Everyone manages their own rows.
+function scope(req) {
+  return isPanelAdmin(req.user)
+    ? { sql: '(user_id = ? OR user_id IS NULL)', params: [req.user.id] }
+    : { sql: 'user_id = ?', params: [req.user.id] };
+}
 
-// GET /api/notifications — recent notifications (read + unread)
+// GET /api/notifications
 router.get('/', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
-
-  // Filter by enabled event types (setting: notification_events JSON array)
   const enabledTypes = getEnabledEvents();
-
-  let rows;
-  if (enabledTypes.length === 0) {
-    rows = [];
-  } else if (enabledTypes.length < 3) {
-    const placeholders = enabledTypes.map(() => '?').join(',');
-    rows = db.prepare(
-      `SELECT id, type, title, detail, data, read, created_at
-       FROM notifications
-       WHERE type IN (${placeholders})
-       ORDER BY created_at DESC LIMIT ?`
-    ).all(...enabledTypes, limit);
-  } else {
-    rows = db.prepare(
-      `SELECT id, type, title, detail, data, read, created_at
-       FROM notifications
-       ORDER BY created_at DESC LIMIT ?`
-    ).all(limit);
-  }
-
-  const unread = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE read = 0').get().n;
-
+  const sc = scope(req);
+  // Bell preferences only gate the three classic event types; everything else
+  // (support actions, domain requests, suspensions) is always shown.
+  const classic = ['unknown_domain', 'site_down', 'site_up'];
+  const hidden = classic.filter(t => !enabledTypes.includes(t));
+  const typeSql = hidden.length ? `AND type NOT IN (${hidden.map(() => '?').join(',')})` : '';
+  const rows = db.prepare(
+    `SELECT id, type, title, detail, data, read, created_at, user_id
+     FROM notifications WHERE ${sc.sql} ${typeSql}
+     ORDER BY created_at DESC LIMIT ?`
+  ).all(...sc.params, ...hidden, limit);
+  const unread = db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${sc.sql} AND read = 0 ${typeSql}`).get(...sc.params, ...hidden).n;
   res.json({
     unread,
-    notifications: rows.map(r => ({
-      ...r,
-      data: r.data ? JSON.parse(r.data) : null,
-      read: !!r.read,
-    })),
+    notifications: rows.map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : null, read: !!r.read })),
   });
 });
 
-// POST /api/notifications/:id/read — mark one read (admin only)
-router.post('/:id/read', requireRole('admin'), (req, res) => {
-  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(req.params.id);
+router.post('/:id/read', (req, res) => {
+  const sc = scope(req);
+  db.prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND ${sc.sql}`).run(req.params.id, ...sc.params);
   res.json({ ok: true });
 });
 
-// POST /api/notifications/read-all (admin only)
-router.post('/read-all', requireRole('admin'), (req, res) => {
-  db.prepare('UPDATE notifications SET read = 1').run();
+router.post('/read-all', (req, res) => {
+  const sc = scope(req);
+  db.prepare(`UPDATE notifications SET read = 1 WHERE ${sc.sql}`).run(...sc.params);
   res.json({ ok: true });
 });
 
-// DELETE /api/notifications — clear all (admin only)
-router.delete('/', requireRole('admin'), (req, res) => {
-  db.prepare('DELETE FROM notifications').run();
+router.delete('/', (req, res) => {
+  const sc = scope(req);
+  db.prepare(`DELETE FROM notifications WHERE ${sc.sql}`).run(...sc.params);
   res.json({ ok: true });
 });
 
-// DELETE /api/notifications/:id (admin only)
-router.delete('/:id', requireRole('admin'), (req, res) => {
-  db.prepare('DELETE FROM notifications WHERE id = ?').run(req.params.id);
+router.delete('/:id', (req, res) => {
+  const sc = scope(req);
+  db.prepare(`DELETE FROM notifications WHERE id = ? AND ${sc.sql}`).run(req.params.id, ...sc.params);
   res.json({ ok: true });
 });
 

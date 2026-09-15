@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Grimport — You are invited</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' fill='%238f83c4' d='M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z'/%3E%3Cpath d='M24.5 34.5l6 2M38.5 34.5l-6 2' stroke='%23c9b7ff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1d1d20" media="(prefers-color-scheme: dark)">
+  <style>
+    html, body { height: 100%; background: var(--bg); }
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-wrap { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-4); }
+    .login-brand { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center; }
+    .login-brand svg { color: var(--vio); }
+    .login-brand-name { font-size: 20px; font-weight: 700; letter-spacing: -0.025em; color: var(--tx); }
+    .login-brand-sub { font-size: 13px; color: var(--tx2); }
+    .login-card { background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r-card); padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); box-shadow: var(--shdw); }
+    .login-card form { display: flex; flex-direction: column; gap: var(--sp-4); }
+    .login-card .btn-primary { width: 100%; padding: 9px; font-size: 14px; margin-top: var(--sp-1); }
+    .login-error { color: var(--err); font-size: 13px; line-height: 1.4; padding: 8px 11px; background: var(--errSoft); border: 1px solid rgba(208,52,44,0.3); border-radius: var(--r-control); display: none; }
+    .login-error.visible { display: block; }
+    .invite-meta { font-size: 13px; color: var(--tx2); line-height: 1.5; }
+    .invite-meta strong { color: var(--tx); }
+    .house-rules { font-size: 12px; color: var(--tx3); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 12px; }
+    .login-footer { text-align: center; font-size: 11px; color: var(--tx3); }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="36" height="36" fill="none" aria-hidden="true">
+        <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z"/>
+        <path d="M24.5 34.5l6 2M38.5 34.5l-6 2" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="login-brand-name">Grimport</div>
+        <div class="login-brand-sub">You have been invited</div>
+      </div>
+    </div>
+
+    <div class="login-card">
+      <p class="invite-meta" id="invite-meta">Checking your invitation…</p>
+      <form id="invite-form" hidden>
+        <div class="field">
+          <label class="field-label" for="username-input">Username</label>
+          <input type="text" name="username" id="username-input" class="g-input" autocomplete="username" required minlength="3" maxlength="32" pattern="[a-z0-9][a-z0-9._-]{2,31}" placeholder="lowercase letters, digits, . _ -" />
+          <div class="field-help muted">3 to 32 characters. This is how you sign in.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="display-input">Display name <span class="field-optional">optional</span></label>
+          <input type="text" name="display_name" id="display-input" class="g-input" autocomplete="name" maxlength="64" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="password-input">Password</label>
+          <input type="password" name="password" id="password-input" class="g-input" autocomplete="new-password" required minlength="10" placeholder="at least 10 characters" />
+          <div class="field-help muted" id="pw-hint">Minimum 10 characters</div>
+        </div>
+        <p class="login-error" id="invite-error" role="alert"></p>
+        <div class="house-rules">
+          By joining you agree to host only content you may publish: no phishing, no malware, no crypto mining, nothing illegal. Sites that break this are suspended.
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-join">Create account</button>
+      </form>
+      <p class="invite-meta" id="invite-dead" hidden>This invitation is no longer valid. Ask the person who invited you for a new link.</p>
+    </div>
+    <div class="login-footer">Grimport · self-hosted</div>
+  </div>
+
+  <script>
+    (function () {
+      const token = location.pathname.split('/').filter(Boolean).pop();
+      const meta = document.getElementById('invite-meta');
+      const form = document.getElementById('invite-form');
+      const dead = document.getElementById('invite-dead');
+      const err = document.getElementById('invite-error');
+      const pw = document.getElementById('password-input');
+      const hint = document.getElementById('pw-hint');
+
+      fetch(`/api/auth/invite/${encodeURIComponent(token)}`).then(r => r.json()).then(d => {
+        if (!d.valid) { meta.hidden = true; dead.hidden = false; return; }
+        meta.innerHTML = `Invitation for <strong>${escapeHtml(d.label)}</strong> · role: <strong>${escapeHtml(d.platform_role)}</strong>. Pick a username and a password to create your account.`;
+        form.hidden = false;
+        document.getElementById('username-input').focus();
+      }).catch(() => { meta.hidden = true; dead.hidden = false; });
+
+      pw.addEventListener('input', () => {
+        const v = pw.value;
+        const score = (v.length >= 10) + (v.length >= 14) + /[A-Z]/.test(v) + /[0-9]/.test(v) + /[^A-Za-z0-9]/.test(v);
+        hint.textContent = v.length < 10 ? 'Minimum 10 characters' : score >= 4 ? 'Strong password' : score >= 3 ? 'Good password' : 'Weak — add length, digits or symbols';
+        hint.className = 'field-help ' + (v.length < 10 ? 'muted' : score >= 4 ? 'ok' : score >= 3 ? 'ok' : 'warn');
+      });
+
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const btn = document.getElementById('btn-join');
+        btn.disabled = true; btn.textContent = 'Creating account…';
+        err.classList.remove('visible');
+        try {
+          const res = await fetch(`/api/auth/invite/${encodeURIComponent(token)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('username-input').value.trim(),
+              display_name: document.getElementById('display-input').value.trim(),
+              password: pw.value,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) { location.href = '/'; return; }
+          err.textContent = data.error || 'Could not create the account';
+          err.classList.add('visible');
+        } catch {
+          err.textContent = 'Network error — is the server reachable?';
+          err.classList.add('visible');
+        }
+        btn.disabled = false; btn.textContent = 'Create account';
+      });
+
+      function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    })();
+  </script>
+</body>
+</html>

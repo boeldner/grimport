@@ -10,7 +10,6 @@ const {
   applySiteSettings,
   startSiteContainer,
   stopSiteContainer,
-  removeSiteContainer,
   removeSiteResources,
   containerStatus,
   containerLogs,
@@ -18,41 +17,72 @@ const {
 } = require('../docker');
 const imageUpdater = require('../image-updater');
 const { fireWebhooks } = require('../webhooks');
-const { requireRole, requireSiteAccess } = require('../auth');
+const { requireRole, requireSiteRole, requireHumanSession, authz, isPanelAdmin } = require('../auth');
 const { asyncHandler } = require('../async-handler');
+const { notify } = require('../notify');
+const { parseSite, parseSiteForContainer } = require('../site-model');
+const { SITE_ROLES } = require('../authz');
 const fs = require('fs');
 
 const router = Router();
 
-function logActivity(siteId, siteName, event, detail, actor = 'system') {
+function logActivity(siteId, siteName, event, detail, actor = 'system', targetUserId = null) {
   try {
-    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor) VALUES (?, ?, ?, ?, ?)')
-      .run(siteId, siteName, event, detail || null, actor);
+    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor, target_user_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(siteId, siteName, event, detail || null, actor, targetUserId);
   } catch {}
 }
 
-const { parseSite, parseSiteForContainer } = require('../site-model');
-
-// GET /api/sites — list sites (filtered by permissions for non-admins)
-router.get('/', asyncHandler(async (req, res) => {
-  let rows;
-  if (req.user?.role === 'admin') {
-    rows = db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all();
-  } else {
-    rows = db.prepare(
-      `SELECT s.* FROM sites s
-       INNER JOIN site_permissions sp ON sp.site_id = s.id AND sp.user_id = ?
-       ORDER BY s.created_at DESC`
-    ).all(req.user?.id);
+/**
+ * Record an action an admin performed on somebody else's site (support mode):
+ * the activity row carries the site owner as target, and the owner gets a bell
+ * notification so support access is never silent.
+ */
+function supportTrail(req, site, event, detail) {
+  const ownerId = authz.siteOwnerId(site.id);
+  const actor = req.user?.username || 'system';
+  logActivity(site.id, site.name, event, detail, actor, req.supportMode ? ownerId : null);
+  if (req.supportMode && ownerId) {
+    notify({
+      type: 'support_action',
+      title: `${actor} (support) — ${event.replace(/_/g, ' ')} on ${site.name}`,
+      detail: detail || null,
+      data: { siteId: site.id, actor, event },
+      userIds: [ownerId],
+      admins: false,
+      force: true,
+    });
   }
+}
+
+function getSetting(key) {
+  return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? '';
+}
+
+/** Public view of a site for the requesting user: adds my_role, owner, support flag. */
+function decorate(site, req) {
+  const out = parseSite(site);
+  out.my_role = authz.siteRoleFor(req.user, site.id);
+  out.support = authz.isSupportAccess(req.user, site.id);
+  out.owner_id = site.owner_id || null;
+  const owner = site.owner_id ? db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(site.owner_id) : null;
+  out.owner = owner ? { id: site.owner_id, username: owner.username, display_name: owner.display_name || null } : null;
+  out.status = site.status || 'active';
+  return out;
+}
+
+function slugify(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || nanoid(6).toLowerCase();
+}
+
+// GET /api/sites — list sites the caller can see (admins: all)
+router.get('/', asyncHandler(async (req, res) => {
+  const scope = authz.siteScopeSql(req.user, 'id');
+  const rows = db.prepare(`SELECT * FROM sites WHERE ${scope.sql} ORDER BY created_at DESC`).all(...scope.params);
   const sites = await Promise.all(
     rows.map(async (row) => {
-      const site = parseSite(row);
-      if (site.container_id) {
-        site.container = await containerStatus(site.container_id);
-      } else {
-        site.container = { status: 'none', running: false };
-      }
+      const site = decorate(row, req);
+      site.container = site.container_id ? await containerStatus(site.container_id) : { status: 'none', running: false };
       return site;
     })
   );
@@ -60,42 +90,88 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/sites/:id
-router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
+router.get('/:id', requireSiteRole('viewer'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
-  const site = parseSite(row);
-  if (site.container_id) {
-    site.container = await containerStatus(site.container_id);
-  }
+  const site = decorate(row, req);
+  if (site.container_id) site.container = await containerStatus(site.container_id);
   res.json(site);
 }));
 
-// POST /api/sites — create a new site (admin only)
-router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
-  const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
-  if (!name || !domain) return res.status(400).json({ error: 'name and domain are required' });
+/**
+ * Domain policy for non-admin creators: members get `<slug>.<base>`; a custom
+ * domain becomes a request the owner approves (or is allowed straight away
+ * when the panel policy is "free" and the user's capability says so).
+ */
+function resolveDomainForCreate(req, name, requested) {
+  const admin = isPanelAdmin(req.user);
+  const base = getSetting('site_base_domain');
+  const wanted = requested ? String(requested).trim().toLowerCase() : '';
+  if (admin) {
+    if (!wanted) throw Object.assign(new Error('domain is required'), { status: 400 });
+    return { domain: wanted, request: null };
+  }
+  const caps = req.user.capabilities || {};
+  const policy = getSetting('custom_domain_policy') || 'approval';
+  const free = policy === 'free' || caps.custom_domains === 'free';
+  const isSub = base && wanted.endsWith(`.${base}`) && !wanted.slice(0, -base.length - 1).includes('.');
+  if (wanted && (isSub || free)) return { domain: wanted, request: null };
+  if (!base) throw Object.assign(new Error('No base domain configured — ask the owner to set one before creating sites'), { status: 400 });
+  // Auto subdomain; keep the custom wish as a request
+  let slug = slugify(name);
+  let domain = `${slug}.${base}`;
+  let i = 2;
+  while (db.prepare('SELECT 1 FROM sites WHERE domain = ?').get(domain)) { domain = `${slug}-${i++}.${base}`; }
+  return { domain, request: wanted && wanted !== domain ? wanted : null };
+}
 
-  const normalizedDomain = domain.trim().toLowerCase();
-  if (!isValidHostname(normalizedDomain)) return res.status(400).json({ error: 'Invalid domain' });
+// POST /api/sites — create a site (owner/admin/member within capabilities)
+router.post('/', asyncHandler(async (req, res) => {
+  const pr = req.user.platform_role;
+  if (req.user.id === 'token' && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  if (!['owner', 'admin', 'member'].includes(pr)) return res.status(403).json({ error: 'Forbidden: your account cannot create sites' });
+  const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const caps = req.user.capabilities || {};
+  const siteRuntime = runtime || 'static';
+  if (!isPanelAdmin(req.user)) {
+    const owned = db.prepare('SELECT COUNT(*) AS c FROM sites WHERE owner_id = ?').get(req.user.id).c;
+    if (owned >= (caps.max_sites ?? 0)) return res.status(403).json({ error: `Site limit reached (${caps.max_sites}) — ask the owner to raise it` });
+    if (!(caps.runtimes || ['static']).includes(siteRuntime)) return res.status(403).json({ error: `Runtime "${siteRuntime}" is not enabled for your account` });
+  }
+
+  let resolved;
+  try { resolved = resolveDomainForCreate(req, name, domain); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  if (!isValidHostname(resolved.domain)) return res.status(400).json({ error: 'Invalid domain' });
+  if (resolved.request && !isValidHostname(resolved.request)) return res.status(400).json({ error: 'Invalid domain' });
 
   const id = nanoid(10);
-  const siteRuntime = runtime || 'static';
+  const ownerId = req.user.id === 'token' ? (req.user.tokenOwner?.id || null) : req.user.id;
   try {
     db.prepare(
-      `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port, owner_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, name.trim(), normalizedDomain,
+      id, String(name).trim(), resolved.domain,
       spa_mode ? 1 : 0, cache_enabled !== false ? 1 : 0,
-      siteRuntime, build_cmd || null, start_cmd || null, app_port || null
+      siteRuntime, build_cmd || null, start_cmd || null, app_port || null, ownerId
     );
 
-    const site = parseSite(db.prepare('SELECT * FROM sites WHERE id = ?').get(id));
-    const containerId = await createSiteContainer(site);
+    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+    const containerId = await createSiteContainer(parseSiteForContainer(row));
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(containerId, id);
-    site.container_id = containerId;
+    const site = decorate(db.prepare('SELECT * FROM sites WHERE id = ?').get(id), req);
     site.container = await containerStatus(containerId);
-    logActivity(id, name.trim(), 'created', normalizedDomain, req.user?.username || 'system');
+    logActivity(id, site.name, 'created', resolved.domain, req.user?.username || 'system');
+
+    if (resolved.request) {
+      const rid = nanoid(10);
+      db.prepare('INSERT INTO domain_requests (id, site_id, domain, requested_by) VALUES (?, ?, ?, ?)').run(rid, id, resolved.request, ownerId);
+      notify({ type: 'domain_request', title: `${req.user.username} requests ${resolved.request} for ${site.name}`, detail: 'Approve or reject under Domains', data: { siteId: id, requestId: rid, domain: resolved.request }, force: true });
+      site.domain_request = { id: rid, domain: resolved.request, status: 'pending' };
+    }
     res.status(201).json(site);
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -106,10 +182,11 @@ router.post('/', requireRole('admin'), asyncHandler(async (req, res) => {
   }
 }));
 
-// PUT /api/sites/:id — update settings (editor or admin with site access)
-router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+// PUT /api/sites/:id — update settings (site editor+; domain changes need site owner)
+router.put('/:id', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status === 'suspended' && !isPanelAdmin(req.user)) return res.status(423).json({ error: 'Site is suspended' });
 
   const {
     name, domain, spa_mode, cache_enabled, maintenance_mode,
@@ -118,9 +195,24 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHan
   } = req.body;
 
   let domainValue = domain;
+  let domainRequest = null;
   if (domain !== undefined) {
     domainValue = String(domain).trim().toLowerCase();
     if (!isValidHostname(domainValue)) return res.status(400).json({ error: 'Invalid domain' });
+    if (domainValue !== row.domain) {
+      if (req.siteRole !== 'owner') return res.status(403).json({ error: 'Only the site owner can change the domain' });
+      if (!isPanelAdmin(req.user)) {
+        // Members: subdomains of the base are fine, anything else becomes a request.
+        const base = getSetting('site_base_domain');
+        const caps = req.user.capabilities || {};
+        const free = (getSetting('custom_domain_policy') || 'approval') === 'free' || caps.custom_domains === 'free';
+        const isSub = base && domainValue.endsWith(`.${base}`) && !domainValue.slice(0, -base.length - 1).includes('.');
+        if (!isSub && !free) { domainRequest = domainValue; domainValue = row.domain; }
+      }
+    }
+  }
+  if (runtime !== undefined && runtime !== row.runtime && !isPanelAdmin(req.user)) {
+    if (!(req.user.capabilities?.runtimes || ['static']).includes(runtime)) return res.status(403).json({ error: `Runtime "${runtime}" is not enabled for your account` });
   }
 
   if (custom_headers !== undefined) {
@@ -180,7 +272,7 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHan
   );
 
   const updatedRow = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
-  const updated = parseSite(updatedRow);
+  const updated = decorate(updatedRow, req);
   // Container ops need the stored basic-auth password (it goes into .htpasswd);
   // the response object above keeps it stripped.
   const newContainerId = await applySiteSettings(parseSiteForContainer(updatedRow));
@@ -188,30 +280,37 @@ router.put('/:id', requireSiteAccess(), requireRole('admin', 'editor'), asyncHan
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(newContainerId, req.params.id);
     updated.container_id = newContainerId;
   }
-  logActivity(req.params.id, updated.name, 'settings_changed', null, req.user?.username || 'system');
+  if (domainRequest) {
+    const rid = nanoid(10);
+    db.prepare('INSERT INTO domain_requests (id, site_id, domain, requested_by) VALUES (?, ?, ?, ?)').run(rid, row.id, domainRequest, req.user.id);
+    notify({ type: 'domain_request', title: `${req.user.username} requests ${domainRequest} for ${updated.name}`, detail: 'Approve or reject under Domains', data: { siteId: row.id, requestId: rid, domain: domainRequest }, force: true });
+    updated.domain_request = { id: rid, domain: domainRequest, status: 'pending' };
+  }
+  supportTrail(req, updated, 'settings_changed', null);
   res.json(updated);
 }));
 
 // POST /api/sites/:id/start
-router.post('/:id/start', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/start', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
+  if (row.status === 'suspended' && !isPanelAdmin(req.user)) return res.status(423).json({ error: 'Site is suspended' });
   await startSiteContainer(row.container_id);
-  logActivity(req.params.id, row.name, 'started', null, req.user?.username || 'system');
+  supportTrail(req, row, 'started', null);
   res.json({ ok: true });
 }));
 
 // POST /api/sites/:id/stop
-router.post('/:id/stop', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/stop', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   await stopSiteContainer(row.container_id);
-  logActivity(req.params.id, row.name, 'stopped', null, req.user?.username || 'system');
+  supportTrail(req, row, 'stopped', null);
   res.json({ ok: true });
 }));
 
-// DELETE /api/sites/:id — stop + remove container, delete files (admin only)
-router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+// DELETE /api/sites/:id — stop + remove container + network, delete files (site owner)
+router.delete('/:id', requireSiteRole('owner'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -220,12 +319,10 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   const dir = siteDir(req.params.id);
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 
-  // Remove dependent rows first (site_permissions FKs to sites; deployments
-  // isn't FK-constrained but is cleaned up here too) so the sites delete
-  // never trips SQLITE_CONSTRAINT_FOREIGNKEY, then delete the site — all in
-  // one transaction so a failure partway through doesn't leave orphans.
   const deleteSiteCascade = db.transaction((siteId) => {
     db.prepare('DELETE FROM site_permissions WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM site_members WHERE site_id = ?').run(siteId);
+    db.prepare('DELETE FROM domain_requests WHERE site_id = ?').run(siteId);
     db.prepare('DELETE FROM deployments WHERE site_id = ?').run(siteId);
     db.prepare('DELETE FROM analytics_hourly WHERE site_id = ?').run(siteId);
     db.prepare('DELETE FROM analytics_cursor WHERE site_id = ?').run(siteId);
@@ -234,39 +331,116 @@ router.delete('/:id', requireRole('admin'), asyncHandler(async (req, res) => {
   });
   deleteSiteCascade(req.params.id);
 
-  logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system');
+  const ownerId = row.owner_id;
+  logActivity(null, row.name, 'deleted', row.domain, req.user?.username || 'system', req.supportMode ? ownerId : null);
+  if (req.supportMode && ownerId) {
+    notify({ type: 'support_action', title: `${req.user.username} (support) deleted ${row.name}`, detail: row.domain, data: { actor: req.user.username, event: 'deleted' }, userIds: [ownerId], admins: false, force: true });
+  }
   res.json({ ok: true });
 }));
 
-// GET /api/sites/:id/users — get user IDs with access (admin only)
-router.get('/:id/users', requireRole('admin'), (req, res) => {
-  const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
+// ── Suspension (panel admins) ──────────────────────────────
+
+router.post('/:id/suspend', requireRole('admin'), requireHumanSession, asyncHandler(async (req, res) => {
+  const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
-  const userIds = db.prepare('SELECT user_id FROM site_permissions WHERE site_id = ?')
-    .all(req.params.id).map(r => r.user_id);
-  res.json({ user_ids: userIds });
+  const reason = req.body?.reason ? String(req.body.reason).slice(0, 200) : null;
+  if (row.container_id) { try { await stopSiteContainer(row.container_id); } catch {} }
+  if (row.preview_container_id) { try { await stopSiteContainer(row.preview_container_id); } catch {} }
+  db.prepare("UPDATE sites SET status = 'suspended' WHERE id = ?").run(row.id);
+  logActivity(row.id, row.name, 'suspended', reason, req.user.username, row.owner_id);
+  notify({ type: 'site_suspended', title: `${row.name} was suspended`, detail: reason || 'Contact the panel owner', data: { siteId: row.id }, siteId: row.id, admins: false, force: true });
+  res.json({ ok: true, status: 'suspended' });
+}));
+
+router.post('/:id/unsuspend', requireRole('admin'), requireHumanSession, asyncHandler(async (req, res) => {
+  const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  db.prepare("UPDATE sites SET status = 'active' WHERE id = ?").run(row.id);
+  if (row.container_id) { try { await startSiteContainer(row.container_id); } catch {} }
+  logActivity(row.id, row.name, 'unsuspended', null, req.user.username, row.owner_id);
+  notify({ type: 'site_unsuspended', title: `${row.name} is active again`, data: { siteId: row.id }, siteId: row.id, admins: false, force: true });
+  res.json({ ok: true, status: 'active' });
+}));
+
+// ── Members (site owner manages collaborators) ─────────────
+
+// GET /api/sites/:id/members
+router.get('/:id/members', requireSiteRole('viewer'), (req, res) => {
+  const row = db.prepare('SELECT id, owner_id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const members = db.prepare(
+    `SELECT m.user_id, m.site_role, m.added_at, u.username, u.display_name, u.platform_role
+     FROM site_members m JOIN users u ON u.id = m.user_id WHERE m.site_id = ? ORDER BY m.added_at ASC`
+  ).all(row.id);
+  const owner = row.owner_id ? db.prepare('SELECT id, username, display_name FROM users WHERE id = ?').get(row.owner_id) : null;
+  res.json({ owner, members });
 });
 
-// PUT /api/sites/:id/users — replace user access list (admin only)
-router.put('/:id/users', requireRole('admin'), (req, res) => {
+// PUT /api/sites/:id/members — replace the member list [{ user_id, site_role }]
+router.put('/:id/members', requireSiteRole('owner'), requireHumanSession, (req, res) => {
+  const row = db.prepare('SELECT id, owner_id, name FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const list = Array.isArray(req.body?.members) ? req.body.members : null;
+  if (!list) return res.status(400).json({ error: 'members must be an array of { user_id, site_role }' });
+  for (const m of list) {
+    if (!m?.user_id || !['viewer', 'editor'].includes(m.site_role)) return res.status(400).json({ error: 'site_role must be viewer or editor' });
+    if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(m.user_id)) return res.status(400).json({ error: `Unknown user ${m.user_id}` });
+  }
+  const replace = db.transaction(items => {
+    db.prepare('DELETE FROM site_members WHERE site_id = ?').run(row.id);
+    for (const m of items) {
+      if (m.user_id === row.owner_id) continue;
+      db.prepare('INSERT OR IGNORE INTO site_members (site_id, user_id, site_role, added_by) VALUES (?, ?, ?, ?)').run(row.id, m.user_id, m.site_role, req.user.id);
+    }
+  });
+  replace(list);
+  supportTrail(req, row, 'members_changed', `${list.length} member(s)`);
+  res.json({ ok: true });
+});
+
+// Legacy shape kept for the current UI: user ids with access (viewer role).
+router.get('/:id/users', requireSiteRole('owner'), (req, res) => {
   const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const userIds = db.prepare('SELECT user_id FROM site_members WHERE site_id = ?').all(req.params.id).map(r => r.user_id);
+  res.json({ user_ids: userIds });
+});
+router.put('/:id/users', requireSiteRole('owner'), requireHumanSession, (req, res) => {
+  const row = db.prepare('SELECT id, owner_id FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   const { user_ids } = req.body;
   if (!Array.isArray(user_ids)) return res.status(400).json({ error: 'user_ids must be an array' });
-
   const replace = db.transaction(ids => {
-    db.prepare('DELETE FROM site_permissions WHERE site_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM site_members WHERE site_id = ?').run(req.params.id);
     for (const userId of ids) {
-      db.prepare('INSERT OR IGNORE INTO site_permissions (user_id, site_id) VALUES (?, ?)')
-        .run(userId, req.params.id);
+      if (userId === row.owner_id) continue;
+      const u = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
+      if (!u) continue;
+      db.prepare('INSERT OR IGNORE INTO site_members (site_id, user_id, site_role, added_by) VALUES (?, ?, ?, ?)')
+        .run(req.params.id, userId, u.role === 'viewer' ? 'viewer' : 'editor', req.user.id);
     }
   });
   replace(user_ids);
   res.json({ ok: true });
 });
 
+// POST /api/sites/:id/transfer { user_id } — hand the site to another user (site owner)
+router.post('/:id/transfer', requireSiteRole('owner'), requireHumanSession, (req, res) => {
+  const row = db.prepare('SELECT id, name, owner_id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const target = db.prepare('SELECT id, username, platform_role, status FROM users WHERE id = ?').get(req.body?.user_id);
+  if (!target || target.status !== 'active') return res.status(400).json({ error: 'Unknown or disabled user' });
+  if (!['owner', 'admin', 'member'].includes(target.platform_role)) return res.status(400).json({ error: 'Target cannot own sites (guest)' });
+  db.prepare('UPDATE sites SET owner_id = ? WHERE id = ?').run(target.id, row.id);
+  db.prepare('DELETE FROM site_members WHERE site_id = ? AND user_id = ?').run(row.id, target.id);
+  logActivity(row.id, row.name, 'transferred', `to ${target.username}`, req.user.username, row.owner_id);
+  notify({ type: 'site_transferred', title: `${row.name} is now yours`, detail: `Transferred by ${req.user.username}`, data: { siteId: row.id }, userIds: [target.id], admins: false, force: true });
+  res.json({ ok: true, owner_id: target.id });
+});
+
 // GET /api/sites/:id/logs
-router.get('/:id/logs', requireSiteAccess(), asyncHandler(async (req, res) => {
+router.get('/:id/logs', requireSiteRole('viewer'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row || !row.container_id) return res.status(404).json({ error: 'No container' });
   try {
@@ -279,7 +453,7 @@ router.get('/:id/logs', requireSiteAccess(), asyncHandler(async (req, res) => {
 
 // POST /api/sites/:id/recreate — rebuild the live container from the current
 // local runtime image (pulls first). ~2s downtime for that one site.
-router.post('/:id/recreate', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/recreate', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   const job = imageUpdater.getState();
@@ -292,56 +466,77 @@ router.post('/:id/recreate', requireSiteAccess(), requireRole('admin', 'editor')
     }
   }
   const containerId = await imageUpdater.recreateSite(row.id, req.user?.username || 'system');
+  supportTrail(req, row, 'container_recreated', null);
   res.json({ ok: true, container_id: containerId, container: await containerStatus(containerId) });
 }));
 
+// ── Domain requests (site owner asks, panel admin decides) ──
+
+router.post('/:id/domain-request', requireSiteRole('owner'), requireHumanSession, (req, res) => {
+  const row = db.prepare('SELECT id, name, domain FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const wanted = String(req.body?.domain || '').trim().toLowerCase();
+  if (!isValidHostname(wanted)) return res.status(400).json({ error: 'Invalid domain' });
+  if (db.prepare('SELECT 1 FROM sites WHERE domain = ?').get(wanted)) return res.status(409).json({ error: 'Domain already in use' });
+  const open = db.prepare("SELECT id FROM domain_requests WHERE site_id = ? AND status = 'pending'").get(row.id);
+  if (open) return res.status(409).json({ error: 'A request is already pending for this site' });
+  const rid = nanoid(10);
+  db.prepare('INSERT INTO domain_requests (id, site_id, domain, requested_by) VALUES (?, ?, ?, ?)').run(rid, row.id, wanted, req.user.id);
+  notify({ type: 'domain_request', title: `${req.user.username} requests ${wanted} for ${row.name}`, detail: 'Approve or reject under Domains', data: { siteId: row.id, requestId: rid, domain: wanted }, force: true });
+  res.status(201).json({ id: rid, site_id: row.id, domain: wanted, status: 'pending' });
+});
+
+router.get('/:id/domain-request', requireSiteRole('viewer'), (req, res) => {
+  const r = db.prepare('SELECT id, domain, status, note, created_at, decided_at FROM domain_requests WHERE site_id = ? ORDER BY created_at DESC LIMIT 1').get(req.params.id);
+  res.json(r || null);
+});
+
 // ── Blue-green preview ─────────────────────────────────────
 
-// POST /api/sites/:id/preview — create preview container
-router.post('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/preview', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.preview_container_id) return res.status(409).json({ error: 'Preview already exists' });
 
   const { preview_domain } = req.body;
   if (!preview_domain?.trim()) return res.status(400).json({ error: 'preview_domain required' });
+  const pd = preview_domain.trim().toLowerCase();
+  if (!isValidHostname(pd)) return res.status(400).json({ error: 'Invalid domain' });
+  if (!isPanelAdmin(req.user)) {
+    const base = getSetting('site_base_domain');
+    if (!base || !pd.endsWith(`.${base}`)) return res.status(403).json({ error: `Preview domains must be under ${base || 'the base domain'}` });
+  }
 
-  // Check domain not already in use
-  const conflict = db.prepare('SELECT id FROM sites WHERE domain = ? AND id != ?').get(preview_domain.trim(), row.id);
+  const conflict = db.prepare('SELECT id FROM sites WHERE domain = ? AND id != ?').get(pd, row.id);
   if (conflict) return res.status(409).json({ error: 'Domain already in use' });
 
-  db.prepare('UPDATE sites SET preview_domain = ? WHERE id = ?').run(preview_domain.trim(), row.id);
-  const updated = db.prepare('SELECT * FROM sites WHERE id = ?').get(row.id);
-  const site = parseSiteForContainer(updated);
+  db.prepare('UPDATE sites SET preview_domain = ? WHERE id = ?').run(pd, row.id);
+  const site = parseSiteForContainer(db.prepare('SELECT * FROM sites WHERE id = ?').get(row.id));
 
   const containerId = await createPreviewContainer(site);
   db.prepare('UPDATE sites SET preview_container_id = ? WHERE id = ?').run(containerId, row.id);
-  logActivity(row.id, row.name, 'preview_created', preview_domain.trim());
+  supportTrail(req, row, 'preview_created', pd);
   res.json({ ok: true, preview_container_id: containerId });
 }));
 
-// POST /api/sites/:id/preview/swap — go live (swap preview → production)
-router.post('/:id/preview/swap', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.post('/:id/preview/swap', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (!row.preview_container_id) return res.status(404).json({ error: 'No preview to swap' });
 
-  const site = parseSite(row);
-  await swapPreview(site);
-  logActivity(row.id, row.name, 'preview_swapped', `${row.preview_domain} → ${row.domain}`);
+  await swapPreview(parseSite(row));
+  supportTrail(req, row, 'preview_swapped', `${row.preview_domain} → ${row.domain}`);
   fireWebhooks('deploy', row.id, row.name, `Live swap from ${row.preview_domain}`);
   res.json({ ok: true });
 }));
 
-// DELETE /api/sites/:id/preview — discard preview
-router.delete('/:id/preview', requireSiteAccess(), requireRole('admin', 'editor'), asyncHandler(async (req, res) => {
+router.delete('/:id/preview', requireSiteRole('editor'), asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
-  const site = parseSite(row);
-  await removePreviewContainer(site);
+  await removePreviewContainer(parseSite(row));
   db.prepare('UPDATE sites SET preview_container_id = NULL, preview_domain = NULL WHERE id = ?').run(row.id);
-  logActivity(row.id, row.name, 'preview_removed', null);
+  supportTrail(req, row, 'preview_removed', null);
   res.json({ ok: true });
 }));
 

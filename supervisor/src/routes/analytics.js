@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const db = require('../db');
 const { runPass } = require('../analytics');
-const { requireSiteAccess } = require('../auth');
+const { requireSiteAccess, authz } = require('../auth');
 const { asyncHandler } = require('../async-handler');
 
 const router = Router();
@@ -14,11 +14,8 @@ router.get('/overview', asyncHandler(async (req, res) => {
   const since = now - hours * 3600;
   const floor = since - (since % 3600);
 
-  const sites = req.user?.role === 'admin'
-    ? db.prepare('SELECT id, name, domain FROM sites ORDER BY name ASC').all()
-    : db.prepare(`SELECT s.id, s.name, s.domain FROM sites s
-        INNER JOIN site_permissions sp ON sp.site_id = s.id AND sp.user_id = ?
-        ORDER BY s.name ASC`).all(req.user?.id);
+  const scope = authz.siteScopeSql(req.user, 's.id');
+  const sites = db.prepare(`SELECT s.id, s.name, s.domain FROM sites s WHERE ${scope.sql} ORDER BY s.name ASC`).all(...scope.params);
 
   const rows = sites.map(site => {
     const totals = db.prepare(`

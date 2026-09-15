@@ -2,6 +2,9 @@ const session = require('express-session');
 const crypto = require('crypto');
 const db = require('./db');
 const { BetterSqliteStore } = require('./session-store');
+const { createAuthz, legacyRoleFor, isPanelAdmin, effectiveCapabilities } = require('./authz');
+
+const authz = createAuthz(db);
 
 const sessionMiddleware = session({
   store: new BetterSqliteStore(),
@@ -23,39 +26,80 @@ const sessionMiddleware = session({
   },
 });
 
+const getUser = db.prepare('SELECT id, username, role, platform_role, capabilities, status, display_name FROM users WHERE id = ?');
+
+/** Shape the principal object every route sees. */
+function principalFromUser(row) {
+  const platform_role = row.platform_role || (row.role === 'admin' ? 'admin' : row.role === 'editor' ? 'member' : 'guest');
+  return {
+    id: row.id,
+    username: row.username,
+    display_name: row.display_name || null,
+    platform_role,
+    role: legacyRoleFor(platform_role),
+    capabilities: effectiveCapabilities({ ...row, platform_role }),
+    status: row.status || 'active',
+  };
+}
+
 function requireAuth(req, res, next) {
+  let row = null;
   if (req.session?.userId) {
-    req.user = { id: req.session.userId, role: req.session.role, username: req.session.username };
-    return next();
-  }
-  // Legacy session support (single-password sessions before v0.7)
-  if (req.session?.authenticated) {
-    const admin = db.prepare("SELECT id, username, role FROM users WHERE role = 'admin' LIMIT 1").get();
-    if (admin) {
-      req.user = admin;
-      req.session.userId = admin.id;
-      req.session.role = admin.role;
-      req.session.username = admin.username;
-      return next();
+    row = getUser.get(req.session.userId);
+  } else if (req.session?.authenticated) {
+    // Legacy session support (single-password sessions before v0.7)
+    row = db.prepare("SELECT id, username, role, platform_role, capabilities, status, display_name FROM users WHERE role = 'admin' ORDER BY rowid ASC LIMIT 1").get();
+    if (row) {
+      req.session.userId = row.id;
+      req.session.role = row.role;
+      req.session.username = row.username;
     }
   }
+  if (row) {
+    if (row.status && row.status !== 'active') {
+      req.session?.destroy?.(() => {});
+      return res.status(401).json({ error: 'Account disabled' });
+    }
+    req.user = principalFromUser(row);
+    return next();
+  }
+
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) {
     const hash = crypto.createHash('sha256').update(auth.slice(7)).digest('hex');
-    const row = db.prepare('SELECT id, role, site_scope, expires_at FROM api_tokens WHERE token_hash = ?').get(hash);
-    if (row) {
-      if (row.expires_at && row.expires_at < Math.floor(Date.now() / 1000)) {
+    const tok = db.prepare('SELECT id, role, site_scope, expires_at, user_id FROM api_tokens WHERE token_hash = ?').get(hash);
+    if (tok) {
+      if (tok.expires_at && tok.expires_at < Math.floor(Date.now() / 1000)) {
         return res.status(401).json({ error: 'API token has expired' });
       }
-      db.prepare('UPDATE api_tokens SET last_used = unixepoch() WHERE id = ?').run(row.id);
-      // site_scope: NULL/'all' = unrestricted (matches pre-v0.9.5 tokens). Otherwise a
+      const owner = tok.user_id ? getUser.get(tok.user_id) : null;
+      if (owner && owner.status && owner.status !== 'active') {
+        return res.status(401).json({ error: 'Token owner is disabled' });
+      }
+      db.prepare('UPDATE api_tokens SET last_used = unixepoch() WHERE id = ?').run(tok.id);
+      // site_scope: NULL/'all' = unrestricted (within the owner's rights). Otherwise a
       // JSON array of site ids the token may act on — an ADDITIONAL restriction on top
       // of the role check, never a widening (least privilege for CI tokens).
       let tokenSiteScope = null;
-      if (row.site_scope && row.site_scope !== 'all') {
-        try { tokenSiteScope = JSON.parse(row.site_scope); } catch { tokenSiteScope = null; }
+      if (tok.site_scope && tok.site_scope !== 'all') {
+        try { tokenSiteScope = JSON.parse(tok.site_scope); } catch { tokenSiteScope = null; }
       }
-      req.user = { id: 'token', role: row.role || 'admin', username: 'api', tokenSiteScope };
+      const ownerPrincipal = owner ? principalFromUser(owner) : null;
+      // A token never exceeds its owner's legacy role (admin > editor > viewer).
+      const order = { viewer: 1, editor: 2, admin: 3 };
+      const tokRole = tok.role || 'admin';
+      const role = ownerPrincipal ? (order[tokRole] <= order[ownerPrincipal.role] ? tokRole : ownerPrincipal.role) : tokRole;
+      req.user = {
+        id: 'token',
+        tokenId: tok.id,
+        role,
+        platform_role: ownerPrincipal?.platform_role || (role === 'admin' ? 'admin' : 'guest'),
+        username: 'api',
+        tokenSiteScope,
+        tokenOwner: ownerPrincipal,
+        capabilities: ownerPrincipal?.capabilities || effectiveCapabilities({ platform_role: 'admin' }),
+        status: 'active',
+      };
       return next();
     }
   }
@@ -71,43 +115,12 @@ function requireRole(...roles) {
 }
 
 /**
- * Checks that the current user can access a specific site.
- * Admins can access all sites. Editors/viewers need a site_permissions entry.
+ * Site access = at least viewer on the site (owner, member, admin, or a token
+ * scoped/allowed for it). Kept for backward compatibility; new code should use
+ * requireSiteRole('viewer' | 'editor' | 'owner').
  */
 function requireSiteAccess(paramName = 'id') {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-    const siteId = req.params[paramName];
-
-    // Token principals have no site_permissions rows — the token's own scope
-    // IS its permission grant, so check that instead of the users table.
-    if (req.user.id === 'token') {
-      if (req.user.tokenSiteScope) {
-        if (!req.user.tokenSiteScope.includes(siteId)) {
-          return res.status(403).json({ error: 'Forbidden: token is not scoped to this site' });
-        }
-        return next();
-      }
-      // Unscoped token: role gates access same as a session user would.
-      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-      return next();
-    }
-
-    if (req.user.role !== 'admin') {
-      const perm = db.prepare(
-        'SELECT 1 FROM site_permissions WHERE user_id = ? AND site_id = ?'
-      ).get(req.user.id, siteId);
-      if (!perm) return res.status(403).json({ error: 'Forbidden' });
-    }
-    // A token's site_scope is an ADDITIONAL restriction, applied regardless of role —
-    // even an admin-role token scoped to specific sites stays limited to them.
-    // (Unreachable for token principals now that the branch above handles them
-    // directly; kept as a harmless double-check in case that branch changes.)
-    if (req.user.tokenSiteScope && !req.user.tokenSiteScope.includes(siteId)) {
-      return res.status(403).json({ error: 'Forbidden: token is not scoped to this site' });
-    }
-    next();
-  };
+  return authz.requireSiteRole('viewer', paramName);
 }
 
 /**
@@ -124,4 +137,15 @@ function requireHumanSession(req, res, next) {
   next();
 }
 
-module.exports = { sessionMiddleware, requireAuth, requireRole, requireSiteAccess, requireHumanSession };
+module.exports = {
+  sessionMiddleware,
+  requireAuth,
+  requireRole,
+  requireSiteAccess,
+  requireSiteRole: authz.requireSiteRole,
+  requirePlatform: authz.requirePlatform,
+  requireHumanSession,
+  authz,
+  isPanelAdmin,
+  principalFromUser,
+};

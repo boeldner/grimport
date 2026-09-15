@@ -26,9 +26,10 @@ function recordUnknownDomain(domain) {
 
   if (recent) return;
 
+  // Admin-only (user_id NULL): connecting a domain is an owner decision.
   db.prepare(
-    `INSERT INTO notifications (type, title, detail, data)
-     VALUES ('unknown_domain', ?, ?, ?)`
+    `INSERT INTO notifications (type, title, detail, data, user_id)
+     VALUES ('unknown_domain', ?, ?, ?, NULL)`
   ).run(
     `Unknown domain: ${domain}`,
     'A request arrived for a domain not connected to any site.',

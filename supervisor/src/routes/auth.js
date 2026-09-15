@@ -3,8 +3,37 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { logAudit } = require('../audit');
+const { createInvitations } = require('../invitations');
+const { principalFromUser } = require('../auth');
 
 const router = Router();
+const invitations = createInvitations(db);
+
+// ── Invitations (public: the invitee is not logged in yet) ──
+router.get('/invite/:token', (req, res) => {
+  res.json(invitations.peek(req.params.token));
+});
+
+const inviteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many attempts' } });
+router.post('/invite/:token', inviteLimiter, async (req, res) => {
+  try {
+    const { username, password, display_name } = req.body || {};
+    const user = await invitations.accept(req.params.token, { username, password, display_name });
+    logAudit({ fn: 'invite_accepted', level: 'info', detail: `${user.username} joined as ${user.platform_role}`, actor: user.username });
+    req.session.regenerate(err => {
+      if (err) return res.status(500).json({ error: 'Session error' });
+      req.session.userId = user.id;
+      req.session.role = user.role;
+      req.session.username = user.username;
+      req.session.save(err2 => {
+        if (err2) return res.status(500).json({ error: 'Session error' });
+        res.status(201).json({ ok: true, username: user.username, role: user.role, platform_role: user.platform_role });
+      });
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -36,6 +65,11 @@ router.post('/login', loginLimiter, async (req, res) => {
     logAudit({ fn: 'login', level: 'warn', detail: `Failed login attempt`, actor: user.username });
     return res.status(401).json({ error: 'Invalid credentials' });
   }
+  if (user.status && user.status !== 'active') {
+    logAudit({ fn: 'login', level: 'warn', detail: 'Login refused: account disabled', actor: user.username });
+    return res.status(403).json({ error: 'Account disabled' });
+  }
+  db.prepare('UPDATE users SET last_login_at = unixepoch() WHERE id = ?').run(user.id);
 
   req.session.regenerate(err => {
     if (err) return res.status(500).json({ error: 'Session error' });
@@ -72,7 +106,7 @@ router.post('/logout', (req, res) => {
 //   2. AND either the admin's password still matches the seeded
 //      SUPERVISOR_SECRET, or no base domain has been configured yet.
 function computeNeedsOnboarding(user) {
-  if (!user || user.role !== 'admin') return false;
+  if (!user || user.platform_role !== 'owner') return false;
   const done = db.prepare("SELECT value FROM settings WHERE key = 'onboarding_done'").get();
   if (done?.value === '1') return false;
 
@@ -87,18 +121,22 @@ function computeNeedsOnboarding(user) {
 router.get('/me', (req, res) => {
   let user = null;
   if (req.session?.userId) {
-    user = db.prepare('SELECT id, username, role, password_hash FROM users WHERE id = ?').get(req.session.userId);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
   } else if (req.session?.authenticated) {
     // Legacy session — look up admin
-    user = db.prepare("SELECT id, username, role, password_hash FROM users WHERE role = 'admin' LIMIT 1").get();
+    user = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY rowid ASC LIMIT 1").get();
   }
-  if (!user) return res.json({ authenticated: false });
+  if (!user || (user.status && user.status !== 'active')) return res.json({ authenticated: false });
 
+  const p = principalFromUser(user);
   res.json({
     authenticated: true,
     id: user.id,
-    role: user.role,
+    role: p.role,
+    platform_role: p.platform_role,
+    capabilities: p.capabilities,
     username: user.username,
+    display_name: user.display_name || null,
     needsOnboarding: computeNeedsOnboarding(user),
   });
 });

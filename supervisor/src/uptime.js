@@ -15,12 +15,10 @@ function logActivity(siteId, siteName, event, detail) {
   } catch {}
 }
 
+// Fan out to the site owner + members (and admins) — see notify.js.
+const { notify } = require('./notify');
 function addNotification(type, title, detail, data) {
-  if (!eventEnabled(type)) return;
-  try {
-    db.prepare(`INSERT INTO notifications (type, title, detail, data) VALUES (?, ?, ?, ?)`)
-      .run(type, title, detail || null, data ? JSON.stringify(data) : null);
-  } catch {}
+  notify({ type, title, detail, data, siteId: data?.siteId || null });
 }
 
 async function getContainerIp(containerId) {

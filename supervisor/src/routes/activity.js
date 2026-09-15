@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const db = require('../db');
-const { requireRole } = require('../auth');
+const { requireRole, authz, isPanelAdmin } = require('../auth');
 
 const router = Router();
 
@@ -17,20 +17,9 @@ router.get('/', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 500);
   const siteId = req.query.site_id;
   const level  = req.query.level; // optional filter: info | warn | error
-  const isAdmin = req.user?.role === 'admin';
-
-  if (!isAdmin) {
-    if (siteId) {
-      const perm = db.prepare(
-        'SELECT 1 FROM site_permissions WHERE user_id = ? AND site_id = ?'
-      ).get(req.user?.id, siteId);
-      if (!perm) return res.status(403).json({ error: 'Forbidden' });
-    }
-  }
-
-  const permittedIds = isAdmin ? null : db.prepare(
-    'SELECT site_id FROM site_permissions WHERE user_id = ?'
-  ).all(req.user?.id).map(r => r.site_id);
+  const isAdmin = isPanelAdmin(req.user);
+  const permittedIds = authz.accessibleSiteIds(req.user); // null for admins
+  if (!isAdmin && siteId && !permittedIds.includes(siteId)) return res.status(403).json({ error: 'Forbidden' });
 
   let rows;
   if (isAdmin) {

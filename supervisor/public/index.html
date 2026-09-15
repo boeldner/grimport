@@ -77,7 +77,7 @@
 
       <span class="nav-section nav-section-admin">Admin</span>
       <a href="#" class="nav-item nav-admin" data-view="domains">Domains</a>
-      <a href="#" class="nav-item nav-admin" data-view="panel-settings">Settings</a>
+      <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
     </nav>
     <!-- Update banner (shown when new version available) -->
     <div id="update-banner" class="update-banner hidden">
@@ -328,17 +328,17 @@
       </header>
       <div class="settings-page">
         <div class="tabs" role="tablist">
-          <button class="tab is-active" id="ptab-general" data-stab="general" role="tab" aria-selected="true" aria-controls="spanel-general">General</button>
-          <button class="tab" id="ptab-server" data-stab="server" role="tab" aria-selected="false" aria-controls="spanel-server">Server &amp; DNS</button>
+          <button class="tab is-active admin-only" id="ptab-general" data-stab="general" role="tab" aria-selected="true" aria-controls="spanel-general">General</button>
+          <button class="tab admin-only" id="ptab-server" data-stab="server" role="tab" aria-selected="false" aria-controls="spanel-server">Server &amp; DNS</button>
           <button class="tab" id="ptab-tokens" data-stab="tokens" role="tab" aria-selected="false" aria-controls="spanel-tokens">API Tokens</button>
-          <button class="tab" id="ptab-webhooks" data-stab="webhooks" role="tab" aria-selected="false" aria-controls="spanel-webhooks">Webhooks</button>
-          <button class="tab" id="ptab-notifications" data-stab="notifications" role="tab" aria-selected="false" aria-controls="spanel-notifications">Notifications</button>
+          <button class="tab admin-only" id="ptab-webhooks" data-stab="webhooks" role="tab" aria-selected="false" aria-controls="spanel-webhooks">Webhooks</button>
+          <button class="tab admin-only" id="ptab-notifications" data-stab="notifications" role="tab" aria-selected="false" aria-controls="spanel-notifications">Notifications</button>
           <button class="tab admin-only" id="ptab-users" data-stab="users" role="tab" aria-selected="false" aria-controls="spanel-users">Users</button>
           <button class="tab" id="ptab-security" data-stab="security" role="tab" aria-selected="false" aria-controls="spanel-security">Security</button>
         </div>
 
         <!-- General -->
-        <div id="spanel-general" class="tab-panel" role="tabpanel" aria-labelledby="ptab-general">
+        <div id="spanel-general" class="tab-panel admin-only" role="tabpanel" aria-labelledby="ptab-general">
           <div class="card">
             <div class="card-header"><span class="card-title">Site defaults</span></div>
             <div class="card-body">
@@ -454,7 +454,7 @@
         </div>
 
         <!-- Server & DNS -->
-        <div id="spanel-server" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-server">
+        <div id="spanel-server" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-server">
           <div class="card">
             <div class="card-header"><span class="card-title">Server</span></div>
             <div class="card-body">
@@ -656,7 +656,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Webhooks -->
-        <div id="spanel-webhooks" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-webhooks">
+        <div id="spanel-webhooks" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-webhooks">
           <div class="card">
             <div class="card-header"><span class="card-title">Webhooks</span></div>
             <div class="card-body">
@@ -675,7 +675,7 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Notifications -->
-        <div id="spanel-notifications" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-notifications">
+        <div id="spanel-notifications" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-notifications">
           <div class="card">
             <div class="card-header"><span class="card-title">Bell notifications</span></div>
             <div class="card-body">

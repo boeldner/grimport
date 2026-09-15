@@ -7,7 +7,8 @@ const http = require('http');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { siteDir, appDir, applySiteSettings, runBuildStep } = require('../docker');
-const { requireSiteAccess, requireRole } = require('../auth');
+const { requireSiteRole, requireRole, authz, isPanelAdmin } = require('../auth');
+const { notify } = require('../notify');
 const { fireWebhooks } = require('../webhooks');
 const { sendAlert } = require('../alerts');
 const { assertPublicUrl } = require('../validate');
@@ -51,11 +52,26 @@ function historyDir(siteId) {
   return path.join(siteDir(siteId), 'history');
 }
 
-function logActivity(siteId, siteName, event, detail, actor = 'system') {
+function logActivity(siteId, siteName, event, detail, actor = 'system', targetUserId = null) {
   try {
-    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor) VALUES (?, ?, ?, ?, ?)')
-      .run(siteId, siteName, event, detail || null, actor);
+    db.prepare('INSERT INTO activity (site_id, site_name, event, detail, actor, target_user_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(siteId, siteName, event, detail || null, actor, targetUserId);
   } catch {}
+}
+
+// Support mode: an admin acting on someone else's site — log the owner as
+// target and tell them what happened.
+function supportTrail(req, row, event, detail) {
+  const ownerId = row.owner_id || null;
+  logActivity(row.id, row.name, event, detail, req.user?.username || 'system', req.supportMode ? ownerId : null);
+  if (req.supportMode && ownerId) {
+    notify({ type: 'support_action', title: `${req.user.username} (support) — ${event.replace(/_/g, ' ')} on ${row.name}`, detail: detail || null, data: { siteId: row.id, actor: req.user.username, event }, userIds: [ownerId], admins: false, force: true });
+  }
+}
+
+function assertNotSuspended(req, res, row) {
+  if (row.status === 'suspended' && !isPanelAdmin(req.user)) { res.status(423).json({ error: 'Site is suspended' }); return false; }
+  return true;
 }
 
 function saveDeployment(siteId, filename, size) {
@@ -79,17 +95,13 @@ function saveDeployment(siteId, filename, size) {
 const router = Router();
 
 // GET /api/deploy — global deployment history (filtered by site access)
-router.get('/', requireRole('admin', 'editor'), (req, res) => {
-  const rows = req.user?.role === 'admin'
-    ? db.prepare(`SELECT d.id, d.site_id, d.filename, d.size, d.deployed_at,
-          s.name AS site_name, s.domain AS site_domain
-        FROM deployments d JOIN sites s ON s.id = d.site_id
-        ORDER BY d.deployed_at DESC LIMIT 200`).all()
-    : db.prepare(`SELECT d.id, d.site_id, d.filename, d.size, d.deployed_at,
-          s.name AS site_name, s.domain AS site_domain
-        FROM deployments d JOIN sites s ON s.id = d.site_id
-        INNER JOIN site_permissions sp ON sp.site_id = d.site_id AND sp.user_id = ?
-        ORDER BY d.deployed_at DESC LIMIT 200`).all(req.user?.id);
+router.get('/', (req, res) => {
+  const scope = authz.siteScopeSql(req.user, 'd.site_id');
+  const rows = db.prepare(`SELECT d.id, d.site_id, d.filename, d.size, d.deployed_at,
+        s.name AS site_name, s.domain AS site_domain
+      FROM deployments d JOIN sites s ON s.id = d.site_id
+      WHERE ${scope.sql}
+      ORDER BY d.deployed_at DESC LIMIT 200`).all(...scope.params);
   res.json(rows);
 });
 
@@ -107,7 +119,7 @@ const upload = multer({
 });
 
 // POST /api/deploy/:id — upload a zip and deploy it to a site
-router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, upload.single('file'), asyncHandler(async (req, res) => {
+router.post('/:id', requireSiteRole('editor'), limitDeploys, upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
@@ -115,6 +127,9 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), limitDe
     fs.unlinkSync(req.file.path);
     return res.status(404).json({ error: 'Site not found' });
   }
+  if (!assertNotSuspended(req, res, row)) { try { fs.unlinkSync(req.file.path); } catch {} return; }
+  const capUpload = (req.user.capabilities?.max_upload_mb || 250) * 1024 * 1024;
+  if (req.file.size > capUpload) { try { fs.unlinkSync(req.file.path); } catch {} return res.status(413).json({ error: `Upload exceeds your limit of ${req.user.capabilities.max_upload_mb} MB` }); }
 
   const runtime = row.runtime || 'static';
   // php and static both use html/; node and python use app/
@@ -158,7 +173,7 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), limitDe
     fs.unlinkSync(req.file.path);
 
     saveDeployment(req.params.id, historyFilename, req.file.size);
-    logActivity(req.params.id, row.name, 'deployed', req.file.originalname, req.user?.username || 'system');
+    supportTrail(req, row, 'deployed', req.file.originalname);
     fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
 
     res.json({ ok: true, files: fileCount });
@@ -172,7 +187,7 @@ router.post('/:id', requireSiteAccess(), requireRole('admin', 'editor'), limitDe
 }));
 
 // GET /api/deploy/:id/history
-router.get('/:id/history', requireSiteAccess(), (req, res) => {
+router.get('/:id/history', requireSiteRole('viewer'), (req, res) => {
   const rows = db.prepare(
     'SELECT id, filename, size, deployed_at FROM deployments WHERE site_id = ? ORDER BY deployed_at DESC'
   ).all(req.params.id);
@@ -180,9 +195,10 @@ router.get('/:id/history', requireSiteAccess(), (req, res) => {
 });
 
 // POST /api/deploy/:id/rollback/:deploymentId
-router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, asyncHandler(async (req, res) => {
+router.post('/:id/rollback/:deploymentId', requireSiteRole('editor'), limitDeploys, asyncHandler(async (req, res) => {
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
+  if (!assertNotSuspended(req, res, row)) return;
 
   const dep = db.prepare('SELECT * FROM deployments WHERE id = ? AND site_id = ?')
     .get(req.params.deploymentId, req.params.id);
@@ -213,7 +229,7 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
       db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(rollbackContainerId, req.params.id);
     }
 
-    logActivity(req.params.id, row.name, 'rolled_back', dep.filename, req.user?.username || 'system');
+    supportTrail(req, row, 'rolled_back', dep.filename);
     fireWebhooks('rollback', req.params.id, row.name, dep.filename);
     res.json({ ok: true });
   } catch (err) {
@@ -223,7 +239,7 @@ router.post('/:id/rollback/:deploymentId', requireSiteAccess(), requireRole('adm
 }));
 
 // POST /api/deploy/:id/url — deploy from a public zip URL
-router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), limitDeploys, asyncHandler(async (req, res) => {
+router.post('/:id/url', requireSiteRole('editor'), limitDeploys, asyncHandler(async (req, res) => {
   const { url } = req.body;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
 
@@ -235,6 +251,7 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), lim
 
   const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Site not found' });
+  if (!assertNotSuspended(req, res, row)) return;
 
   const tmpPath = path.join('/tmp', `grimport-url-${nanoid(8)}.zip`);
 
@@ -285,7 +302,7 @@ router.post('/:id/url', requireSiteAccess(), requireRole('admin', 'editor'), lim
     fs.unlinkSync(tmpPath);
 
     saveDeployment(req.params.id, historyFilename, stat.size);
-    logActivity(req.params.id, row.name, 'deployed', parsed.hostname + parsed.pathname, req.user?.username || 'system');
+    supportTrail(req, row, 'deployed', parsed.hostname + parsed.pathname);
     fireWebhooks('deploy', req.params.id, row.name, url);
 
     res.json({ ok: true, files: fileCount });

@@ -45,12 +45,40 @@ router.put('/', (req, res) => {
   res.json({ ok: true, restart_required: acme_email !== undefined });
 });
 
-// GET /api/settings/tokens
+// GET /api/settings/tokens — every token on the panel (admin), with its owner
 router.get('/tokens', (req, res) => {
   const tokens = db.prepare(
-    'SELECT id, name, role, site_scope, expires_at, created_at, last_used FROM api_tokens ORDER BY created_at DESC'
+    `SELECT t.id, t.name, t.role, t.site_scope, t.expires_at, t.created_at, t.last_used, t.user_id, u.username AS owner
+     FROM api_tokens t LEFT JOIN users u ON u.id = t.user_id ORDER BY t.created_at DESC`
   ).all();
   res.json(tokens.map(t => ({ ...t, site_scope: t.site_scope ? JSON.parse(t.site_scope) : 'all' })));
+});
+
+// GET/PUT /api/settings/policies — multi-user policies
+const POLICY_DEFAULTS = { custom_domain_policy: 'approval', default_preset: 'beginner', invite_ttl_hours: 48 };
+router.get('/policies', (req, res) => {
+  res.json({
+    custom_domain_policy: getSetting('custom_domain_policy') || POLICY_DEFAULTS.custom_domain_policy,
+    default_preset: getSetting('default_preset') || POLICY_DEFAULTS.default_preset,
+    invite_ttl_hours: Number(getSetting('invite_ttl_hours')) || POLICY_DEFAULTS.invite_ttl_hours,
+  });
+});
+router.put('/policies', requireHumanSession, (req, res) => {
+  const { custom_domain_policy, default_preset, invite_ttl_hours } = req.body || {};
+  if (custom_domain_policy !== undefined) {
+    if (!['approval', 'free'].includes(custom_domain_policy)) return res.status(400).json({ error: 'custom_domain_policy must be approval or free' });
+    setSetting('custom_domain_policy', custom_domain_policy);
+  }
+  if (default_preset !== undefined) {
+    if (!['beginner', 'maker'].includes(default_preset)) return res.status(400).json({ error: 'default_preset must be beginner or maker' });
+    setSetting('default_preset', default_preset);
+  }
+  if (invite_ttl_hours !== undefined) {
+    const n = Number(invite_ttl_hours);
+    if (!Number.isFinite(n) || n < 1 || n > 720) return res.status(400).json({ error: 'invite_ttl_hours must be 1-720' });
+    setSetting('invite_ttl_hours', String(Math.round(n)));
+  }
+  res.json({ ok: true });
 });
 
 // POST /api/settings/tokens — a token must not mint new tokens (kills
@@ -87,8 +115,8 @@ router.post('/tokens', requireHumanSession, (req, res) => {
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const id = nanoid(10);
   db.prepare(
-    'INSERT INTO api_tokens (id, name, token_hash, role, site_scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, name.trim(), hash, tokenRole, siteScopeValue, expiresAt);
+    'INSERT INTO api_tokens (id, name, token_hash, role, site_scope, expires_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name.trim(), hash, tokenRole, siteScopeValue, expiresAt, req.user.id);
   res.json({
     id,
     name: name.trim(),

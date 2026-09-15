@@ -113,10 +113,15 @@ app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
 // token through as a principal (so requireHumanSession can tell it apart
 // from a session user) — it's requireHumanSession that draws the line.
 app.use('/api/users',           requireAuth, requireHumanSession, require('./routes/users'));
+app.use('/api/tokens',          requireAuth, require('./routes/tokens'));
+app.use('/api/domains',         requireAuth, require('./routes/domains'));
 app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
 app.use('/api/backups',         requireAuth, requireRole('admin'), requireHumanSession, require('./routes/backups'));
 
 // ── Static files ───────────────────────────────────────────
+// Invitation links look like /invite/<token>; the token stays in the URL and
+// the page reads it from location.pathname.
+app.get('/invite/:token', (req, res) => res.sendFile(path.join(__dirname, '../public/invite.html')));
 app.use(express.static(path.join(__dirname, '../public')));
 
 // ── SPA + login routing ────────────────────────────────────

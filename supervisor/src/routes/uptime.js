@@ -1,6 +1,6 @@
 const { Router } = require('express');
 const db = require('../db');
-const { requireSiteAccess } = require('../auth');
+const { requireSiteAccess, authz } = require('../auth');
 
 const router = Router();
 
@@ -37,12 +37,8 @@ router.get('/:id', requireSiteAccess(), (req, res) => {
 
 // GET /api/uptime — summary for all sites (filtered by permission for non-admins)
 router.get('/', (req, res) => {
-  const sites = req.user?.role === 'admin'
-    ? db.prepare('SELECT id FROM sites').all()
-    : db.prepare(
-        `SELECT s.id FROM sites s
-         INNER JOIN site_permissions sp ON sp.site_id = s.id AND sp.user_id = ?`
-      ).all(req.user?.id);
+  const scope = authz.siteScopeSql(req.user, 's.id');
+  const sites = db.prepare(`SELECT s.id FROM sites s WHERE ${scope.sql}`).all(...scope.params);
   const since = Math.floor(Date.now() / 1000) - 24 * 3600;
   const result = {};
   for (const site of sites) {

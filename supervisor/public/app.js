@@ -78,7 +78,11 @@ let config = { siteBaseDomain: '', sslReady: false, acmeEmail: '' };
 let searchQuery = '';
 let uptimeData = {}; // siteId → { currentStatus, uptime24h }
 let connectDomain = ''; // domain being connected from notification
-let currentUser = { role: 'admin', username: '' }; // populated on init
+let currentUser = { role: 'admin', platform_role: 'owner', capabilities: {}, username: '' }; // populated on init
+function isPanelAdmin() { return currentUser.platform_role === 'owner' || currentUser.platform_role === 'admin'; }
+function canCreateSites() { return ['owner', 'admin', 'member'].includes(currentUser.platform_role); }
+// token routes: admins manage every token under /settings/tokens, everyone else their own under /tokens
+function tokensPath(id) { return (isPanelAdmin() ? '/settings/tokens' : '/tokens') + (id ? `/${id}` : ''); }
 let cachedUpdateData = null; // latest update check result
 
 // ── API helpers ───────────────────────────────────────────
@@ -646,7 +650,7 @@ function renderSites() {
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
         <p>Upload a zip and Grimport serves it over HTTPS on your domain.</p>
-        ${currentUser.role === 'admin' ? `<button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} Create your first site</button>` : ''}
+        ${canCreateSites() ? `<button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} Create your first site</button>` : ''}
       </div>`;
     return;
   }
@@ -1165,7 +1169,7 @@ document.querySelectorAll('#modal-settings .tab').forEach(tab => {
     tab.setAttribute('aria-selected', 'true');
     document.querySelectorAll('#modal-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`stab-${tab.dataset.stab}`).classList.remove('hidden');
-    if (tab.dataset.stab === 'access' && currentUser.role === 'admin') loadSiteAccessUsers();
+    if (tab.dataset.stab === 'access' && isPanelAdmin()) loadSiteAccessUsers();
   });
 });
 
@@ -2070,6 +2074,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
 
 // ── Panel settings ────────────────────────────────────────
 async function loadPanelSettings() {
+  if (!isPanelAdmin()) { loadTokens(); return; }
   loadImageStatus();
   try {
     const s = await api('GET', '/settings');
@@ -2207,7 +2212,7 @@ async function loadTokens() {
   const list = document.getElementById('tokens-list');
   list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
-    const tokens = await api('GET', '/settings/tokens');
+    const tokens = await api('GET', tokensPath());
     renderTokens(tokens);
   } catch (err) {
     viewError(list, viewErrorMessage('API tokens', err), loadTokens);
@@ -2282,7 +2287,7 @@ function renderTokens(tokens) {
         danger: true,
       });
       if (!ok) return;
-      await api('DELETE', `/settings/tokens/${btn.dataset.revoke}`);
+      await api('DELETE', tokensPath(btn.dataset.revoke));
       toast('Token revoked', 'success');
       loadTokens();
     });
@@ -2298,7 +2303,7 @@ document.getElementById('form-create-token').addEventListener('submit', async e 
   const scopeAll = document.getElementById('token-scope-all').checked;
   const site_scope = scopeAll ? 'all' : [...document.querySelectorAll('#token-scope-sites input[name="token_site"]:checked')].map(cb => cb.value);
   try {
-    const result = await api('POST', '/settings/tokens', {
+    const result = await api('POST', tokensPath(), {
       name,
       role,
       site_scope,
@@ -2609,7 +2614,7 @@ document.getElementById('btn-onboarding-reminder-fix')?.addEventListener('click'
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
   if (!me.authenticated) { window.location.href = '/login.html'; return; }
-  currentUser = { id: me.id || '', role: me.role || 'admin', username: me.username || '' };
+  currentUser = { id: me.id || '', role: me.role || 'admin', platform_role: me.platform_role || (me.role === 'admin' ? 'admin' : me.role === 'editor' ? 'member' : 'guest'), capabilities: me.capabilities || {}, username: me.username || '', display_name: me.display_name || null };
   applyRoleUI();
   renderBottomNav();
   config = await api('GET', '/config').catch(() => config);
@@ -3002,12 +3007,21 @@ function applyRoleUI() {
   if (roleBadge) { roleBadge.textContent = role; roleBadge.dataset.role = role; }
   if (avatarEl) avatarEl.textContent = (username || '?').slice(0, 2).toUpperCase();
 
-  // Hide admin-only elements for non-admins
-  if (role !== 'admin') {
+  // Hide admin-only elements for non-admins (platform role owner/admin)
+  if (!isPanelAdmin()) {
     document.querySelectorAll('.admin-only, .nav-admin, .nav-section-admin').forEach(el => el.classList.add('hidden'));
-    const btnNew = document.getElementById('btn-new-site');
-    if (btnNew) btnNew.classList.add('hidden');
+    // Settings stays reachable for everyone (own tokens, password): open it on the Tokens tab
+    document.querySelectorAll('#view-panel-settings .tab').forEach(t => { t.classList.remove('is-active'); t.setAttribute('aria-selected', 'false'); });
+    document.querySelectorAll('#view-panel-settings .tab-panel').forEach(p => p.classList.add('hidden'));
+    const tokTab = document.getElementById('ptab-tokens'); const tokPanel = document.getElementById('spanel-tokens');
+    if (tokTab) { tokTab.classList.add('is-active'); tokTab.setAttribute('aria-selected', 'true'); }
+    if (tokPanel) tokPanel.classList.remove('hidden');
+    // Settings sits in the Admin group in the sidebar; give it its own label for members
+    const adminLabel = document.querySelector('.nav-section-admin');
+    if (adminLabel) { adminLabel.textContent = 'Account'; adminLabel.classList.remove('hidden'); }
   }
+  const btnNew = document.getElementById('btn-new-site');
+  if (btnNew) btnNew.classList.toggle('hidden', !canCreateSites());
   // Hide editor+ elements for viewers. Viewer keeps a single ungrouped
   // nav group, so its "Monitor" section label is dropped too — never
   // show a lone group label (canvas 7a).
