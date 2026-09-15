@@ -1,7 +1,6 @@
-# Grimport 1.0 — Multi-user platform plan
+# Roadmap to 1.0 — multi-user platform
 
-Status: proposal, 2026-09-15. Written for the project owner; everything here is a plan, nothing is implemented yet.
-Baseline: v0.9.6 (roles admin / editor / viewer, per-site grants, scoped API tokens, self-update, container image updates).
+Status: 2026-09-15. Baseline v0.9.6. This is the agreed direction, phased into releases. Nothing below is implemented yet; each phase lands as its own release with docs and screenshots.
 
 The goal: invite friends who know little about hosting, let them publish and manage their own sites safely, keep the ability to help them when something breaks, and let Claude (Cowork / Claude Code) deploy straight into the panel — without turning the server into a liability.
 
@@ -9,11 +8,22 @@ The goal: invite friends who know little about hosting, let them publish and man
 
 ## 0. Ground rules (apply to every phase)
 
-1. **Docs are part of the feature.** A feature is done when the wiki page, README bullet, API reference entry, screenshot and CHANGELOG line exist. Not before. See section 11.
+1. **Docs are part of the feature.** A feature is done when the wiki page, README bullet, API reference entry, screenshot and CHANGELOG line exist. See section 11.
 2. **Nothing sensitive ever enters git.** No `.env`, no database, no backups, no site content, no tokens, no real user names, no real screenshots. The public/private split is in section 10 and is enforced by tooling (gitleaks in CI + pre-commit), not by memory.
-3. **Screenshots come from demo data only.** A checked-in seed script creates fictional sites and users; the screenshot tool renders from that. Personal domains (`*.boe.zip`) never appear in the repo.
-4. **Security before invitations.** Phase 1 (tenant isolation) ships before the first invite goes out. A friend's compromised site must not be able to reach the panel, other sites, or the host.
+3. **Screenshots come from demo data only.** A checked-in seed script creates fictional sites and users; the screenshot tool renders from that.
+4. **Security before invitations.** Phase 1 (tenant isolation) and the panel hardening in Phase 2 ship before the first invite goes out.
 5. **Every action has an actor.** Everything a user or admin does on someone else's site is written to the activity log with `actor`, `target_user` and `site_id`. Support access is transparent, never silent.
+
+## Settled policies
+
+- Invitations are **link-only** (no e-mail, no SMTP).
+- Custom domains for members **require owner approval**; members get `slug.<base domain>` automatically.
+- The default capability preset for invited friends is **Beginner** (static sites only, small quotas). Makers are upgraded individually.
+- The panel is reached **without Cloudflare Access**; Grimport's own authentication must therefore be watertight (2FA, lockout, session and header hardening — Phase 2, step 12). Cloudflare stays in front as proxy/WAF.
+- **LLM-assisted deploy review is deferred.** Reviews happen manually with Claude on request or weekly; the static content scanner (Phase 4) is still planned.
+- **MCP ships remote-first**: a token-authenticated `/mcp` endpoint on the panel so Cowork connects directly; the local stdio package is the fallback for Claude Code.
+- Egress for app sites in v1: **iptables `DOCKER-USER` rules** that block RFC1918, the host and the management network from site networks, plus a per-container new-connection rate limit. A proxy with per-site allow-lists is a later option.
+- Design sources and internal planning notes stay **out of the repository** (kept privately).
 
 ---
 
@@ -21,7 +31,7 @@ The goal: invite friends who know little about hosting, let them publish and man
 
 | Persona | Who | Knows | Wants |
 |---|---|---|---|
-| **Owner** | You. Runs the server, pays for it. | Docker, DNS, everything | Invite people, set limits, fix things fast, sleep at night |
+| **Owner** | Runs the server, pays for it. | Docker, DNS, everything | Invite people, set limits, fix things fast, sleep at night |
 | **Beginner** | A friend with a wedding page, a club site, a portfolio | Drag-and-drop, a Webflow/Framer export | "Put this online under a nice address, keep it online" |
 | **Maker** | A friend who builds small Node/PHP/Python apps | Some coding, git, maybe Docker | A place to run an app, logs, env vars, a custom domain |
 | **Agent** | Claude in Cowork or Claude Code, acting for the Owner or a Maker | The API, via MCP | Create a site and deploy a build output in one step, read logs when it fails |
@@ -31,11 +41,11 @@ Use cases (UC-n are referenced from the phases):
 
 - **UC-1 Invite.** Owner creates an invitation (name, role, quota) and sends the link via chat. Friend opens it, picks username + password, lands in a guided first-run.
 - **UC-2 First site, beginner.** Beginner drags a zip, gets `name.sites.example` automatically, sees "Online" with a link. No DNS, no runtime choice, no headers. Advanced settings hidden.
-- **UC-3 Custom domain.** Beginner or Maker wants `their-domain.tld`. They enter it, the panel shows the exact DNS record, the Owner approves (or auto-approve if the policy allows), DNS check goes green.
+- **UC-3 Custom domain.** Beginner or Maker wants `their-domain.tld`. They enter it, the panel shows the exact DNS record, the Owner approves, DNS check goes green.
 - **UC-4 App site, maker.** Maker creates a Node site, sets start command + env vars, deploys, watches logs, sees CPU/RAM.
 - **UC-5 Something is down.** Friend gets a push/bell notification, sees "Container exited (out of memory)", can restart or roll back themselves. Owner sees the same in their feed and can step in.
 - **UC-6 Support.** Owner opens the friend's site with a visible "support mode" banner, fixes the deploy, the friend gets a notification "Owner rolled back Bakery to deploy #4".
-- **UC-7 Agent deploy.** From Cowork: "publish this folder to my portfolio site". The MCP zips the folder, deploys to a preview, the security check runs, the agent reports the preview URL, the user says "go live".
+- **UC-7 Agent deploy.** From Cowork: "publish this folder to my portfolio site". The MCP zips the folder, deploys to a preview, the content scanner runs, the agent reports the preview URL, the user says "go live".
 - **UC-8 Abuse.** A hosted site turns out to be phishing or a miner. Owner suspends the site (maintenance page, container stopped) and the user, with one click each, and the audit log shows what happened.
 - **UC-9 Leaving.** A friend leaves: their sites are transferred to the Owner or deleted, tokens revoked, data exported on request.
 - **UC-10 Phone.** Everything in UC-5 and UC-6 works from a phone, installed as a PWA with push notifications.
@@ -47,7 +57,7 @@ Use cases (UC-n are referenced from the phases):
 ### Today
 `admin` (everything), `editor` (deploy + settings on granted sites), `viewer` (read granted sites). Grants live in `site_permissions`. Tokens carry a role and an optional site scope.
 
-### Proposed
+### Target
 
 Two layers: a **platform role** and a **site role**.
 
@@ -72,18 +82,18 @@ Owner/admin have implicit `owner` on every site ("support access", see section 4
 
 **Capabilities and quotas per member** (set at invite time, editable later; stored as JSON on the user)
 
-| Capability | Default for a Beginner | Default for a Maker |
+| Capability | Beginner (default) | Maker |
 |---|---|---|
 | `runtimes` | `["static"]` | `["static","php","node","python"]` |
 | `max_sites` | 3 | 10 |
 | `max_upload_mb` | 100 | 250 |
 | `disk_quota_mb` | 1000 | 5000 |
-| `custom_domains` | `approval` (Owner approves) | `approval` |
+| `custom_domains` | `approval` | `approval` |
 | `subdomain_base` | inherited from panel setting | inherited |
 | `api_tokens` | yes, scoped to own sites | yes |
 | `webhooks` | no | own sites |
 
-**Capability matrix** (who may do what)
+**Capability matrix**
 
 | Action | owner/admin | member (own site) | site editor | site viewer |
 |---|---|---|---|---|
@@ -103,7 +113,7 @@ Owner/admin have implicit `owner` on every site ("support access", see section 4
 
 **Data model changes**
 
-- `users`: add `email` (nullable), `display_name`, `status` (`invited`, `active`, `disabled`), `platform_role`, `capabilities` (JSON), `totp_secret` (nullable), `last_login_at`.
+- `users`: add `email` (nullable, informational), `display_name`, `status` (`invited`, `active`, `disabled`), `platform_role`, `capabilities` (JSON), `totp_secret` (nullable), `last_login_at`.
 - `invitations`: `id`, `token_hash`, `created_by`, `platform_role`, `capabilities`, `expires_at`, `used_by`, `used_at`.
 - `sites`: add `owner_id`, `status` (`active`, `suspended`, `quarantined`), `disk_bytes` (cached).
 - `site_members`: `site_id`, `user_id`, `site_role` (replaces `site_permissions`, migrated).
@@ -112,7 +122,7 @@ Owner/admin have implicit `owner` on every site ("support access", see section 4
 - `activity`: add `target_user_id`. Existing `actor` stays.
 - `domain_requests`: `site_id`, `domain`, `requested_by`, `status`, `decided_by`.
 
-Migration: existing `admin` becomes `owner` (first admin) or `admin`; existing `editor`/`viewer` users become `guest` with the matching site role on each granted site; all existing sites get `owner_id` = the owner.
+Migration: the first existing `admin` becomes `owner`, further admins stay `admin`; existing `editor`/`viewer` users become `guest` with the matching site role on each granted site; all existing sites get `owner_id` = the owner.
 
 ---
 
@@ -151,24 +161,28 @@ Cross-cutting: every route that reads a site must go through one `requireSiteRol
 ## 4. Login, invitations, onboarding, learning, support
 
 ### Invitations (UC-1)
-- Owner: Settings → Users → "Invite" → name, platform role, capability preset (Beginner / Maker / custom) → the panel shows a one-time link (48 h). No email required; the link is pasted into a chat. Optional SMTP later.
-- Friend: opens link → picks username + password (zxcvbn strength meter, min 10) → optional TOTP → lands in first-run.
-- Invitation tokens are hashed at rest, single-use, revocable.
+- Owner: Settings → Users → "Invite" → name, platform role, capability preset (Beginner / Maker / custom) → the panel shows a one-time link (48 h). The link is pasted into a chat.
+- Friend: opens link → picks username + password (zxcvbn strength meter, minimum 10 characters) → optional TOTP → lands in first-run.
+- Invitation tokens are hashed at rest, single-use, revocable, and rate-limited per IP.
 
-### Login
-- Keep username + password + rate limit. Add TOTP (optional for members, required for owner/admin), recovery codes, a sessions list with "sign out everywhere", "remember this device" (30 days).
-- Passkeys (WebAuthn) as a later phase; the session store already supports multiple sessions.
-- Cloudflare Access decision (section 13): either every friend also gets a Cloudflare Access identity (extra friction, extra safety), or the panel host is exempted from Access and relies on Grimport's own auth + 2FA + Cloudflare WAF/rate limiting. Recommendation: exempt the panel, require 2FA for owner/admin, keep Access for nothing else.
+### Login and panel hardening (the panel is public, so this must hold on its own)
+- Username + password with progressive lockout (per account and per IP) on top of the existing rate limit; failed-login alerts to the owner.
+- TOTP required for owner/admin, optional for members; recovery codes; sessions list with "sign out everywhere"; "remember this device" (30 days).
+- Passkeys (WebAuthn) as a later phase.
+- Sessions: `Secure` cookies once the panel is served over HTTPS at the edge (Cloudflare proxy sets `X-Forwarded-Proto`), `SameSite=Lax` plus a custom-header check on mutating requests (CSRF), short idle timeout for admins.
+- Headers: strict Content-Security-Policy for the panel (no inline scripts after moving the remaining inline handlers), HSTS, frame-ancestors none.
+- The panel answers only on `SUPERVISOR_DOMAIN`; unknown hostnames keep getting the catch-all page, never the login form.
+- Cloudflare in front: proxy on, "Always use HTTPS", WAF managed rules, rate-limiting rule on `/api/auth/*` and `/invite/*`, bot fight mode.
+- Dependency audit (`npm audit`, Dependabot) in CI; secrets scanning (section 10).
 
 ### First-run per role (UC-2)
 - Member first-run: three steps. "Your address" (shows `name.base`), "Your first site" (drop zip, or pick a starter template: blank / one-page / portfolio / coming-soon), "Where to look when something breaks" (points at status, logs, the bell). Ends with the site live.
 - Beginner mode (capability `advanced_ui: false`): site settings show only Name and Domain; Behaviour/Access/App tabs move behind "Advanced settings" and are off by default. Deploy modal loses the URL tab.
-- Contextual help: every field with a `field-help` gets a "Learn more" link into the wiki page section. A "Help" entry in the drawer opens the Getting-Started page in-panel (iframe of the wiki is fine).
+- Contextual help: every field with a `field-help` gets a "Learn more" link into the wiki page section. A "Help" entry in the drawer opens the Getting-Started page in-panel.
 
 ### Support mode (UC-6)
 - Owner/admin opening a site they do not own sees a persistent banner "Support mode — Anna's site. Actions are logged and Anna is notified."
 - Every mutating action creates an activity row with `target_user_id` and a notification for the site owner.
-- Optional later: "ask before acting" — the member can require approval for destructive actions (delete, domain change) even by support.
 
 ### Leaving (UC-9)
 - Delete user → dialog: transfer sites to owner (default) or delete sites. Tokens revoked, sessions killed, invitations cancelled. Export: "Download my sites" zip (per-site export from Backups).
@@ -177,9 +191,9 @@ Cross-cutting: every route that reads a site must go through one `requireSiteRol
 
 ## 5. UI/UX polish — compact density
 
-The redesign shipped at a comfortable density; the request is a tighter, more "utility" feel. One pass over the design tokens, no new components:
+The redesign shipped at a comfortable density; the target is a tighter, more "utility" feel. One pass over the design tokens, no new components:
 
-| Token / element | Now | Proposed |
+| Token / element | Now | Target |
 |---|---|---|
 | Body font | 14 px | 13 px |
 | View title | 20 / 600 | 18 / 600 |
@@ -197,43 +211,42 @@ The redesign shipped at a comfortable density; the request is a tighter, more "u
 
 Further:
 - One primary button per view. Card rows use secondary buttons only; "Deploy" stays primary because it is the main action.
-- Optional **list view** for Sites (dense table: name, domain, status, uptime, runtime, actions) remembered per user; the card grid stays the default on phones.
-- Reduce the number of visible tags on cards; runtime and SPA move to a hover/tooltip row on small widths.
-- A "Density: comfortable / compact" toggle is not planned; ship one compact scale and adjust from feedback.
+- **List view** for Sites (dense table: name, domain, status, uptime, runtime, actions) remembered per user; the card grid stays the default on phones.
+- Fewer visible tags on cards; runtime and SPA move to a tooltip row on small widths.
+- No density toggle; ship one compact scale and adjust from feedback.
 - Regenerate all screenshots after the pass (section 11).
 
 ---
 
 ## 6. PWA and mobile
 
-- `manifest.webmanifest`: name, short name, `display: standalone`, `start_url: /`, theme/background colours for both themes, icons 192/512 (+ maskable) generated from the SVG logo at build time (a small script in `tools/`, output committed).
+- `manifest.webmanifest`: name, short name, `display: standalone`, `start_url: /`, theme/background colours for both themes, icons 192/512 (+ maskable) generated from the SVG logo by a script in `tools/`, output committed.
 - Service worker: precache the app shell (HTML, CSS, JS, logo), network-first for `/api/*`, offline page for the shell, `skipWaiting` + a toast "New version — reload" when the panel updates itself.
-- iOS: `apple-touch-icon`, `apple-mobile-web-app-capable`, status-bar style, `viewport-fit=cover` and safe-area insets on the top bar and bottom tab bar (bottom already has it).
+- iOS: `apple-touch-icon`, `apple-mobile-web-app-capable`, status-bar style, `viewport-fit=cover` and safe-area insets on the top bar and bottom tab bar.
 - Touch: minimum 44 px targets on phone (card buttons, overflow menu rows), pull-to-refresh on Sites, swipe to close the drawer.
 - Web push (UC-5, UC-10): VAPID key pair generated on first run and stored in the DB (private), subscription per user + device, events: site_down, site_up, deploy_failed, security_review. Falls back to ntfy where push is unavailable.
 - "Install" hint once per device after the second visit.
 
 ---
 
-## 7. MCP server for Claude (Cowork / Claude Code) — UC-7
+## 7. MCP for Claude (Cowork / Claude Code) — UC-7
 
-**Package** `grimport-mcp` in `mcp/` (published to npm later): a stdio MCP server; configuration via `GRIMPORT_URL`, `GRIMPORT_TOKEN`, optional `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` for panels behind Cloudflare Access.
+**Remote-first.** The panel exposes `/mcp` (Streamable HTTP) authenticated with a Grimport API token scoped to the user's sites. Cowork and Claude Code connect to `https://<panel>/mcp` directly; nothing to install. Cloudflare stays in proxy mode in front (no Access on the panel), so no service token dance is needed.
 
-Tools (all thin wrappers over the existing REST API):
+Tools (thin wrappers over the existing REST API):
 - `list_sites`, `get_site(id)`, `get_site_status(id)` (container, uptime, DNS)
 - `create_site(name, domain?, runtime?)` — domain defaults to the caller's subdomain policy
-- `deploy_directory(site_id, path, preview?)` — zips a local folder (respecting `.gitignore`), uploads, returns the deploy summary and URL
-- `deploy_zip(site_id, zip_path, preview?)`, `deploy_url(site_id, url)`
+- `deploy_zip(site_id, zip_base64 | upload_url, preview?)`, `deploy_url(site_id, url)`
 - `preview_swap(site_id)`, `preview_discard(site_id)`, `rollback(site_id, deployment_id)`
 - `get_logs(site_id, lines)`, `get_deploy_history(site_id)`
 - `set_maintenance(site_id, on)`, `set_env_vars(site_id, vars)` (Maker capability only)
-Resources: `grimport://sites` (list), `grimport://sites/{id}/logs`. Prompt: `publish-project` ("zip this build output, deploy to preview, report the URL, wait for go-live").
+Resources: `grimport://sites`, `grimport://sites/{id}/logs`. Prompt: `publish-project` ("deploy this build output to preview, report the URL, wait for go-live").
 
-**Server side**: nothing new for v1 — it runs on the existing API with a scoped, expiring token created by the user for "Claude". Add `GET /api/me` (rights, quota, subdomain base) so the agent can explain limits instead of failing.
+**Local fallback.** `grimport-mcp` in `mcp/`: a stdio server with the same tools plus `deploy_directory(site_id, path)` (zips a local folder respecting `.gitignore`), for Claude Code on a machine that has the files.
 
-**Later**: a remote MCP endpoint (`/mcp`, Streamable HTTP, token auth) so Cowork connects without a local install. Behind Cloudflare Access this needs an Access bypass rule for `/mcp` (the endpoint authenticates itself) or a service token.
+**Server side.** `GET /api/me` (rights, quota, subdomain base) so the agent can explain limits instead of failing; MCP session auth reuses token auth; per-token rate limit.
 
-**Safety**: agent deploys follow the same review pipeline as human deploys (section 8); agent tokens default to `preview` deploys, "go live" stays a human click unless the user opts in.
+**Safety.** Agent deploys go through the same content scanner as human deploys; agent tokens default to preview deploys, "go live" stays a human click unless the user opts in.
 
 ---
 
@@ -243,64 +256,43 @@ Resources: `grimport://sites` (list), `grimport://sites/{id}/logs`. Prompt: `pub
 A member (or their leaked token, or an agent gone wrong) deploys content or code that:
 1. attacks the panel or other sites from inside the Docker network,
 2. exhausts host resources (CPU, memory, disk, PIDs, bandwidth),
-3. abuses the server for spam, scanning, crypto-mining, or as a C2/relay,
+3. abuses the server for spam, scanning, crypto-mining, or as a relay,
 4. serves phishing, malware, or illegal content under your domain,
 5. leaks secrets (their own or others') via the served files.
 
-### What the code does today (facts from v0.9.6)
-- Site containers, Traefik and the supervisor all share one Docker network (`webhost-net`). A site container can reach `webhost-supervisor:3000` directly — bypassing Cloudflare Access — and any other site container.
-- No resource limits on site containers (memory, CPU, PIDs). One runaway app can take the host down.
-- Processes run as root inside the container (`nginx:alpine`, `node`, `python`, `php` images).
+### Starting point (v0.9.6)
+- Site containers, Traefik and the supervisor share one Docker network (`webhost-net`). A site container can reach `webhost-supervisor:3000` directly and any other site container.
+- No resource limits on site containers (memory, CPU, PIDs).
+- Processes run as root inside the container.
 - Unrestricted egress from every site container.
-- Deploy: 250 MB upload limit, zip-slip check, atomic swap. No limit on entry count or uncompressed size (zip bomb), no disk quota, no content inspection.
+- Deploy: 250 MB upload limit, zip-slip check, atomic swap. No limit on entry count or uncompressed size, no disk quota, no content inspection.
 - Node/Python/PHP sites run arbitrary code with their app directory mounted read-write.
-- Unknown domains hit the supervisor catch-all; the panel itself is reachable on the tunnel hostname only.
 
 ### Mitigations
 
-**Phase 1 — isolation and limits (ship before the first invite)**
+**Phase 1 — isolation and limits (before the first invite)**
 - One Docker network per site (`webhost-site-<id>`, `internal` for static sites). Traefik joins each site network; the supervisor moves to a separate `webhost-mgmt` network that only Traefik and the supervisor share. Sites cannot reach the panel or each other.
-- Egress policy: static sites need none (`internal: true`). App sites get egress through a small forward proxy container (allow-list of hostnames per site, HTTPS only) — or, simpler for v1, an iptables `DOCKER-USER` rule set that blocks RFC1918 and the host from site networks and rate-limits new outbound connections. Document the chosen approach in the wiki.
+- Egress: static sites need none (`internal: true`). App sites get `DOCKER-USER` iptables rules that block RFC1918, the host and the management network, plus a per-container rate limit on new outbound connections. Documented in the wiki; the compose file installs the rules through a tiny init container.
 - Per-container limits in `createSiteContainer` / `createAppContainer`: `Memory` (256 MB static, 512 MB app, per-user override), `NanoCpus` (0.5), `PidsLimit` (256), `CapDrop: ALL` (+ `NET_BIND_SERVICE` only where needed), `SecurityOpt: no-new-privileges`, read-only root filesystem for static sites with a tmpfs for nginx cache/pid, default seccomp profile, `Ulimits` for open files.
-- Non-root images: `nginxinc/nginx-unprivileged:alpine` for static (port 8080), `USER node` for Node, `USER 1000` for Python, PHP via `php:8.3-apache` with `APACHE_RUN_USER` and a non-root port. These become new entries in `RUNTIME_IMAGES`; the container-update job recreates existing containers.
-- Deploy hardening: max entries (20 000), max uncompressed size (4 × upload limit), reject symlinks and device files, reject files outside the allowed set for static sites (no `.php`, `.cgi`, `.htaccess` effects — nginx ignores them but they signal intent), per-user disk quota checked before extraction, deploy rate limit per user.
+- Non-root images: `nginxinc/nginx-unprivileged:alpine` for static (port 8080), `USER node` for Node, `USER 1000` for Python, PHP via `php:8.3-apache` with a non-root port. New entries in `RUNTIME_IMAGES`; the container-update job recreates existing containers.
+- Deploy hardening: max entries (20 000), max uncompressed size (4 × upload limit), reject symlinks and device files, per-user disk quota checked before extraction, deploy rate limit per user.
 - Runtime policy per user (`runtimes` capability): Beginners get static only. App runtimes are an explicit grant.
-- Domain policy: members get `slug.base` automatically; anything else is a request the owner approves. Prevents a member from claiming `login.yourbank.tld`-style hostnames on your server and catches typosquats of your own domains.
+- Domain policy: members get `slug.base` automatically; anything else is a request the owner approves.
 - API rate limits per user and per token; token creation requires the user's password (re-auth).
 
 **Phase 4 — content safety on deploy**
-- Static scanner (runs in the supervisor, pure Node, no network): secret patterns (AWS keys, private keys, `.env` files), obfuscated or packed JS heuristics, known crypto-miner script signatures and domains, external `<script src>` not on an allow-list, forms posting to third-party hosts, password/credit-card fields combined with well-known brand names (phishing), executables and archives inside the bundle, base64 blobs over a size threshold, `meta refresh`/JS redirects to external hosts on the index page.
+- Static scanner (runs in the supervisor, pure Node, no network): secret patterns (cloud keys, private keys, `.env` files), obfuscated or packed JS heuristics, known crypto-miner script signatures and domains, external `<script src>` not on an allow-list, forms posting to third-party hosts, password/credit-card fields combined with well-known brand names (phishing), executables and archives inside the bundle, base64 blobs over a size threshold, `meta refresh`/JS redirects to external hosts on the index page.
 - Verdict: `clean` → go live; `review` → deploy lands as a preview ("quarantined"), owner notified with findings, member sees "waiting for review"; `blocked` → deploy rejected with the reasons. Per-site allow-list for false positives, admin-editable.
+- Manual review: the owner reviews flagged deploys (with Claude on request); findings and decisions are logged. Automated LLM review is deferred.
 - Suspend controls (UC-8): "Suspend site" (maintenance page + container stopped + tokens frozen) and "Suspend user" (sessions killed, all their sites suspended). Both one click, both logged, both reversible.
-- Legal/hygiene: invitation page shows short house rules (no phishing, no mining, no illegal content, we may suspend); acceptance is stored with timestamp.
-- Public-facing sites: keep Cloudflare proxy in front (WAF, rate limiting, bot fight mode) — the panel cannot replace that.
-
-**Phase 6 — LLM review** (section 9) sits on top of the scanner, never replaces it.
+- House rules on the invitation page (no phishing, no mining, no illegal content, we may suspend); acceptance stored with timestamp.
+- Public-facing sites keep the Cloudflare proxy in front (WAF, rate limiting, bot fight mode).
 
 ---
 
-## 9. LLM review pipeline (n8n + Claude Code agent in a Proxmox CT)
+## 9. Deploy review — deferred
 
-Question: can the Claude Code agent running in the Proxmox container answer n8n calls and review a published app? Yes, with a small wrapper. Two ways to get there:
-
-**Option A — direct, no extra infrastructure (recommended for v1)**
-Grimport calls the Anthropic API itself (Sonnet) after the static scan: it sends a manifest (file list, sizes, types, scanner findings) plus the text of a capped set of files (index.html, top-level JS, package.json, anything the scanner flagged; total under ~200 KB) and asks for a strict JSON verdict `{ risk: "low|medium|high", findings: [{ file, line?, category, explanation }], summary }`. The API key lives in panel settings (encrypted at rest with `SUPERVISOR_SECRET`), never in git. Cost: cents per deploy. Latency: seconds. One day of work.
-
-**Option B — orchestrated via n8n, executed by the Claude Code agent in the CT**
-1. Grimport fires a webhook `deploy.review_requested` with the deploy id and a one-time download URL for the bundle (token, 15 min).
-2. n8n receives it, downloads the bundle, and calls a tiny **agent gateway** in the Proxmox CT (HTTP, HMAC-signed, IP allow-listed, one job at a time, workspace wiped per job).
-3. The gateway unpacks the bundle into a throwaway directory and runs Claude Code headless: `claude -p "<review prompt>" --output-format json --allowedTools Read,Grep,Glob` with the working directory set to the bundle. The agent can run `npm audit` on `package.json`, inspect dependencies, follow includes — deeper than Option A.
-4. The gateway returns the JSON verdict; n8n posts it to `POST /api/deploy/:id/review` (service token, scoped to reviews only).
-5. Grimport applies the verdict (go live / hold / notify) exactly as with the scanner.
-
-Option B is the right place for agentic depth (dependency audits, "does this app phone home", "is this a copy of a bank login page") and for anything you want to keep off the public API key. It needs the gateway (a 150-line Fastify service), an n8n workflow (committed as a template without credentials), and the review endpoint.
-
-**Prompt-injection hardening** (both options)
-- Site content is untrusted input. It goes into the prompt inside clear delimiters with the instruction that nothing inside can change the task.
-- The static scanner's verdict is authoritative. The LLM can raise risk, never lower it; a `blocked` stays blocked.
-- Output is validated against a JSON schema; free text is displayed to admins only, never executed or rendered as HTML.
-- The agent gets read-only tools and no network beyond the model API. The gateway CT has no access to the Docker socket, the panel, or the tunnel.
-- Reviews are logged with model, prompt version and verdict, so a bad call can be replayed and the prompt improved.
+Automated LLM review of deploys (direct API or an agent gateway driven by n8n) is not scheduled. Flagged deploys from the Phase 4 scanner are reviewed by the owner, with Claude on request. If automation becomes necessary later, the scanner's verdict stays authoritative, a model may only raise the risk level, output must match a JSON schema, and site content is always treated as untrusted input.
 
 ---
 
@@ -309,18 +301,16 @@ Option B is the right place for agentic depth (dependency audits, "does this app
 | Public (repo) | Private (never committed) |
 |---|---|
 | Supervisor code, tests, Dockerfile, compose | `.env`, `data/` (SQLite, sites, backups, certs) |
-| Wiki, README, this plan, CHANGELOG | API tokens, session secret, VAPID keys, Anthropic API key |
-| Demo seed script (fictional sites/users) | Real user names, emails, domains, screenshots of the live panel |
-| Screenshot tool and the PNGs it produces from demo data | Cloudflare Access / tunnel configuration, service tokens |
-| MCP package source | `mcp/.env`, any token files |
-| n8n workflow **templates** (credentials referenced by name only) | n8n credential exports, gateway HMAC secret, CT hostnames/IPs |
-| Agent gateway source and its review prompt | Review results, uploaded bundles |
-| CI workflows | The "Grimport Panel UI Redesign.zip" design source stays out unless you decide otherwise |
+| Wiki, README, this roadmap, CHANGELOG | API tokens, session secret, VAPID keys |
+| Demo seed script (fictional sites/users) | Real user names, e-mails, domains, screenshots of the live panel |
+| Screenshot tool and the PNGs it produces from demo data | Cloudflare configuration |
+| MCP source | `mcp/.env`, any token files |
+| CI workflows | Design sources and internal planning notes (`private/`) |
 
 Enforcement:
 - `gitleaks` as a pre-commit hook (documented in CONTRIBUTING) and as a CI job that fails the build.
-- `.gitignore` additions: `*.pem`, `*.key`, `mcp/.env`, `n8n/credentials*`, `tools/screenshots/out-live/`, `docs/roadmap/private/`.
-- The screenshot tool refuses to run against any host other than `localhost` unless `--i-know` is passed, and never runs with `NODE_ENV=production` data.
+- `.gitignore`: `private/`, `*.pem`, `*.key`, `mcp/.env`, `tools/screenshots/out-live/`.
+- The screenshot tool refuses to run against any host other than `localhost`.
 - A PR checklist in `.github/pull_request_template.md`: docs updated, screenshots regenerated from demo data, no secrets, migration reversible.
 
 ---
@@ -331,11 +321,9 @@ Definition of done for every feature or fix:
 1. Wiki page or section updated (`docs/wiki/`), including the "why", not only the "how".
 2. README: feature bullet and "What's new" line for the next version.
 3. API reference entry for every new or changed route, with auth requirements.
-4. Screenshot(s) regenerated: `npm run demo-seed` (fictional data: sites like "Bakery landing", "Board-game club", "Sourdough diary"; users "owner", "anna", "ben") then `npm run screenshots` (the puppeteer harness from the audit, moved into `tools/`), committed under `docs/screenshots/`.
-5. CHANGELOG.md entry (new file; the release workflow already builds notes from commits, the changelog is the human version).
+4. Screenshot(s) regenerated: `npm run demo-seed` (fictional data: sites like "Bakery landing", "Board-game club", "Sourdough diary"; users "owner", "anna", "ben") then `npm run screenshots` (the puppeteer harness from the audit, moved into `tools/`), committed under `docs/screenshots/`. The current `docs/*.png` are from v0.5 and get replaced in Phase 0.
+5. CHANGELOG.md entry (the release workflow builds notes from commits; the changelog is the human version).
 6. Tests for backend behaviour; the auth matrix script extended for every new role/route pair.
-
-Move the existing audit harness into the repo (`tools/demo-seed.js`, `tools/screenshots.js`) in Phase 0 so that this rule is cheap to follow.
 
 ---
 
@@ -353,48 +341,30 @@ Sizes: S = a day, M = a few days, L = a week or more. Each phase is one release 
 5. Per-site networks + management network; supervisor unreachable from sites. (M)
 6. Container limits, cap drop, no-new-privileges, non-root images; container-update job recreates existing sites. (M)
 7. Deploy hardening: zip limits, disk quota, per-user rate limits. (S)
-8. Runtime and domain policy settings (defaults only; per-user in Phase 2). (S)
+8. Egress rules for app sites. (S)
 9. Wiki: "Security model" page describing all of the above. (S)
 
 **Phase 2 — Multi-user core (0.12)**
 10. Data model migration: platform roles, `site_members`, `owner_id`, per-user notifications and tokens, invitations, capabilities/quotas. (L)
 11. `requireSiteRole` everywhere; auth matrix tests for every route × role. (M)
-12. Invitations UI + accept flow; profile self-service; TOTP. (M)
-13. Scoping in every view (section 3); Overview/Activity/bell per user; per-user tokens and ntfy. (M)
-14. Support mode banner + notifications; suspend site/user; transfer/delete user flows. (M)
-15. Custom domain requests + approval queue. (S)
+12. Panel hardening (section 4): lockout, TOTP, sessions, CSRF, CSP, Cloudflare rules. (M)
+13. Invitations UI + accept flow; profile self-service. (M)
+14. Scoping in every view (section 3); Overview/Activity/bell per user; per-user tokens and ntfy. (M)
+15. Support mode banner + notifications; suspend site/user; transfer/delete user flows. (M)
+16. Custom domain requests + approval queue. (S)
 
 **Phase 3 — Onboarding and learning (0.13)**
-16. Per-role first-run, starter templates, Beginner mode (Advanced toggle), contextual help links, in-panel Help. (M)
-17. House rules on the invitation page. (S)
+17. Per-role first-run, starter templates, Beginner mode (Advanced toggle), contextual help links, in-panel Help. (M)
+18. House rules on the invitation page. (S)
 
 **Phase 4 — Content safety (0.14)**
-18. Static scanner + verdicts + quarantine preview + allow-lists + admin notifications. (L)
-19. LLM review, Option A (direct API) behind a setting. (S)
+19. Static scanner + verdicts + quarantine preview + allow-lists + owner notifications; manual review flow. (L)
 
 **Phase 5 — MCP (0.15)**
-20. `grimport-mcp` stdio package, `GET /api/me`, Cowork/Claude Code recipes in the wiki. (M)
-21. Remote MCP endpoint + Cloudflare Access recipe. (M, later)
+20. Remote `/mcp` endpoint with token auth, `GET /api/me`, Cowork recipe in the wiki. (M)
+21. Local stdio package with `deploy_directory`, Claude Code recipe. (S)
 
-**Phase 6 — Agentic review (0.16)**
-22. Agent gateway in the Proxmox CT, n8n workflow template, `POST /api/deploy/:id/review`, replay log. (M)
-
-**Phase 7 — PWA advanced (0.17)**
-23. Web push with VAPID, per-device subscriptions, event preferences; pull-to-refresh; offline page. (M)
+**Phase 6 — PWA advanced (0.16)**
+22. Web push with VAPID, per-device subscriptions, event preferences; pull-to-refresh; offline page. (M)
 
 Then 1.0.
-
----
-
-## 13. Decisions needed from the owner
-
-1. Invitations by link only (recommended) or also by email (needs SMTP settings)?
-2. Custom domains for members: approval required (recommended) or allowed freely?
-3. Default capability preset for friends: Beginner (static only) — agreed?
-4. Cloudflare Access on the panel: keep for everyone (each friend needs an Access identity) or exempt the panel and rely on Grimport auth + 2FA (recommended)?
-5. LLM review: start with Option A (direct API, one day) — agreed? Option B follows once the gateway exists.
-6. MCP: local package first (recommended), remote endpoint later?
-7. Egress for app sites: proxy with allow-list (safer, more work) or iptables block-private-only (simpler)?
-8. The design zip in the repo root: keep private (recommended) or commit under `docs/design/`?
-
-Answer these and Phase 0 can start.

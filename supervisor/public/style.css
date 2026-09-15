@@ -16,7 +16,7 @@
   }
 }
 
-/* ── Design tokens — macOS-native system (docs/design/design-system.md) ── */
+/* ── Design tokens — macOS-native system ── */
 :root {
   /* surfaces */
   --bg:      #f5f5f7;   /* desktop/backmost */
@@ -2079,7 +2079,7 @@ code {
 /* ══════════════════════════════════════════════════════════════
    Component layer — v0.9.5 redesign (task A2)
    New reusable classes built directly on the token layer above
-   (docs/design/design-system.md). These are ADDITIVE: existing
+   These are ADDITIVE: existing
    view-specific rules elsewhere in this file are left untouched
    so the app keeps rendering; screens are migrated onto this
    layer by later tasks (B/C/D…). Names were chosen to avoid

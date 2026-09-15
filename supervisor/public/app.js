@@ -651,7 +651,7 @@ function renderSites() {
 }
 
 // Container lifecycle → { cls, label, error }. `cls` maps 1:1 onto the
-// design-system .status-<cls> classes (docs/design/design-system.md
+// design-system .status-<cls> classes (see style.css "Status indicators"
 // "Status vocabulary"); glyph + label + colour, never colour alone.
 function statusInfo(container) {
   if (!container) return { cls: 'unknown', label: 'Unknown', error: false };

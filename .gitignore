@@ -30,3 +30,6 @@ push.sh
 .idea/
 .vscode/
 *.swp
+
+# Private material — design sources, internal planning notes, anything not for the public repo
+private/

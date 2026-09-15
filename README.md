@@ -250,7 +250,7 @@ See the full endpoint list, including auth/role requirements, in the [API Refere
 
 ## Roadmap
 
-The plan for 1.0 — inviting friends with roles and quotas, tenant isolation, content safety, an MCP server for Claude, PWA — is in [docs/roadmap/multi-user-platform.md](docs/roadmap/multi-user-platform.md).
+The roadmap to 1.0 — inviting friends with roles and quotas, tenant isolation, content safety, MCP for Claude, PWA — is in [docs/roadmap/multi-user-platform.md](docs/roadmap/multi-user-platform.md).
 
 ---
 

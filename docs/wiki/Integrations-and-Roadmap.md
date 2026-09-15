@@ -36,7 +36,7 @@ Automatic certificate issuance and renewal. See [SSL & HTTPS](SSL-and-HTTPS).
 
 ## Roadmap towards 1.0
 
-The multi-user platform plan (invitations, roles and quotas, tenant isolation, content safety with LLM review, MCP server for Claude, PWA) lives in [docs/roadmap/multi-user-platform.md](https://github.com/boeldner/grimport/blob/main/docs/roadmap/multi-user-platform.md). It is a proposal with phases and open decisions, not a schedule.
+The multi-user platform plan (invitations, roles and quotas, tenant isolation, content safety with LLM review, MCP server for Claude, PWA) lives in [docs/roadmap/multi-user-platform.md](https://github.com/boeldner/grimport/blob/main/docs/roadmap/multi-user-platform.md). It lists the agreed policies and the phases towards 1.0; it is a direction, not a schedule.
 
 ## Wishlist (unscheduled)
 
