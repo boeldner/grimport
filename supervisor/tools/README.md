@@ -66,3 +66,24 @@ publicly reachable panel.
 Only the curated default set in `docs/screenshots/` (used by the README and
 the wiki) is committed. `docs/screenshots/all/` and `supervisor/.demo/` are
 gitignored, local-only output for reviewing changes before curating.
+
+## `make-icons.js`
+
+```
+node tools/make-icons.js
+```
+
+Generates the PWA/home-screen icons from the Grim Mage logo (the same SVG
+paths used in `public/index.html`'s `.logo`) and writes them straight into
+`public/icons/`: `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`
+(logo scaled to the central 60% so it survives OS masking, no rounded
+corners), and `apple-touch-icon.png` (180×180 — iOS rounds it itself). No
+npm dependencies: it draws a temporary HTML tile (dark gradient background,
+violet logo) and rasterizes it with the same headless-Chrome binary
+`screenshots.js` uses.
+
+Env vars: `CHROME` (browser binary; default is the Puppeteer-cached
+chrome-headless-shell under `~/.cache/puppeteer`).
+
+The output PNGs are small and committed to the repo — re-run and commit the
+new files whenever the logo changes.

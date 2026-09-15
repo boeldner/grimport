@@ -4084,3 +4084,110 @@ async function pollUpdateStatus() {
     if (e.key === 'Enter') { e.preventDefault(); runActive(); return; }
   });
 })();
+
+// ══════════════════════════════════════════════════════════════
+// PWA: service worker registration, update prompt, install hint
+// (roadmap docs/roadmap/multi-user-platform.md §6). Self-contained,
+// guarded end to end — a failure here must never break the app.
+// ══════════════════════════════════════════════════════════════
+(function () {
+  // ── Service worker registration + update prompt ──────────────
+  try {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(registration => {
+          registration.addEventListener('updatefound', () => {
+            const installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', () => {
+              if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                showUpdateToast(registration);
+              }
+            });
+          });
+        }).catch(() => {});
+      });
+    }
+  } catch {}
+
+  function showUpdateToast(registration) {
+    try {
+      const el = toast('New version available — reload to update', 'info');
+      if (!el) return;
+      const stack = document.getElementById('toast-container');
+      const lastToast = stack ? stack.querySelector('.toast:last-child') : el;
+      const target = lastToast || el;
+
+      const reloadBtn = document.createElement('button');
+      reloadBtn.type = 'button';
+      reloadBtn.className = 'btn btn-xs';
+      reloadBtn.style.marginLeft = '8px';
+      reloadBtn.textContent = 'Reload';
+      reloadBtn.addEventListener('click', () => {
+        try {
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+          let reloaded = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloaded) return;
+            reloaded = true;
+            window.location.reload();
+          });
+        } catch {}
+      });
+      target.appendChild(reloadBtn);
+    } catch {}
+  }
+
+  // ── Install hint (once, from the second visit onward) ────────
+  try {
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', e => {
+      try {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+      } catch {}
+    });
+
+    let visits = 0;
+    try {
+      visits = parseInt(localStorage.getItem('grimport-visits') || '0', 10) || 0;
+      visits += 1;
+      localStorage.setItem('grimport-visits', String(visits));
+    } catch {}
+
+    let alreadyHinted = false;
+    try {
+      alreadyHinted = localStorage.getItem('grimport-install-hinted') === '1';
+    } catch {}
+
+    if (visits >= 2 && !alreadyHinted) {
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          try {
+            if (!deferredInstallPrompt) return;
+            const el = toast('Install Grimport as an app', 'info');
+            if (!el) return;
+            try { localStorage.setItem('grimport-install-hinted', '1'); } catch {}
+
+            const installBtn = document.createElement('button');
+            installBtn.type = 'button';
+            installBtn.className = 'btn btn-xs';
+            installBtn.style.marginLeft = '8px';
+            installBtn.textContent = 'Install';
+            installBtn.addEventListener('click', () => {
+              try {
+                if (deferredInstallPrompt) {
+                  deferredInstallPrompt.prompt();
+                  deferredInstallPrompt = null;
+                }
+              } catch {}
+            });
+            el.appendChild(installBtn);
+          } catch {}
+        }, 1500);
+      });
+    }
+  } catch {}
+})();
