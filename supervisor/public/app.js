@@ -63,6 +63,9 @@ const ICON = {
   lock:         IC('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', 10),
   tool:         IC('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>', 10),
   box:          IC('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'),
+  grid:         IC('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'),
+  pie:          IC('<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>'),
+  list:         IC('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
 };
 // status dot: an empty span the CSS paints as a 7px circle in currentColor
 const GLYPH = '<span class="status-glyph" aria-hidden="true"></span>';
@@ -520,19 +523,24 @@ async function loadSites() {
   sites.forEach(s => { if (statusInfo(s.container).error) refreshDownDuration(s.id); });
 }
 
-const DNS_DOT_LABEL = { ok: 'DNS ok', wrong: 'DNS wrong', pending: 'DNS pending' };
+const DNS_DOT_LABEL = { ok: 'DNS ok', proxied: 'DNS ok — proxied via Cloudflare', wrong: 'DNS wrong', pending: 'DNS pending' };
+// proxied (Cloudflare proxy / tunnel) is a correct setup → same green as ok
+function dnsDotClass(status) {
+  return status === 'ok' || status === 'proxied' ? 'ok' : status === 'wrong' ? 'wrong' : 'pending';
+}
 async function refreshDnsDot(siteId) {
   try {
     const data = await api('GET', `/dns/${siteId}`);
     const dot = document.getElementById(`dns-dot-${siteId}`);
     if (!dot) return;
-    const cls = data.status === 'ok' ? 'ok' : data.status === 'wrong' ? 'wrong' : 'pending';
+    const cls = dnsDotClass(data.status);
     dot.className = `dns-indicator dns-indicator-${cls}`;
     // colour is never the only signal — mirror the state as text on the
     // button that wraps this dot (the dot itself has no visible label).
     const btn = dot.closest('.dns-status-btn');
-    if (btn) btn.title = DNS_DOT_LABEL[cls];
-    if (btn) btn.setAttribute('aria-label', DNS_DOT_LABEL[cls]);
+    const label = DNS_DOT_LABEL[data.status] || DNS_DOT_LABEL[cls];
+    if (btn) btn.title = label;
+    if (btn) btn.setAttribute('aria-label', label);
   } catch {}
 }
 
@@ -1497,6 +1505,7 @@ async function checkDns(siteId) {
     updateDnsIpFields(data.serverIp || '—');
     const bannerMap = {
       ok:      { cls: 'ok',      text: `DNS is correctly pointing to ${data.serverIp}` },
+      proxied: { cls: 'ok',      text: `Proxied via Cloudflare — traffic reaches this server through the ${(data.cnames || []).some(c => /cfargotunnel/i.test(c)) ? 'tunnel' : 'proxy'} (resolves to ${data.resolved.join(', ') || 'Cloudflare'})` },
       pending: { cls: 'pending', text: 'DNS not resolving yet — records may not have propagated' },
       wrong:   { cls: 'wrong',   text: `Resolves to ${data.resolved.join(', ')} — expected ${data.serverIp}` },
       unknown: { cls: 'pending', text: 'Server IP unknown — set PUBLIC_IP in .env to enable checks' },
@@ -1505,7 +1514,8 @@ async function checkDns(siteId) {
     const { cls, text } = bannerMap[data.status] || bannerMap.error;
     setBanner(cls, text);
     const dot = document.getElementById(`dns-dot-${siteId}`);
-    if (dot) dot.className = `dns-indicator dns-indicator-${cls === 'ok' ? 'ok' : cls === 'wrong' ? 'wrong' : 'pending'}`;
+    if (dot) dot.className = `dns-indicator dns-indicator-${dnsDotClass(data.status)}`;
+    if (data.status === 'proxied') switchDnsTab('cloudflare');
     return data;
   } catch (err) {
     setBanner('wrong', `Check failed: ${err.message}`);
@@ -1761,35 +1771,141 @@ function timeAgo(ts) {
 }
 
 // ── View switching ────────────────────────────────────────
-document.querySelectorAll('.nav-item[data-view]').forEach(item => {
-  item.addEventListener('click', e => {
-    e.preventDefault();
-    const view = item.dataset.view;
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    item.classList.add('active');
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    document.getElementById(`view-${view}`).classList.remove('hidden');
-    if (view === 'panel-settings') loadPanelSettings();
-    if (view === 'activity') loadActivity();
-    if (view === 'overview') loadOverview();
-    if (view === 'deployments') loadDeployments();
-    if (view === 'logs') loadLogsView();
-    if (view === 'domains') loadDomains();
+// One entry point for sidebar, bottom tab bar and the command palette. Every
+// .nav-item sharing the same data-view gets the active class so sidebar and
+// bottom bar always agree.
+function navigateTo(view) {
+  if (!document.getElementById(`view-${view}`)) return;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach(n => n.classList.add('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+  document.getElementById(`view-${view}`).classList.remove('hidden');
+  if (view === 'panel-settings') loadPanelSettings();
+  if (view === 'activity') loadActivity();
+  if (view === 'overview') loadOverview();
+  if (view === 'deployments') loadDeployments();
+  if (view === 'logs') loadLogsView();
+  if (view === 'domains') loadDomains();
+}
+function bindNavItem(item) {
+  item.addEventListener('click', e => { e.preventDefault(); navigateTo(item.dataset.view); });
+}
+document.querySelectorAll('.nav-item[data-view]').forEach(bindNavItem);
+
+// ── Phone bottom tab bar — customisable ───────────────────────────────────
+// Up to TABBAR_MAX views, order and selection stored per browser; "More"
+// (static in the markup) always opens the sidebar drawer with everything else.
+const TABBAR_KEY = 'grimport-tabbar';
+const TABBAR_MAX = 4;
+const TABBAR_DEFAULT = ['sites', 'overview', 'activity'];
+const TABBAR_VIEWS = [
+  { id: 'sites',          label: 'Sites',       icon: ICON.grid },
+  { id: 'overview',       label: 'Overview',    icon: ICON.pie },
+  { id: 'activity',       label: 'Activity',    icon: ICON.list },
+  { id: 'deployments',    label: 'Deployments', icon: ICON.upload,   roles: ['admin', 'editor'] },
+  { id: 'logs',           label: 'Logs',        icon: ICON.logs,     roles: ['admin', 'editor'] },
+  { id: 'domains',        label: 'Domains',     icon: ICON.globe,    roles: ['admin'] },
+  { id: 'panel-settings', label: 'Settings',    icon: ICON.settings, roles: ['admin'] },
+];
+function tabbarAllowed(v) { return !v.roles || v.roles.includes(currentUser.role); }
+function tabbarView(id) { return TABBAR_VIEWS.find(v => v.id === id); }
+function getTabbarPrefs() {
+  let ids = null;
+  try { ids = JSON.parse(localStorage.getItem(TABBAR_KEY)); } catch {}
+  if (!Array.isArray(ids)) ids = [...TABBAR_DEFAULT];
+  return ids.filter(id => { const v = tabbarView(id); return v && tabbarAllowed(v); }).slice(0, TABBAR_MAX);
+}
+function setTabbarPrefs(ids) {
+  try { localStorage.setItem(TABBAR_KEY, JSON.stringify(ids)); } catch {}
+}
+function renderBottomNav() {
+  const wrap = document.getElementById('bottom-nav-tabs');
+  if (!wrap) return;
+  const active = document.querySelector('.sidebar .nav-item.active')?.dataset.view || 'sites';
+  const ids = getTabbarPrefs();
+  if (!ids.length) ids.push('sites');
+  wrap.innerHTML = ids.map(id => {
+    const v = tabbarView(id);
+    return `<a href="#" class="nav-item bottom-nav-item${id === active ? ' active' : ''}" data-view="${id}">
+      <span class="bottom-nav-icon" aria-hidden="true">${v.icon}</span><span>${esc(v.label)}</span>
+    </a>`;
+  }).join('');
+  wrap.querySelectorAll('.nav-item[data-view]').forEach(bindNavItem);
+}
+
+let tabbarDraft = [];
+function renderTabbarList() {
+  const list = document.getElementById('tabbar-list');
+  const hint = document.getElementById('tabbar-hint');
+  if (!list) return;
+  const allowed = TABBAR_VIEWS.filter(tabbarAllowed);
+  const ordered = [
+    ...tabbarDraft.map(id => allowed.find(v => v.id === id)).filter(Boolean),
+    ...allowed.filter(v => !tabbarDraft.includes(v.id)),
+  ];
+  const full = tabbarDraft.length >= TABBAR_MAX;
+  list.innerHTML = ordered.map(v => {
+    const pos = tabbarDraft.indexOf(v.id);
+    const on = pos !== -1;
+    return `
+      <div class="tabbar-row${on ? '' : ' is-off'}">
+        <label class="g-checkbox" title="${on ? 'Remove from bar' : full ? 'Bar is full' : 'Show in bar'}">
+          <input type="checkbox" data-tab-toggle="${v.id}" ${on ? 'checked' : ''} ${!on && full ? 'disabled' : ''} />
+          <span class="g-checkbox-box"></span>
+        </label>
+        <span class="tabbar-row-pos">${on ? pos + 1 : ''}</span>
+        <span class="tabbar-row-label"><span class="tabbar-row-icon">${v.icon}</span>${esc(v.label)}</span>
+        <span class="tabbar-row-actions">
+          <button type="button" class="btn btn-sm btn-icon-only" data-tab-move="${v.id}" data-dir="-1" title="Move up" aria-label="Move ${esc(v.label)} up" ${!on || pos === 0 ? 'disabled' : ''}>${ICON.arrowUp}</button>
+          <button type="button" class="btn btn-sm btn-icon-only" data-tab-move="${v.id}" data-dir="1" title="Move down" aria-label="Move ${esc(v.label)} down" ${!on || pos === tabbarDraft.length - 1 ? 'disabled' : ''}>${ICON.arrowDown}</button>
+        </span>
+      </div>`;
+  }).join('');
+  if (hint) hint.textContent = `${tabbarDraft.length} of ${TABBAR_MAX} slots used · "More" is always shown`;
+
+  list.querySelectorAll('[data-tab-toggle]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.tabToggle;
+      if (cb.checked) { if (!tabbarDraft.includes(id) && tabbarDraft.length < TABBAR_MAX) tabbarDraft.push(id); }
+      else tabbarDraft = tabbarDraft.filter(x => x !== id);
+      renderTabbarList();
+    });
   });
+  list.querySelectorAll('[data-tab-move]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.tabMove;
+      const dir = Number(btn.dataset.dir);
+      const i = tabbarDraft.indexOf(id);
+      const j = i + dir;
+      if (i === -1 || j < 0 || j >= tabbarDraft.length) return;
+      [tabbarDraft[i], tabbarDraft[j]] = [tabbarDraft[j], tabbarDraft[i]];
+      renderTabbarList();
+    });
+  });
+}
+function openTabbarModal() {
+  if (typeof closePhoneMenu === 'function') closePhoneMenu();
+  tabbarDraft = getTabbarPrefs();
+  renderTabbarList();
+  openModal('modal-tabbar');
+}
+document.getElementById('btn-tabbar-customize')?.addEventListener('click', openTabbarModal);
+document.getElementById('btn-tabbar-customize-settings')?.addEventListener('click', openTabbarModal);
+document.getElementById('btn-tabbar-reset')?.addEventListener('click', () => {
+  tabbarDraft = TABBAR_DEFAULT.filter(id => tabbarAllowed(tabbarView(id)));
+  renderTabbarList();
+});
+document.getElementById('btn-tabbar-save')?.addEventListener('click', () => {
+  const ids = tabbarDraft.length ? tabbarDraft : [...TABBAR_DEFAULT];
+  setTabbarPrefs(ids);
+  renderBottomNav();
+  closeModal('modal-tabbar');
+  toast('Tab bar saved', 'success');
 });
 
-// ── Phone off-canvas sidebar + bottom nav (task H1, additive) ─────────────
-// The bottom-nav Sites/Overview/Activity items are plain .nav-item[data-view]
-// elements, already wired by the view-switching listener above — no separate
-// navigation logic here. This block only (a) mirrors the "active" class onto
-// whichever nav-item(s) share a data-view, so sidebar + bottom nav agree, and
-// (b) toggles the sidebar as an off-canvas drawer on phone widths.
-document.querySelectorAll('.nav-item[data-view]').forEach(item => {
-  item.addEventListener('click', () => {
-    const view = item.dataset.view;
-    document.querySelectorAll(`.nav-item[data-view="${view}"]`).forEach(n => n.classList.add('active'));
-  });
-});
+// ── Phone off-canvas sidebar (task H1) ─────────────────────────────────────
+// Toggles the sidebar as an off-canvas drawer on phone widths; the bottom
+// bar's "More" button and the top-left menu button both drive it.
 
 (function () {
   const menuBtn = document.getElementById('btn-phone-menu');
@@ -1807,6 +1923,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach(item => {
   menuBtn?.addEventListener('click', toggleOpen);
   moreBtn?.addEventListener('click', toggleOpen);
   scrim?.addEventListener('click', () => setOpen(false));
+  window.closePhoneMenu = () => setOpen(false);
   document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(item => {
     item.addEventListener('click', () => setOpen(false));
   });
@@ -2374,6 +2491,7 @@ async function init() {
   if (!me.authenticated) { window.location.href = '/login.html'; return; }
   currentUser = { id: me.id || '', role: me.role || 'admin', username: me.username || '' };
   applyRoleUI();
+  renderBottomNav();
   config = await api('GET', '/config').catch(() => config);
   if (config.version) {
     const el = document.getElementById('sidebar-version');
@@ -3703,10 +3821,7 @@ async function pollUpdateStatus() {
   let flatItems = []; // currently rendered, keyboard-navigable items
   let activeIndex = 0;
 
-  function gotoView(view) {
-    const nav = document.querySelector(`.nav-item[data-view="${view}"]`);
-    if (nav) nav.click();
-  }
+  function gotoView(view) { navigateTo(view); }
 
   function actionDefs() {
     const isAdmin = currentUser.role === 'admin';

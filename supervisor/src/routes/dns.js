@@ -3,6 +3,7 @@ const dns = require('dns').promises;
 const db = require('../db');
 const { requireSiteAccess } = require('../auth');
 const { asyncHandler } = require('../async-handler');
+const { classifyResolution } = require('../dns-check');
 
 const router = Router();
 
@@ -38,18 +39,20 @@ router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
   const serverIp = await getPublicIp();
 
   let resolved = [];
+  let cnames = [];
   let status = 'unknown';
   let error = null;
 
   try {
+    // CNAME first: a cloudflared tunnel is a CNAME to <id>.cfargotunnel.com and
+    // is the clearest "proxied" signal. Missing CNAME is normal, ignore errors.
+    try { cnames = await dns.resolveCname(row.domain); } catch {}
     resolved = await dns.resolve4(row.domain);
-    if (!serverIp) {
-      status = 'unknown'; // can't compare without knowing our IP
-    } else if (resolved.includes(serverIp)) {
-      status = 'ok';
-    } else {
-      status = 'wrong'; // resolves, but to a different IP
-    }
+    // ok        — an A record points at this server
+    // proxied   — Cloudflare proxy / tunnel in front (edge IPs, never ours) — correct setup
+    // wrong     — resolves, but to some other host
+    // unknown   — can't compare without knowing our own IP
+    status = classifyResolution({ resolved, serverIp, cnames });
   } catch (err) {
     if (err.code === 'ENOTFOUND' || err.code === 'ENODATA') {
       status = 'pending'; // domain doesn't resolve yet
@@ -63,7 +66,8 @@ router.get('/:id', requireSiteAccess(), asyncHandler(async (req, res) => {
     domain: row.domain,
     serverIp,
     resolved,
-    status,  // ok | pending | wrong | unknown | error
+    cnames,
+    status,  // ok | proxied | pending | wrong | unknown | error
     error,
     records: serverIp ? [
       { type: 'A', name: row.domain, value: serverIp },

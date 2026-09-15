@@ -92,6 +92,8 @@ A UI audit release plus one long-missing piece of housekeeping:
 - All icon glyphs are inline SVG now (no emoji / text-symbol icons)
 - Retired the last remnants of the old red brand colours
 - Fixed basic-auth passwords being dropped from `.htpasswd` after saving site settings
+- DNS status no longer reports Cloudflare-proxied / tunnelled domains as "wrong" (new `proxied` state)
+- Phone tab bar is customisable: pick which views appear and in what order (Settings → General, or the drawer on a phone)
 
 ## What's new in 0.9.5
 

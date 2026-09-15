@@ -52,3 +52,7 @@ curl -s -H "Authorization: Bearer grim_token" \
   https://panel.yourdomain.com/api/uptime/SITE_ID \
   | jq .currentStatus
 ```
+
+## Phone view
+
+Below about 430px the sidebar collapses into a bottom tab bar. By default it shows **Sites**, **Overview** and **Activity**; the **More** tab opens the full menu as a drawer. Which views appear, and in what order, is configurable: **Settings → General → Phone tab bar → Customize tabs…**, or on the phone itself via **More → Customize tab bar**. Up to four views fit next to "More"; views your role cannot access are never offered. The choice is stored in the browser, so each device can have its own bar.

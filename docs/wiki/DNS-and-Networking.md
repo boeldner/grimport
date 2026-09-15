@@ -19,6 +19,8 @@ The wildcard record (`*.sites.yourdomain.com`) is only needed if you use auto-ge
 
 If your domain is on Cloudflare, you can enable the proxy (orange cloud) for free CDN, DDoS protection, and analytics.
 
+The DNS status on each site card understands this: a domain that resolves to Cloudflare edge IPs, or is a CNAME to `*.cfargotunnel.com`, is reported as **proxied** (green) rather than "wrong", because it never resolves to your server's own IP by design.
+
 1. Add the A record in Cloudflare DNS with the proxy **enabled** (orange cloud)
 2. No Let's Encrypt needed — Cloudflare terminates SSL at the edge
 3. Set SSL/TLS mode to **Full** (not Full Strict) in the Cloudflare dashboard → SSL/TLS → Overview
