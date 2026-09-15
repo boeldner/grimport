@@ -1,12 +1,15 @@
 {
   "name": "grimport",
   "version": "0.9.6",
-  "description": "Grimport \u2014 self-hosted static site publishing panel",
+  "description": "Grimport — self-hosted static site publishing panel",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test 'test/**/*.test.js'"
+    "test": "node --test 'test/**/*.test.js'",
+    "demo-seed": "DATA_PATH=$PWD/.demo/sites node tools/demo-seed.js",
+    "demo-serve": "DATA_PATH=$PWD/.demo/sites HOST_DATA_PATH=$PWD/.demo/sites NODE_ENV=development SUPERVISOR_SECRET=changeme SUPERVISOR_DOMAIN=localhost node src/index.js",
+    "screenshots": "node tools/screenshots.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -18,5 +21,8 @@
     "express-session": "^1.18.0",
     "multer": "^2.0.0",
     "nanoid": "^5.0.9"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.11.0"
   }
 }

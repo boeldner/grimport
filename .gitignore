@@ -33,3 +33,9 @@ push.sh
 
 # Private material — design sources, internal planning notes, anything not for the public repo
 private/
+
+# Demo database + sites used to generate screenshots
+supervisor/.demo/
+
+# Full (uncurated) screenshot set — only the curated set is committed
+docs/screenshots/all/
