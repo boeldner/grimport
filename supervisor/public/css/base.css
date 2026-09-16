@@ -68,6 +68,8 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+  /* Containers that only take focus programmatically (dialogs, palette). */
+  [tabindex="-1"]:focus-visible { outline: none; }
 
   ::selection { background: var(--accent-soft); }
 
@@ -96,4 +98,5 @@
   @keyframes slide-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(16px); } }
   @keyframes pulse   { 0%, 100% { opacity: 1; } 60% { opacity: 0.35; } }
   @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes busy-label { from, to { color: transparent; } }
 }

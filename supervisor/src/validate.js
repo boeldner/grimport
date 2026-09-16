@@ -62,7 +62,14 @@ async function assertPublicUrl(urlString) {
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('Only http/https URLs are allowed');
   }
-  const results = await dns.lookup(url.hostname, { all: true });
+  let results;
+  try {
+    results = await dns.lookup(url.hostname, { all: true });
+  } catch (e) {
+    // Raw resolver errors ("getaddrinfo ENOTFOUND …") end up in the UI.
+    if (['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'].includes(e.code)) throw new Error(`Could not resolve ${url.hostname}`);
+    throw e;
+  }
   if (results.length === 0) throw new Error('URL host did not resolve');
   for (const r of results) {
     if (isPrivateAddress(r.address)) {

@@ -40,6 +40,17 @@ test('isPrivateAddress covers reserved ranges', () => {
   }
 });
 
+test('assertPublicUrl reports an unresolvable host in plain words', async () => {
+  const dns = require('node:dns').promises;
+  const original = dns.lookup;
+  dns.lookup = async () => { const e = new Error('getaddrinfo ENOTFOUND hooks.example.test'); e.code = 'ENOTFOUND'; throw e; };
+  try {
+    await assert.rejects(() => assertPublicUrl('https://hooks.example.test/x'), { message: 'Could not resolve hooks.example.test' });
+  } finally {
+    dns.lookup = original;
+  }
+});
+
 test('assertPublicUrl rejects non-http protocols', async () => {
   await assert.rejects(() => assertPublicUrl('file:///etc/passwd'));
   await assert.rejects(() => assertPublicUrl('ftp://example.com'));

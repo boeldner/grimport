@@ -104,7 +104,13 @@
   .btn-block { width: 100%; }
   .btn-icon-only { width: var(--btn-h); padding: 0; }
 
-  .btn.is-busy, .btn[data-busy="true"] { position: relative; color: transparent; pointer-events: none; }
+  /* Busy: label swaps for a spinner. Both wait --busy-delay, so requests
+     that finish quickly never flash; clicks are blocked immediately. */
+  .btn.is-busy, .btn[data-busy="true"] {
+    position: relative;
+    pointer-events: none;
+    animation: busy-label 1ms linear var(--busy-delay) forwards;
+  }
   .btn.is-busy::after, .btn[data-busy="true"]::after {
     content: "";
     position: absolute;
@@ -115,7 +121,7 @@
     border-radius: var(--radius-full);
     border: 2px solid var(--border-control);
     border-top-color: var(--text);
-    animation: spin 0.7s linear infinite;
+    animation: spin 0.7s linear infinite, fade-in 1ms linear var(--busy-delay) both;
   }
   .btn-primary.is-busy::after, .btn-primary[data-busy="true"]::after { border-color: var(--fill-2); border-top-color: var(--text-on-solid); }
   .btn-busy-label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-2); }

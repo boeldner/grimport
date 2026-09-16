@@ -32,7 +32,10 @@
         var t = localStorage.getItem('grimport-theme');
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
-      document.getElementById('btn-retry').addEventListener('click', function () { location.reload(); });
+      document.getElementById('btn-retry').addEventListener('click', function () {
+        // Served in place of a page by the service worker: reload that page.
+        if (location.pathname === '/offline.html') location.href = '/'; else location.reload();
+      });
     })();
   </script>
 </body>

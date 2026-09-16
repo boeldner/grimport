@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-16
+
+One design system for the whole panel, checked on every change. See CONTRIBUTING.md, "Frontend".
+
 ### Changed
 - One design system for the whole panel, built on Apple's Human Interface Guidelines (macOS), W3C design tokens and WCAG 2.2 AA: `style.css` is replaced by five layered stylesheets (`css/tokens.css`, `base.css`, `layout.css`, `components.css`, `views.css`); every view, modal and standalone page (login, invite, OAuth consent, offline) uses the same buttons, fields, segmented controls, tabs, cards, callouts, badges, tables, menus and modals
 - Every text passes WCAG AA contrast in both themes; every control is 44px tall on touch screens
@@ -18,7 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Stray scrollbar and disappearing tab strip in site settings
 - Collaborator rows with mismatched control heights and a second "Save" button
 - Stacked cards without spacing on Domains; tables cut off on phones
-- The offline page's retry button (blocked by the content security policy)
+- The offline page's retry button (blocked by the content security policy); opened directly it now goes to the panel
+- Escape in a confirmation over a dialog (for example "Delete site…" in site settings) closed both and threw away unsaved edits; now only the confirmation closes
+- The notifications dropdown and the phone menu close with Escape
+- Buttons show a spinner while a slow request runs (approving a domain, recreating a container) and cannot be pressed twice
+- Member onboarding: the "Your first site" step had two primary buttons; "Create site" leads until the site exists
+- Opening a dialog on a phone or tablet no longer pops up the keyboard
+- Webhook name and URL are required in the form; an unresolvable webhook or download host reads "Could not resolve <host>" instead of a raw resolver error
+- Dialogs focused on open no longer show a focus ring around the whole dialog
 
 ### Added
 - `npm run ui-audit`: browser audit of every view at desktop, wide, phone and light-theme sizes (overflow, scroll containers, clipped text, control heights, contrast, touch targets, overlaps, button order)

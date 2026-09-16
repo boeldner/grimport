@@ -67,7 +67,7 @@ node tools/ui-audit.js [--viewports desk,wide,phone,light] [--out DIR] [--no-sho
 ```
 
 Opens the panel at 1440px, 1710px, 390px (phone) and 1440px in the light
-theme, walks 164 scenes (views, settings tabs, both site settings variants,
+theme, walks 167 scenes (views, settings tabs, both site settings variants,
 every modal, login/invite/offline/consent pages, the member account) and
 checks the rendered DOM:
 

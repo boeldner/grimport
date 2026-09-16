@@ -86,6 +86,15 @@ It's built for:
 
 ---
 
+## What's new in 0.17.0
+
+One design system for the whole panel, built on Apple's Human Interface Guidelines, W3C design tokens and WCAG 2.2 AA. Rules in [CONTRIBUTING.md](CONTRIBUTING.md#frontend).
+
+- Same buttons, fields, tabs, cards, tables and dialogs everywhere; readable contrast in both themes; 44px touch targets on phones
+- Phone layouts reworked: primary action beside the title, pinned first column in wide tables, bottom-sheet dialogs
+- Spinner on slow actions, Escape closes only the topmost layer, no keyboard popping up when a dialog opens on a phone
+- `npm run ui-audit` checks every view at desktop, phone and light-theme sizes; `npm test` lints the stylesheets
+
 ## What's new in 0.16.0
 
 Phase 6 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): the panel as a phone app. Details in [Mobile and PWA](docs/wiki/Mobile-and-PWA.md).

@@ -119,6 +119,19 @@ function tokensPath(id) { return (isPanelAdmin() ? '/settings/tokens' : '/tokens
 let cachedUpdateData = null; // latest update check result
 
 // ── API helpers ───────────────────────────────────────────
+// The button whose click or form submit is being handled right now. A
+// mutating api() call started from that handler marks it busy (spinner,
+// no second click) until the request settles, so slow actions such as a
+// container recreate always show feedback.
+let actionButton = null;
+function trackActionButton(btn) {
+  if (!btn) return;
+  actionButton = btn;
+  setTimeout(() => { if (actionButton === btn) actionButton = null; }, 0);
+}
+document.addEventListener('click', e => trackActionButton(e.target.closest('button.btn, a.btn')), true);
+document.addEventListener('submit', e => trackActionButton(e.submitter), true);
+
 async function api(method, path, body) {
   // X-Requested-With satisfies the server's CSRF guard (src/csrf.js) on
   // mutating requests — a plain cross-site <form> post can't set this
@@ -126,6 +139,16 @@ async function api(method, path, body) {
   // mutating ones) since it's harmless on GET/HEAD too.
   const opts = { method, headers: { 'X-Requested-With': 'grimport' } };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const busyBtn = method !== 'GET' && actionButton?.isConnected ? actionButton : null;
+  if (busyBtn) { actionButton = null; busyBtn.dataset.busy = 'true'; busyBtn.setAttribute('aria-busy', 'true'); }
+  try {
+    return await apiRequest(path, opts);
+  } finally {
+    if (busyBtn) { delete busyBtn.dataset.busy; busyBtn.removeAttribute('aria-busy'); }
+  }
+}
+
+async function apiRequest(path, opts) {
   let res;
   try {
     res = await fetch('/api' + path, opts);
@@ -402,12 +425,12 @@ if (typeof window !== 'undefined') {
   window.copyToClipboard = copyToClipboard;
 }
 
-// ── Focus trap (task H2, additive) ──────────────────────────
+// ── Focus traps ─────────────────────────────────────────────
 // Keeps Tab/Shift+Tab cycling inside `container` while it's the active
 // modal/palette, and returns focus to whatever triggered it on close.
-// Used by openModal/closeModal below, plus confirmDialog() and the
-// command palette, which manage their own show/hide.
-let _focusTrapCleanup = null;
+// Traps stack: a confirm dialog opened over a modal gets its own trap, and
+// closing it leaves the modal's trap in place.
+const _focusTraps = [];
 
 function _focusableEls(container) {
   return Array.from(container.querySelectorAll(
@@ -417,12 +440,15 @@ function _focusableEls(container) {
 
 function trapFocus(container, triggerEl) {
   if (!container) return;
-  releaseFocusTrap();
+  releaseFocusTrap(container);
   const previouslyFocused = triggerEl || document.activeElement;
   // Initial focus (HIG): an explicit [autofocus], else the first text field,
-  // else the dialog itself — never the close button, so no stray ring.
-  const firstField = container.querySelector('[autofocus]') ||
-    _focusableEls(container).find(el => el.matches('input:not([type="checkbox"]):not([type="radio"]), textarea, select'));
+  // else the dialog itself — never the close button, so no stray ring. On
+  // touch screens a text field only gets focus on request, so opening a
+  // sheet never throws up the keyboard.
+  const touch = window.matchMedia('(pointer: coarse)').matches;
+  const firstField = container.querySelector('[autofocus]') || (touch ? null :
+    _focusableEls(container).find(el => el.matches('input:not([type="checkbox"]):not([type="radio"]), textarea, select')));
   if (firstField) firstField.focus({ preventScroll: true });
   else {
     if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
@@ -438,19 +464,26 @@ function trapFocus(container, triggerEl) {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
   container.addEventListener('keydown', onKeydown);
-  _focusTrapCleanup = () => {
-    container.removeEventListener('keydown', onKeydown);
-    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
-      previouslyFocused.focus({ preventScroll: true });
-    }
-  };
+  _focusTraps.push({
+    container,
+    cleanup: () => {
+      container.removeEventListener('keydown', onKeydown);
+      if (previouslyFocused?.isConnected && typeof previouslyFocused.focus === 'function') {
+        previouslyFocused.focus({ preventScroll: true });
+      }
+    },
+  });
 }
 
-function releaseFocusTrap() {
-  if (_focusTrapCleanup) {
-    const fn = _focusTrapCleanup;
-    _focusTrapCleanup = null;
-    fn();
+// Releases the newest trap inside `scope` (a dialog or its backdrop), or the
+// newest trap overall when no scope is given.
+function releaseFocusTrap(scope) {
+  for (let i = _focusTraps.length - 1; i >= 0; i--) {
+    if (!scope || scope === _focusTraps[i].container || scope.contains(_focusTraps[i].container)) {
+      const [trap] = _focusTraps.splice(i, 1);
+      trap.cleanup();
+      return;
+    }
   }
 }
 
@@ -468,7 +501,7 @@ function closeModal(id) {
   const backdrop = document.getElementById(id);
   if (!backdrop) return;
   backdrop.classList.add('hidden');
-  releaseFocusTrap();
+  releaseFocusTrap(backdrop);
 }
 
 // ── Styled confirmation dialog (Promise<boolean>) ──────────
@@ -506,7 +539,7 @@ function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, 
 
     function cleanup(result) {
       document.removeEventListener('keydown', onKey);
-      releaseFocusTrap();
+      releaseFocusTrap(backdrop);
       backdrop.remove();
       resolve(result);
     }
@@ -558,7 +591,7 @@ function promptDialog({ title, body, placeholder = '', confirmLabel = 'Confirm',
     document.body.appendChild(backdrop);
     const input = backdrop.querySelector('#prompt-dialog-input');
     trapFocus(backdrop.querySelector('.modal'), document.activeElement);
-    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    function cleanup(result) { releaseFocusTrap(backdrop); backdrop.remove(); resolve(result); }
     backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
     backdrop.querySelector('[data-role="confirm-ok"]').addEventListener('click', () => cleanup(input.value.trim()));
     backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(null); });
@@ -598,7 +631,7 @@ function pickUserDialog({ title, body, confirmLabel = 'Confirm', excludeIds = []
     const confirmBtn = backdrop.querySelector('[data-role="confirm-ok"]');
     let picked = null;
     trapFocus(backdrop.querySelector('.modal'), document.activeElement);
-    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    function cleanup(result) { releaseFocusTrap(backdrop); backdrop.remove(); resolve(result); }
     backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
     confirmBtn.addEventListener('click', () => { if (picked) cleanup(picked); });
     backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(null); });
@@ -655,8 +688,10 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  const open = document.querySelector('.modal-backdrop:not(.hidden)');
-  if (open) { closeModal(open.id); return; }
+  // Only the topmost layer closes. Dialogs built on the fly (confirm, prompt)
+  // come last in the DOM and handle Escape themselves.
+  const open = [...document.querySelectorAll('.modal-backdrop:not(.hidden)')].pop();
+  if (open) { if (open.id) closeModal(open.id); return; }
   document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
 });
 
@@ -2640,6 +2675,9 @@ document.getElementById('btn-tabbar-save')?.addEventListener('click', () => {
   menuBtn?.addEventListener('click', toggleOpen);
   moreBtn?.addEventListener('click', toggleOpen);
   scrim?.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.classList.contains('phone-menu-open')) { setOpen(false); menuBtn?.focus(); }
+  });
   window.closePhoneMenu = () => setOpen(false);
   document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(item => {
     item.addEventListener('click', () => setOpen(false));
@@ -3519,6 +3557,7 @@ document.getElementById('nav-help-btn')?.addEventListener('click', e => { e.prev
 // for themselves, there's no single "done" for the whole panel).
 let mobStep = 1;
 let mobTemplateId = 'blank';
+let mobCreated = false;
 
 function showMobStep(n) {
   mobStep = n;
@@ -3535,7 +3574,11 @@ function showMobStep(n) {
   const backBtn = document.getElementById('btn-mob-back');
   if (backBtn) backBtn.classList.toggle('hidden', n === 1);
   const nextBtn = document.getElementById('btn-mob-next');
-  if (nextBtn) nextBtn.textContent = n === 3 ? 'Done' : 'Next';
+  if (nextBtn) {
+    nextBtn.textContent = n === 3 ? 'Done' : 'Next';
+    // One primary per screen: on the create step "Create site" leads until a site exists.
+    nextBtn.classList.toggle('btn-primary', !(n === 2 && !mobCreated));
+  }
 }
 
 // `preloadedMe` lets init() (below) reuse the /users/me call it already made
@@ -3543,13 +3586,14 @@ function showMobStep(n) {
 // own (e.g. from the screenshot tool, which opens this directly).
 async function openMemberOnboarding(preloadedMe) {
   mobTemplateId = 'blank';
+  mobCreated = false;
   document.getElementById('mob-site-name').value = '';
   document.getElementById('mob-create-error').classList.add('hidden');
   document.getElementById('mob-create-status').classList.add('hidden');
   document.getElementById('mob-create-result').classList.add('hidden');
   const createBtn = document.getElementById('btn-mob-create');
   createBtn.disabled = false;
-  createBtn.textContent = 'Create';
+  createBtn.textContent = 'Create site';
 
   const meFull = preloadedMe || await api('GET', '/users/me').catch(() => ({}));
   const base = meFull.subdomain_base || '';
@@ -3618,6 +3662,8 @@ document.getElementById('btn-mob-create')?.addEventListener('click', async () =>
     resultEl.innerHTML = `<a href="http://${esc(site.domain)}" target="_blank" rel="noopener" class="mob-result-link">${esc(site.domain)}</a>`;
     resultEl.classList.remove('hidden');
     btn.textContent = 'Created';
+    mobCreated = true;
+    showMobStep(mobStep);
     await loadSites();
   } catch (err) {
     statusEl.classList.add('hidden');
@@ -3688,6 +3734,9 @@ document.addEventListener('click', e => {
   if (notifDropdownOpen && !notifDropdown.contains(e.target) && e.target !== bellBtn) {
     setNotifDropdownOpen(false);
   }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && notifDropdownOpen) { setNotifDropdownOpen(false); bellBtn.focus(); }
 });
 
 async function loadNotifications() {
@@ -4348,7 +4397,7 @@ function confirmDeleteUser(user) {
       </div>`;
     document.body.appendChild(backdrop);
     trapFocus(backdrop.querySelector('.modal'), document.activeElement);
-    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    function cleanup(result) { releaseFocusTrap(backdrop); backdrop.remove(); resolve(result); }
     backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
     backdrop.querySelector('[data-role="confirm-ok"]').addEventListener('click', () => {
       const choice = backdrop.querySelector('input[name="delete-user-sites"]:checked')?.value || 'transfer';
@@ -5508,7 +5557,7 @@ async function pollUpdateStatus() {
 
   function openPalette() {
     // Close any other open modal/overflow menu first — palette is exclusive.
-    document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => { if (m !== backdrop) m.classList.add('hidden'); });
+    document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(m => { if (m !== backdrop) { m.classList.add('hidden'); releaseFocusTrap(m); } });
     document.querySelectorAll('.site-overflow-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
     input.value = '';
     backdrop.classList.remove('hidden');
@@ -5519,7 +5568,7 @@ async function pollUpdateStatus() {
 
   function closePalette() {
     backdrop.classList.add('hidden');
-    releaseFocusTrap();
+    releaseFocusTrap(backdrop);
   }
 
   function isPaletteOpen() {

@@ -16,7 +16,8 @@
 //   tiny       text smaller than 11px
 //   stacked    cards touching without a gap
 //   overlap    interactive elements drawn on top of each other in one layer
-//   order      primary button not last in an action row (dialogs, forms, callouts)
+//   order      primary button not last in an action row (dialogs, forms, callouts),
+//              or more than one primary button visible in a dialog
 //   touch      (phone) targets under 44px (HIG); inline text links exempt
 //   errors     uncaught page errors
 //
@@ -230,6 +231,10 @@ function runChecks({ rootSel, phone }) {
     const primary = btns.findIndex(b => b.matches('.btn-primary'));
     if (primary !== -1 && primary !== btns.length - 1) out.order.push({ row: describe(row), buttons: btns.map(b => text(b).slice(0, 16)) });
   }
+  for (const modal of all.filter(el => el.matches('.modal'))) {
+    const primaries = [...modal.querySelectorAll('.btn-primary')].filter(isVisible);
+    if (primaries.length > 1) out.order.push({ dialog: describe(modal), primaries: primaries.map(b => text(b).slice(0, 16)) });
+  }
   return out;
 }
 
@@ -425,6 +430,8 @@ async function main() {
     await scene(N('member-sites'), 'body', { vp });
     await page.evaluate(() => { try { localStorage.removeItem('grimport-member-onboarded'); } catch {} openMemberOnboarding(); });
     await scene(N('member-onboarding'), '.modal-backdrop:not(.hidden) .modal', { vp, wait: 600 });
+    await page.evaluate(() => document.getElementById('btn-mob-next').click());
+    await scene(N('member-onboarding-site'), '.modal-backdrop:not(.hidden) .modal', { vp, wait: 600 });
     await closeModals();
     await view('panel-settings');
     await scene(N('member-settings'), '#view-panel-settings', { vp, wait: 800 });
