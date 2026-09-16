@@ -126,6 +126,26 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
   );
+
+  -- Login lockout: escalating lockout per failed-login key (username or IP).
+  -- See src/lockout.js.
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    key          TEXT PRIMARY KEY,
+    failures     INTEGER NOT NULL DEFAULT 0,
+    locked_until INTEGER,
+    updated_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- One-time TOTP recovery codes (bcrypt-hashed), 8 minted whenever a user
+  -- enables 2FA. Each can be used once in place of a TOTP code.
+  CREATE TABLE IF NOT EXISTS recovery_codes (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    code_hash  TEXT NOT NULL,
+    used_at    INTEGER,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 // Safe migrations for existing installs
@@ -146,6 +166,8 @@ try { db.exec("ALTER TABLE api_tokens ADD COLUMN role TEXT NOT NULL DEFAULT 'adm
 try { db.exec('ALTER TABLE api_tokens ADD COLUMN site_scope TEXT'); } catch {}
 // expires_at: unix seconds, NULL = never expires
 try { db.exec('ALTER TABLE api_tokens ADD COLUMN expires_at INTEGER'); } catch {}
+// totp_secret: base32-encoded TOTP secret, NULL = 2FA not enabled for this user
+try { db.exec('ALTER TABLE users ADD COLUMN totp_secret TEXT'); } catch {}
 
 // Seed first admin user from existing password_hash setting (one-time migration)
 const { nanoid } = require('nanoid');

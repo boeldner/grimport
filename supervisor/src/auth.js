@@ -23,9 +23,24 @@ const sessionMiddleware = session({
   },
 });
 
+const ADMIN_IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+const LAST_SEEN_REFRESH_MS = 60 * 1000; // throttle the write to at most once/minute
+
 function requireAuth(req, res, next) {
   if (req.session?.userId) {
+    const now = Date.now();
+    // Admin sessions idle for more than 2h are rejected outright — a public
+    // panel session left open on a shared machine shouldn't stay valid
+    // forever. Non-admin sessions keep the plain 8h/30-day cookie lifetime.
+    if (req.session.role === 'admin' && req.session.lastSeen &&
+        (now - req.session.lastSeen) > ADMIN_IDLE_TIMEOUT_MS) {
+      return req.session.destroy(() => res.status(401).json({ error: 'Session expired due to inactivity' }));
+    }
     req.user = { id: req.session.userId, role: req.session.role, username: req.session.username };
+    if (!req.session.lastSeen || (now - req.session.lastSeen) > LAST_SEEN_REFRESH_MS) {
+      req.session.lastSeen = now;
+      req.session.save(() => {}); // best-effort; a failed touch just means the next request retries
+    }
     return next();
   }
   // Legacy session support (single-password sessions before v0.7)

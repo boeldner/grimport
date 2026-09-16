@@ -2837,3 +2837,96 @@ button:focus-visible,
 .tabbar-row-pos { font: 600 10px var(--mono); color: var(--tx3); width: 14px; text-align: right; flex-shrink: 0; }
 .tabbar-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .tabbar-hint { font-size: 12px; color: var(--tx3); }
+
+/* ══════════════════════════════════════════════════════════════════
+ * Panel login hardening — appended block (docs/roadmap/multi-user-
+ * platform.md §4). Styles for the Security tab's Two-factor
+ * authentication + Sessions cards (see public/index.html #spanel-security
+ * and public/app.js's appended block).
+ * ══════════════════════════════════════════════════════════════════ */
+
+/* Non-dismissable notice card (forced-2FA-setup banner) */
+.notice-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--r-card);
+  margin-bottom: 16px;
+}
+.notice-card.notice-warn {
+  background: var(--warnSoft);
+  border: 1px solid var(--warn);
+  color: var(--tx);
+}
+.notice-icon { flex-shrink: 0; color: var(--warn); margin-top: 1px; }
+.notice-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.notice-body { font-size: 12px; color: var(--tx2); line-height: 1.5; }
+
+/* Two-factor authentication card */
+.totp-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.totp-setup-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.totp-qr-img {
+  width: 176px;
+  height: 176px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line2);
+  background: #fff;
+  padding: 8px;
+}
+.totp-recovery-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.totp-recovery-code {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 7px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+@media (max-width: 480px) {
+  .totp-recovery-list { grid-template-columns: 1fr; }
+}
+
+/* Sessions card */
+.sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sessions-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--tx3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line2);
+}
+.sessions-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx);
+  vertical-align: middle;
+}
+.sessions-table tr:last-child td { border-bottom: none; }
+.sessions-table .badge { margin-left: 6px; }

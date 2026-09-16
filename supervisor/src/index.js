@@ -1,7 +1,10 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const db = require('./db');
 const { sessionMiddleware, requireAuth, requireHumanSession } = require('./auth');
+const { csrfProtection } = require('./csrf');
 const { version: VERSION } = require('../package.json');
 
 if (process.env.NODE_ENV === 'production' &&
@@ -17,11 +20,31 @@ const PORT = 3000;
 app.set('trust proxy', 1);
 
 // ── Security headers ───────────────────────────────────────
+// A per-request nonce is generated here so the CSP below can allow just the
+// inline <script> blocks in login.html/offline.html/invite.html (injected
+// by the handlers further down) while still blocking any OTHER inline
+// script an attacker might smuggle in (XSS payload, compromised
+// dependency, etc). res.locals.cspNonce is read by those handlers.
 app.use((req, res, next) => {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  res.locals.cspNonce = nonce;
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '));
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   }
@@ -31,9 +54,31 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 
+// ── CSRF guard (mutating /api/* requests from a cookie session) ─
+app.use(csrfProtection);
+
 // ── Unknown domain catch-all (runs before auth, after session) ─
 const { catchallMiddleware } = require('./catchall');
 app.use(catchallMiddleware);
+
+// ── HTML pages with an inline <script> — CSP forbids inline scripts
+// without a nonce, so inject the one generated above by a plain string
+// replace on the way out. Falls through to the normal static/SPA handling
+// (via next()) if the file doesn't exist, so this is a no-op until those
+// pages exist.
+function serveWithNonce(filePath) {
+  return (req, res, next) => {
+    fs.readFile(filePath, 'utf8', (err, html) => {
+      if (err) return next();
+      const withNonce = html.split('<script>').join(`<script nonce="${res.locals.cspNonce}">`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(withNonce);
+    });
+  };
+}
+app.get('/login.html', serveWithNonce(path.join(__dirname, '../public/login.html')));
+app.get('/offline.html', serveWithNonce(path.join(__dirname, '../public/offline.html')));
+app.get('/invite/:token', serveWithNonce(path.join(__dirname, '../public/invite.html')));
 
 // ── Public routes (no auth) ────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));

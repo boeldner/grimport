@@ -8,6 +8,17 @@ Every `/api/*` route (except login) requires one of:
 
 Create tokens in **Settings → API Tokens**. Tokens carry their own role (admin / editor / viewer) and can optionally be scoped to a set of sites and given an expiry date — see [Tokens](#tokens) below.
 
+### CSRF header on mutating requests
+
+A session-cookie request that mutates state (`POST`/`PUT`/`PATCH`/`DELETE` on
+`/api/*`) must carry either `Content-Type: application/json` or
+`X-Requested-With: grimport`. A request with neither gets `403 { "error":
+"Missing X-Requested-With header" }`. This does **not** apply to Bearer-token
+requests — send whichever header you like, or neither. If you're calling the
+API with `fetch`/`curl` and already send a JSON body with
+`Content-Type: application/json`, you already satisfy this; it's an issue only
+for non-JSON form-style requests.
+
 ## Roles
 
 - **admin** — full access to everything, including users, tokens, webhooks, backups, settings, and self-update
@@ -29,9 +40,30 @@ Admins see and act on all sites. Editors/viewers are scoped to sites explicitly 
 POST /auth/login
 Content-Type: application/json
 
-{ "username": "admin", "password": "..." }
+{ "username": "admin", "password": "...", "remember": false }
 ```
-Rate-limited to 10 attempts / 15 minutes per IP. Sets a session cookie on success.
+Rate-limited to 10 attempts / 15 minutes per IP (outer limit), plus an escalating
+per-username/per-IP lockout after 5 failures in 15 minutes — see
+[Security-Model](Security-Model#rate-limiting-and-lockout). A locked-out request
+gets `429 { "error": "Too many failed logins, try again in N minutes" }` with a
+`Retry-After` header.
+
+- `remember: true` extends the session cookie to 30 days instead of the default 8 hours.
+- If the account has TOTP enabled, a correct password does **not** create a full
+  session. The response is `{ "ok": false, "totp_required": true }` and the
+  login must be completed with `POST /auth/totp/verify` below.
+
+### Complete a 2FA login
+```
+POST /auth/totp/verify
+Content-Type: application/json
+
+{ "code": "123456" }
+```
+Accepts a current TOTP code or an unused recovery code (which is then marked
+used). Completes the pending login from `/auth/login` and returns the same
+`{ ok, role, username }` shape a normal login does. Failed attempts count
+toward that username's lockout.
 
 ### Logout
 ```
@@ -42,7 +74,52 @@ POST /auth/logout
 ```
 GET /auth/me
 ```
-Returns `{ authenticated, id, role, username, needsOnboarding }`. `needsOnboarding` is only ever true for the admin, on a fresh/unconfigured install.
+Returns one of:
+- `{ authenticated: false }` — not logged in
+- `{ authenticated: false, totp_required: true }` — password accepted, waiting on `/auth/totp/verify`
+- `{ authenticated: true, totp_setup_required: true, id, role, username }` — an admin account that `require_totp_admins` forces through 2FA setup before anything else
+- `{ authenticated: true, id, role, username, needsOnboarding, totp_enabled }` — the normal case. `needsOnboarding` is only ever true for the admin, on a fresh/unconfigured install.
+
+### Two-factor authentication (session required)
+```
+POST /auth/totp/setup
+```
+Generates a secret, held pending in the session (not saved yet). Returns
+`{ secret, otpauth_url, qr_data_url }` — render `qr_data_url` directly as an
+`<img>` `src`, or let the user enter `secret` manually.
+
+```
+POST /auth/totp/enable
+Content-Type: application/json
+
+{ "code": "123456" }
+```
+Verifies the pending secret and turns 2FA on. Returns `{ ok: true,
+recovery_codes: [...8 codes...] }` — shown once, save them.
+
+```
+POST /auth/totp/disable
+Content-Type: application/json
+
+{ "password": "..." }
+```
+Re-checks the account password, then clears the TOTP secret and all recovery codes.
+
+### Sessions (session required)
+```
+GET /auth/sessions
+```
+Returns `{ sessions: [{ sid, sid_short, created_at, last_seen, ua, ip, current }] }` — only the calling user's own sessions.
+
+```
+DELETE /auth/sessions/:sid
+```
+Revokes one of your own sessions (403 on anyone else's).
+
+```
+POST /auth/sessions/revoke-others
+```
+Signs out every session for your account except the one making the request. Returns `{ ok: true, revoked: N }`.
 
 ---
 
