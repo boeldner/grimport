@@ -20,7 +20,7 @@ The goal: invite friends who know little about hosting, let them publish and man
 - Custom domains for members **require owner approval**; members get `slug.<base domain>` automatically.
 - The default capability preset for invited friends is **Beginner** (static sites only, small quotas). Makers are upgraded individually.
 - The panel is reached **without Cloudflare Access**; Grimport's own authentication must therefore be watertight (2FA, lockout, session and header hardening — Phase 2, step 12). Cloudflare stays in front as proxy/WAF.
-- **LLM-assisted deploy review is deferred.** Reviews happen manually with Claude on request or weekly; the static content scanner (Phase 4) is still planned.
+- **LLM-assisted deploy review is deferred.** Reviews happen manually with Claude on request or weekly; the static content scanner (Phase 4) shipped in 0.14.
 - **MCP ships remote-first**: a token-authenticated `/mcp` endpoint on the panel so Cowork connects directly; the local stdio package is the fallback for Claude Code.
 - Egress for app sites in v1: **iptables `DOCKER-USER` rules** that block RFC1918, the host and the management network from site networks, plus a per-container new-connection rate limit. A proxy with per-site allow-lists is a later option.
 - Design sources and internal planning notes stay **out of the repository** (kept privately).

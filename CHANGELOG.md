@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-16
+
+Phase 4 of the roadmap to 1.0: content safety. Every upload is scanned before it goes live; what the scanner is unsure about waits for the owner, what it is sure about never lands. See [Security Model](docs/wiki/Security-Model.md#content-safety).
+
+### Added
+- Content scanner on every deploy (zip and URL): executables, crypto-miner scripts and phishing patterns are blocked; secrets, obfuscated JavaScript, unknown external scripts, external forms and redirects are marked for review; large inline data is noted
+- Quarantine: member uploads marked for review are held next to the live files, the deploy dialog lists the findings, the card shows "Review pending", and the owner approves or rejects under Domains, Deploy reviews (with zip download and an optional note); held uploads can be withdrawn from the card menu
+- Scan modes Quarantine / Log only / Off and a panel-wide allow-list of external script hosts (Settings, General); per-site allow-list for site owners (Site settings, Access)
+- API: `202` with `pending_review` and `422` with findings on deploy; `GET/DELETE /api/sites/:id/review`, `PUT /api/sites/:id/scan-allowlist`, `/api/reviews` queue for admins; `scan_mode` and `scan_script_allowlist` on `/api/settings/policies`
+- Activity events and notifications for held, blocked, approved, rejected and withdrawn uploads; the Domains badge counts reviews too
+
+### Changed
+- Deploys extract into a staging directory and are promoted atomically only after the scan
+- Demo seed includes a held upload; new screenshots for the review dialog and scanner settings
+
 ## [0.13.0] - 2026-09-16
 
 Phase 3 of the roadmap to 1.0: onboarding and learning.

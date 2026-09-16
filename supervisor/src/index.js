@@ -161,6 +161,7 @@ app.use('/api/notifications',   requireAuth, require('./routes/notifications'));
 app.use('/api/users',           requireAuth, requireHumanSession, require('./routes/users'));
 app.use('/api/tokens',          requireAuth, require('./routes/tokens'));
 app.use('/api/domains',         requireAuth, require('./routes/domains'));
+app.use('/api/reviews',         requireAuth, require('./routes/reviews'));
 app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
 app.use('/api/backups',         requireAuth, requireRole('admin'), requireHumanSession, require('./routes/backups'));
 

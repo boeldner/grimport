@@ -48,6 +48,16 @@ Every zip is checked before the live directory is touched (see [Security Model](
 
 A rejected deploy returns HTTP 413 with the limit that was hit, or 429 when the rate limit applies. The live site is never touched by a rejected deploy.
 
+## Content scanner
+
+Every upload is scanned before it goes live. Three outcomes:
+
+- **Clean**: deployed as usual.
+- **Review**: something looks off (a script from a host the panel does not know, a file that looks like a secret, obfuscated JavaScript, a form posting elsewhere). Uploads by panel admins go live and the findings are logged. Uploads by members are held: the deploy dialog lists the findings, the card shows "Review pending", the live site stays as it was, and the panel owner decides under Domains. A held upload can be withdrawn from the card menu. The API answers `202` with `pending_review: true`.
+- **Blocked**: executables, crypto-miner scripts or phishing patterns. The upload is rejected with the reasons (`422`); remove the files and deploy again.
+
+If your site legitimately loads scripts from a host the scanner does not know, add it under Site settings, Access, "Allowed external script hosts" (site owners), or ask the panel owner to add it panel-wide. The full list of checks is in the [Security Model](Security-Model#content-safety).
+
 ## Site settings
 
 Access per-site settings with the gear icon on the site card.

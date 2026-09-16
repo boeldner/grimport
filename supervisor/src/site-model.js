@@ -14,6 +14,7 @@ function parseSite(row) {
     basic_auth: row.basic_auth ? { username: JSON.parse(row.basic_auth).username } : null,
     custom_headers: JSON.parse(row.custom_headers || '[]'),
     redirects: JSON.parse(row.redirects || '[]'),
+    scan_allowlist: (() => { try { return JSON.parse(row.scan_allowlist || '[]'); } catch { return []; } })(),
   };
 }
 

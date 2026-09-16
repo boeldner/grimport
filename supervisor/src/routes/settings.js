@@ -7,6 +7,7 @@ const { assertPublicUrl } = require('../validate');
 const { asyncHandler } = require('../async-handler');
 const { sendAlert, getNtfyConfig, setNtfyConfig, postNtfy, ALL_ALERT_EVENTS } = require('../alerts');
 const { requireHumanSession } = require('../auth');
+const { DEFAULT_SCRIPT_ALLOWLIST } = require('../scanner');
 
 const router = Router();
 
@@ -65,10 +66,24 @@ router.get('/policies', (req, res) => {
     custom_domain_policy: getSetting('custom_domain_policy') || POLICY_DEFAULTS.custom_domain_policy,
     default_preset: getSetting('default_preset') || POLICY_DEFAULTS.default_preset,
     invite_ttl_hours: Number(getSetting('invite_ttl_hours')) || POLICY_DEFAULTS.invite_ttl_hours,
+    scan_mode: ['off', 'log', 'quarantine'].includes(getSetting('scan_mode')) ? getSetting('scan_mode') : 'quarantine',
+    scan_script_allowlist: getSetting('scan_script_allowlist')
+      ? getSetting('scan_script_allowlist').split(/[\s,]+/).filter(Boolean)
+      : DEFAULT_SCRIPT_ALLOWLIST,
   });
 });
 router.put('/policies', requireHumanSession, (req, res) => {
-  const { custom_domain_policy, default_preset, invite_ttl_hours } = req.body || {};
+  const { custom_domain_policy, default_preset, invite_ttl_hours, scan_mode, scan_script_allowlist } = req.body || {};
+  if (scan_mode !== undefined) {
+    if (!['off', 'log', 'quarantine'].includes(scan_mode)) return res.status(400).json({ error: 'scan_mode must be off, log or quarantine' });
+    setSetting('scan_mode', scan_mode);
+  }
+  if (scan_script_allowlist !== undefined) {
+    const list = Array.isArray(scan_script_allowlist) ? scan_script_allowlist : String(scan_script_allowlist).split(/[\s,]+/);
+    const hosts = [...new Set(list.map(h => String(h).trim().toLowerCase()).filter(Boolean))];
+    if (hosts.some(h => !/^[a-z0-9.-]+$/.test(h))) return res.status(400).json({ error: 'allow-list entries must be hostnames' });
+    setSetting('scan_script_allowlist', hosts.join(','));
+  }
   if (custom_domain_policy !== undefined) {
     if (!['approval', 'free'].includes(custom_domain_policy)) return res.status(400).json({ error: 'custom_domain_policy must be approval or free' });
     setSetting('custom_domain_policy', custom_domain_policy);

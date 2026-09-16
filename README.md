@@ -33,6 +33,7 @@ It's built for:
 
 **Hosting**
 - Container isolation — each site runs in its own `nginx:alpine` container (~10 MB)
+- Content scanner — every upload is checked for executables, miners, phishing patterns and leaked secrets before it goes live; flagged member uploads wait for your approval
 - Wildcard subdomains — set a base domain, get auto-generated URLs instantly
 - Per-site SPA mode, cache control headers, custom response headers, redirects
 - Maintenance mode — take a site offline with one click, serves a custom page
@@ -82,6 +83,14 @@ It's built for:
 - Tenant isolation: one network per site, hardened containers, egress guard, deploy limits and rate limits (see the [Security Model](docs/wiki/Security-Model.md))
 
 ---
+
+## What's new in 0.14.0
+
+Phase 4 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): content safety. Details in the [Security Model](docs/wiki/Security-Model.md#content-safety).
+
+- Every upload is scanned before it goes live: executables, miners and phishing pages are blocked; secrets, obfuscated scripts, unknown external scripts and forms wait for your approval
+- Deploy reviews under Domains with the findings, the exact zip, Approve and Reject; members see "Review pending" and can withdraw
+- Scan mode (Quarantine / Log only / Off) and script-host allow-lists panel-wide and per site
 
 ## What's new in 0.13.0
 

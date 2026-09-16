@@ -107,22 +107,43 @@ function atomicExtract(zipPath, targetDir, limits = defaultLimits()) {
     const macos = path.join(tmpDir, '__MACOSX');
     if (fs.existsSync(macos)) fs.rmSync(macos, { recursive: true, force: true });
 
-    // Atomic swap via same-parent renames (temp is a sibling of target).
+    // Same-parent-rename swap into place — shared with the quarantine flow's
+    // "promote a staged, already-scanned directory" step (routes/deploy.js).
+    const { fileCount } = promoteDirectory(tmpDir, resolvedTarget);
+    return { fileCount, totalBytes };
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true }); // no-op if promoteDirectory already cleaned it up
+    throw err;
+  }
+}
+
+/**
+ * Promote an already-extracted directory into place with the same
+ * same-parent-rename swap atomicExtract() uses, minus the zip parsing —
+ * for the content-scanner quarantine flow (routes/deploy.js): a deploy is
+ * first extracted into a staging directory, scanned, and only then either
+ * discarded or promoted into the live html/app directory.
+ * On any error, an existing targetDir is left untouched. stagedDir is
+ * consumed (moved or removed) in every case.
+ */
+function promoteDirectory(stagedDir, targetDir) {
+  const resolvedStaged = path.resolve(stagedDir);
+  const resolvedTarget = path.resolve(targetDir);
+  if (!fs.existsSync(resolvedStaged)) throw new Error(`Staged directory does not exist: ${resolvedStaged}`);
+
+  try {
     const backupDir = fs.existsSync(resolvedTarget)
       ? path.join(path.dirname(resolvedTarget), `.deploy-bak-${nanoid(8)}`)
       : null;
-    if (backupDir) fs.renameSync(resolvedTarget, backupDir);   // move live aside (atomic, same fs)
+    if (backupDir) fs.renameSync(resolvedTarget, backupDir);
     try {
       fs.mkdirSync(path.dirname(resolvedTarget), { recursive: true });
-      fs.renameSync(tmpDir, resolvedTarget);                    // move new into place (atomic)
+      fs.renameSync(resolvedStaged, resolvedTarget);
     } catch (e) {
-      // Cross-device fallback (e.g. tmp on a different mount): copy then remove.
       try {
-        fs.cpSync(tmpDir, resolvedTarget, { recursive: true });
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.cpSync(resolvedStaged, resolvedTarget, { recursive: true });
+        fs.rmSync(resolvedStaged, { recursive: true, force: true });
       } catch (e2) {
-        // Restore the live dir so target is never left missing.
-        // Best-effort: if this restore itself fails, still throw the original error.
         try {
           if (backupDir) { fs.rmSync(resolvedTarget, { recursive: true, force: true }); fs.renameSync(backupDir, resolvedTarget); }
         } catch {}
@@ -130,16 +151,13 @@ function atomicExtract(zipPath, targetDir, limits = defaultLimits()) {
       }
     }
 
-    // Compute result before best-effort backup cleanup, so a cleanup failure
-    // can never turn a successful deploy into a reported failure.
     const fileCount = fs.readdirSync(resolvedTarget).length;
-    if (backupDir) { try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {} }  // success: drop backup
-
-    return { fileCount, totalBytes };
+    if (backupDir) { try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {} }
+    return { fileCount };
   } catch (err) {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(resolvedStaged, { recursive: true, force: true });
     throw err;
   }
 }
 
-module.exports = { atomicExtract, inspectZip, defaultLimits };
+module.exports = { atomicExtract, inspectZip, defaultLimits, promoteDirectory };

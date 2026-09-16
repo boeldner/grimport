@@ -20,6 +20,7 @@ if (!process.env.DATA_PATH) {
 }
 
 const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { PRESETS } = require('../src/authz');
@@ -97,7 +98,7 @@ for (const d of DEPLOYMENTS) insertDeployment.run(d);
 // -------------------------------------------------------------- activity --
 // No natural unique key on this table — clear the demo rows before
 // re-inserting so re-running the script doesn't pile up duplicates.
-db.prepare(`DELETE FROM activity WHERE site_id IN ('s1aaaaaaaa','s2bbbbbbbb') OR site_name = 'grimport'`).run();
+db.prepare(`DELETE FROM activity WHERE site_id IN ('s1aaaaaaaa','s2bbbbbbbb','s5eeeeeeee') OR site_name = 'grimport'`).run();
 
 const ACTIVITY = [
   { site_id: 's1aaaaaaaa', site_name: 'Bakery landing', event: 'deployed', detail: 'bakery-v3.zip', level: 'info', actor: 'owner', created_at: now - HOUR },
@@ -105,6 +106,7 @@ const ACTIVITY = [
   { site_id: 's2bbbbbbbb', site_name: 'Board-game club', event: 'up', detail: 'boardgames.demo.test is back online', level: 'info', actor: 'system', created_at: now - 2 * HOUR },
   { site_id: null, site_name: 'grimport', event: 'images_pulled', detail: 'nginx:alpine, node:22-alpine', level: 'info', actor: 'owner', created_at: now - 5 * HOUR },
   { site_id: 's2bbbbbbbb', site_name: 'Board-game club', event: 'container_recreated', detail: 'nginx:alpine', level: 'info', actor: 'system', created_at: now - 2 * HOUR - 60 },
+  { site_id: 's5eeeeeeee', site_name: 'Reading list', event: 'deploy_review', detail: 'external-script x1, secret x1', level: 'warn', actor: 'carla', created_at: now - 40 * 60 },
 ];
 const insertActivity = db.prepare(`
   INSERT INTO activity (site_id, site_name, event, detail, level, actor, created_at)
@@ -202,6 +204,44 @@ db.prepare(`
   expiresAt: now + 48 * HOUR,
 });
 
+// --------------------------------------------------------- deploy review --
+// Carla's latest upload to "Reading list" was flagged by the content scanner
+// and waits under Domains > Deploy reviews. The files sit in pending_app/,
+// the zip in history/, so Approve / Download work against the demo data.
+const REVIEW_FINDINGS = [
+  { category: 'external-script', severity: 'review', file: 'templates/index.html', line: 12, detail: 'script loaded from analytics.tracker-example.net' },
+  { category: 'secret', severity: 'review', file: '.env', line: 3, detail: 'looks like an API key (GOODREADS_API_KEY=...)' },
+];
+db.prepare(`DELETE FROM deploy_reviews WHERE id = 'rev-carla-reading'`).run();
+db.prepare(`
+  INSERT INTO deploy_reviews (id, site_id, filename, size, verdict, findings, status, created_by, created_at)
+  VALUES ('rev-carla-reading', 's5eeeeeeee', 'reading-list-v4.zip', 348160, 'review', @findings, 'pending', 'user-carla', @createdAt)
+`).run({ findings: JSON.stringify(REVIEW_FINDINGS), createdAt: now - 40 * 60 });
+{
+  const AdmZip = require('adm-zip');
+  const readingDir = path.join(process.env.DATA_PATH, 's5eeeeeeee');
+  const pendingDir = path.join(readingDir, 'pending_app');
+  fs.rmSync(pendingDir, { recursive: true, force: true });
+  fs.mkdirSync(path.join(pendingDir, 'templates'), { recursive: true });
+  fs.mkdirSync(path.join(readingDir, 'history'), { recursive: true });
+  const indexHtml = '<!doctype html><title>Reading list</title><h1>Reading list</h1><script src="https://analytics.tracker-example.net/t.js"></script>\n';
+  const envFile = 'FLASK_ENV=production\nPORT=3000\nGOODREADS_API_KEY=demo-not-a-real-key\n';
+  fs.writeFileSync(path.join(pendingDir, 'templates', 'index.html'), indexHtml);
+  fs.writeFileSync(path.join(pendingDir, '.env'), envFile);
+  const zip = new AdmZip();
+  zip.addFile('templates/index.html', Buffer.from(indexHtml));
+  zip.addFile('.env', Buffer.from(envFile));
+  zip.writeZip(path.join(readingDir, 'history', 'reading-list-v4.zip'));
+}
+db.prepare(`DELETE FROM notifications WHERE type = 'deploy_review' AND data LIKE '%rev-carla-reading%'`).run();
+insertNotification.run({
+  type: 'deploy_review',
+  title: 'carla uploaded to Reading list — waiting for review',
+  detail: 'external-script x1, secret x1',
+  data: JSON.stringify({ siteId: 's5eeeeeeee', reviewId: 'rev-carla-reading' }),
+  created_at: now - 40 * 60,
+});
+
 // --------------------------------------------------------- uptime checks --
 db.prepare(`DELETE FROM uptime_checks WHERE site_id IN ('s1aaaaaaaa','s2bbbbbbbb')`).run();
 
@@ -238,6 +278,6 @@ db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_don
 console.log(
   `[demo-seed] ${SITES.length} sites, ${DEPLOYMENTS.length} deployments, ` +
   `${ACTIVITY.length} activity rows, 2 notifications, 1 webhook, 2 api tokens, ` +
-  `3 users (anna/ben guests, carla member), 1 domain request, 1 open invitation, ` +
+  `3 users (anna/ben guests, carla member), 1 domain request, 1 deploy review, 1 open invitation, ` +
   `${CHECK_COUNT * 2} uptime checks seeded into ${process.env.DATA_PATH}`
 );

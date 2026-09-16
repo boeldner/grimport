@@ -182,6 +182,9 @@ try { db.exec("ALTER TABLE users ADD COLUMN last_login_at INTEGER"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN invited_by TEXT"); } catch {}
 try { db.exec("ALTER TABLE sites ADD COLUMN owner_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE sites ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"); } catch {}
+// Per-site allow-list of extra external-script/form hosts (JSON array) —
+// see src/scanner.js and docs/wiki/Security-Model.md "Content safety".
+try { db.exec("ALTER TABLE sites ADD COLUMN scan_allowlist TEXT"); } catch {}
 try { db.exec("ALTER TABLE notifications ADD COLUMN user_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE api_tokens ADD COLUMN user_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE activity ADD COLUMN target_user_id TEXT"); } catch {}
@@ -219,6 +222,26 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_site_members_user ON site_members(user_id);
+
+  -- Content scanner quarantine (Phase 4, docs/roadmap/multi-user-platform.md
+  -- section 8/9): one row per deploy that the scanner flagged. status
+  -- 'pending' is the only one meaningfully "open" — a pending_html/ dir sits
+  -- alongside the site until an admin approves or rejects it.
+  CREATE TABLE IF NOT EXISTS deploy_reviews (
+    id         TEXT PRIMARY KEY,
+    site_id    TEXT NOT NULL,
+    filename   TEXT NOT NULL,
+    size       INTEGER NOT NULL DEFAULT 0,
+    verdict    TEXT NOT NULL,               -- review | blocked (clean never gets a row)
+    findings   TEXT NOT NULL DEFAULT '[]',  -- JSON array of { category, severity, file, line?, detail }
+    status     TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected
+    created_by TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    decided_by TEXT,
+    decided_at INTEGER,
+    note       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_deploy_reviews_site ON deploy_reviews(site_id, status);
 `);
 
 // One-time backfill of the new columns from the legacy role model.

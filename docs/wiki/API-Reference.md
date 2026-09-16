@@ -261,6 +261,13 @@ Supported zip layouts:
 
 Rejections: `413` when a zip exceeds the entry, size or per-site disk quota limits (message names the limit), `429` after 30 deploys per 10 minutes per user or token. See [Deploying Sites](Deploying-Sites#limits).
 
+Content scanner responses (see [Security Model](Security-Model#content-safety)):
+- `200 { "ok": true, "files": 12, "verdict": "clean", "findings": [] }` — live
+- `202 { "ok": true, "pending_review": true, "review_id": "...", "verdict": "review", "findings": [...] }` — held for an admin; the live site is unchanged
+- `422 { "error": "Deploy blocked by the content scanner", "verdict": "blocked", "findings": [...], "review_id": "..." }` — rejected
+
+Each finding is `{ "category", "severity", "file", "line"?, "detail" }`.
+
 ### Deploy from a URL
 ```
 POST /deploy/:id/url
@@ -268,7 +275,7 @@ Content-Type: application/json
 
 { "url": "https://example.com/build.zip" }
 ```
-Editor or admin with site access. URL must point directly at a `.zip` (redirects are rejected) and resolve to a public address (SSRF-guarded). Same extraction/build/webhook behavior as the multipart upload.
+Editor or admin with site access. URL must point directly at a `.zip` (redirects are rejected) and resolve to a public address (SSRF-guarded). Same extraction/build/webhook behavior and the same scanner responses as the multipart upload.
 
 ### List deploy history
 ```
@@ -281,6 +288,28 @@ Requires site access. Returns the last 5 deployments with id, filename, size, ti
 POST /deploy/:id/rollback/:deploymentId
 ```
 Editor or admin with site access. Restores the given deployment's zip and restarts the container.
+
+### Pending review on a site
+```
+GET    /sites/:id/review
+DELETE /sites/:id/review
+PUT    /sites/:id/scan-allowlist     { "hosts": ["cdn.example.com"] }
+```
+`GET` returns the upload held for this site (or `null`); `DELETE` withdraws it (editor or admin). `PUT /scan-allowlist` (site owner or admin, up to 50 hostnames) sets the external script hosts the scanner accepts for this site on top of the panel-wide list. Site objects carry `pending_review: { id, created_at, findings_count, created_by }` and `scan_allowlist`.
+
+---
+
+## Deploy reviews
+
+Panel admins only. Uploads the content scanner held; see [Security Model](Security-Model#content-safety).
+
+```
+GET  /reviews?status=pending             list (without status: every row, newest first, max 200)
+GET  /reviews/:id/download               the exact zip that was uploaded
+POST /reviews/:id/approve   { "note"? }  promote the held files, record the deployment, notify the uploader
+POST /reviews/:id/reject    { "note"? }  discard the held files, notify the uploader
+```
+Rows: `{ id, site_id, site_name, site_domain, filename, size, verdict, findings, findings_count, status, created_by, created_by_name, created_at, decided_by, decided_at, note }`. `409` when the review was already decided, `410` when the held files are gone.
 
 ---
 
@@ -363,6 +392,30 @@ Content-Type: application/json
   "onboarding_done": true
 }
 ```
+
+### Member and scanner policies
+```
+GET /settings/policies
+PUT /settings/policies
+Content-Type: application/json
+
+{
+  "custom_domain_policy": "approval",
+  "default_preset": "beginner",
+  "invite_ttl_hours": 48,
+  "scan_mode": "quarantine",
+  "scan_script_allowlist": ["cdnjs.cloudflare.com", "cdn.jsdelivr.net"]
+}
+```
+Admin. Every field is optional on `PUT`. `custom_domain_policy` is `approval` or `free`, `default_preset` is `beginner` or `maker`, `scan_mode` is `quarantine`, `log` or `off`; `scan_script_allowlist` accepts an array or a comma/newline separated string of hostnames.
+
+### Domain requests
+```
+GET  /domains/requests?status=pending
+POST /domains/requests/:id/approve
+POST /domains/requests/:id/reject     { "note"? }
+```
+Admin. Members create a request by choosing a custom domain while the policy is `approval`; see [Users and Roles](Users-and-Roles#domain-requests).
 
 ### Notification event preferences (in-panel bell)
 ```

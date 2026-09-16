@@ -15,6 +15,21 @@ const { assertPublicUrl } = require('../validate');
 const { atomicExtract, inspectZip } = require('../extract');
 const { asyncHandler } = require('../async-handler');
 const { dirSizeBytes } = require('../disk');
+const { stageScanAndDecide } = require('../quarantine');
+
+/** Shared response handling for a scanned deploy. Returns true when the request was answered (pending/blocked). */
+function respondIfHeld(res, decision) {
+  if (decision.outcome === 'blocked') {
+    res.status(422).json({ error: 'Deploy blocked by the content scanner', verdict: 'blocked', findings: decision.findings, review_id: decision.reviewId });
+    return true;
+  }
+  if (decision.outcome === 'pending') {
+    res.status(202).json({ ok: true, pending_review: true, verdict: 'review', findings: decision.findings, review_id: decision.reviewId,
+      message: 'Waiting for review by the owner — the live site is unchanged' });
+    return true;
+  }
+  return false;
+}
 const { deployLimiter } = require('../rate-limit');
 
 const HISTORY_KEEP = 5; // zips to retain per site
@@ -143,7 +158,20 @@ router.post('/:id', requireSiteRole('editor'), limitDeploys, upload.single('file
     // Quota + limits first, then non-destructive extract (throws before
     // touching the live dir if the zip is bad).
     assertQuota(req.params.id, req.file.path, targetDir);
-    const { fileCount } = atomicExtract(req.file.path, targetDir);
+    const historyFilename = `${nanoid(10)}.zip`;
+    const decision = stageScanAndDecide({ req, row, zipPath: req.file.path, targetDir, isAppRuntime, originalName: req.file.originalname, size: req.file.size, historyFilename });
+    if (decision.outcome !== 'live') {
+      // Keep the upload for the reviewer (pending) — blocked uploads are dropped.
+      if (decision.outcome === 'pending') {
+        const hDir = historyDir(req.params.id);
+        fs.mkdirSync(hDir, { recursive: true });
+        fs.copyFileSync(req.file.path, path.join(hDir, historyFilename));
+      }
+      try { fs.unlinkSync(req.file.path); } catch {}
+      if (decision.outcome === 'blocked') { fireWebhooks('deploy_failed', req.params.id, row.name, 'blocked by content scanner'); }
+      return respondIfHeld(res, decision);
+    }
+    const { fileCount } = decision;
 
     const site = {
       ...row,
@@ -168,7 +196,6 @@ router.post('/:id', requireSiteRole('editor'), limitDeploys, upload.single('file
     // Success — now persist history + notify.
     const hDir = historyDir(req.params.id);
     fs.mkdirSync(hDir, { recursive: true });
-    const historyFilename = `${nanoid(10)}.zip`;
     fs.copyFileSync(req.file.path, path.join(hDir, historyFilename));
     fs.unlinkSync(req.file.path);
 
@@ -176,7 +203,7 @@ router.post('/:id', requireSiteRole('editor'), limitDeploys, upload.single('file
     supportTrail(req, row, 'deployed', req.file.originalname);
     fireWebhooks('deploy', req.params.id, row.name, req.file.originalname);
 
-    res.json({ ok: true, files: fileCount });
+    res.json({ ok: true, files: fileCount, verdict: decision.verdict, findings: decision.findings });
   } catch (err) {
     try { fs.unlinkSync(req.file.path); } catch {}
     console.error('Deploy error:', err);
@@ -284,8 +311,18 @@ router.post('/:id/url', requireSiteRole('editor'), limitDeploys, asyncHandler(as
     const targetDir = path.resolve(isAppRuntime ? appDir(req.params.id) : path.join(siteDir(req.params.id), 'html'));
 
     assertQuota(req.params.id, tmpPath, targetDir);
-    // Non-destructive: throws before touching live dir if the zip is bad.
-    const { fileCount } = atomicExtract(tmpPath, targetDir);
+    const historyFilename = `${nanoid(10)}.zip`;
+    const decision = stageScanAndDecide({ req, row, zipPath: tmpPath, targetDir, isAppRuntime, originalName: parsed.hostname + parsed.pathname, size: stat.size, historyFilename });
+    if (decision.outcome !== 'live') {
+      if (decision.outcome === 'pending') {
+        const hDir = historyDir(req.params.id);
+        fs.mkdirSync(hDir, { recursive: true });
+        fs.copyFileSync(tmpPath, path.join(hDir, historyFilename));
+      }
+      try { fs.unlinkSync(tmpPath); } catch {}
+      return respondIfHeld(res, decision);
+    }
+    const { fileCount } = decision;
 
     const site = { ...row, spa_mode: !!row.spa_mode, cache_enabled: !!row.cache_enabled, maintenance_mode: !!row.maintenance_mode, ssl_enabled: !!row.ssl_enabled, custom_headers: row.custom_headers || '[]', redirects: row.redirects || '[]' };
     if (isAppRuntime && row.build_cmd) await runBuildStep(site);
@@ -297,7 +334,6 @@ router.post('/:id/url', requireSiteRole('editor'), limitDeploys, asyncHandler(as
     // Success — now persist history + notify.
     const hDir = historyDir(req.params.id);
     fs.mkdirSync(hDir, { recursive: true });
-    const historyFilename = `${nanoid(10)}.zip`;
     fs.copyFileSync(tmpPath, path.join(hDir, historyFilename));
     fs.unlinkSync(tmpPath);
 
@@ -305,7 +341,7 @@ router.post('/:id/url', requireSiteRole('editor'), limitDeploys, asyncHandler(as
     supportTrail(req, row, 'deployed', parsed.hostname + parsed.pathname);
     fireWebhooks('deploy', req.params.id, row.name, url);
 
-    res.json({ ok: true, files: fileCount });
+    res.json({ ok: true, files: fileCount, verdict: decision.verdict, findings: decision.findings });
   } catch (err) {
     try { fs.unlinkSync(tmpPath); } catch {}
     console.error('URL deploy error:', err);

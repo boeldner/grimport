@@ -22,6 +22,7 @@ const { asyncHandler } = require('../async-handler');
 const { notify } = require('../notify');
 const { parseSite, parseSiteForContainer } = require('../site-model');
 const { SITE_ROLES } = require('../authz');
+const { pendingReviewFor, pendingDir } = require('../quarantine');
 const fs = require('fs');
 
 const router = Router();
@@ -68,6 +69,11 @@ function decorate(site, req) {
   const owner = site.owner_id ? db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(site.owner_id) : null;
   out.owner = owner ? { id: site.owner_id, username: owner.username, display_name: owner.display_name || null } : null;
   out.status = site.status || 'active';
+  const pr = pendingReviewFor(site.id);
+  if (pr) {
+    let n = 0; try { n = JSON.parse(pr.findings || '[]').length; } catch {}
+    out.pending_review = { id: pr.id, created_at: pr.created_at, findings_count: n, created_by: pr.created_by };
+  }
   return out;
 }
 
@@ -489,6 +495,42 @@ router.post('/:id/domain-request', requireSiteRole('owner'), requireHumanSession
 router.get('/:id/domain-request', requireSiteRole('viewer'), (req, res) => {
   const r = db.prepare('SELECT id, domain, status, note, created_at, decided_at FROM domain_requests WHERE site_id = ? ORDER BY created_at DESC LIMIT 1').get(req.params.id);
   res.json(r || null);
+});
+
+// ── Content-scanner review (site side) ─────────────────────
+
+// GET /api/sites/:id/review — the pending review (with findings) or null
+router.get('/:id/review', requireSiteRole('viewer'), (req, res) => {
+  const pr = pendingReviewFor(req.params.id);
+  if (!pr) return res.json(null);
+  let findings = []; try { findings = JSON.parse(pr.findings || '[]'); } catch {}
+  res.json({ id: pr.id, verdict: pr.verdict, findings, created_at: pr.created_at, created_by: pr.created_by, status: pr.status });
+});
+
+// DELETE /api/sites/:id/review — withdraw a pending upload (editor+)
+router.delete('/:id/review', requireSiteRole('editor'), (req, res) => {
+  const row = db.prepare('SELECT id, name, runtime, owner_id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const pr = pendingReviewFor(row.id);
+  if (!pr) return res.status(404).json({ error: 'No pending review' });
+  const isApp = row.runtime === 'node' || row.runtime === 'python';
+  fs.rmSync(pendingDir(row.id, isApp), { recursive: true, force: true });
+  try { fs.unlinkSync(require('path').join(siteDir(row.id), 'history', pr.filename)); } catch {}
+  db.prepare("UPDATE deploy_reviews SET status = 'rejected', decided_by = ?, decided_at = unixepoch(), note = 'withdrawn' WHERE id = ?").run(req.user.id, pr.id);
+  supportTrail(req, row, 'deploy_withdrawn', pr.filename);
+  res.json({ ok: true });
+});
+
+// PUT /api/sites/:id/scan-allowlist { hosts: [] } — external script hosts this site may load (owner)
+router.put('/:id/scan-allowlist', requireSiteRole('owner'), requireHumanSession, (req, res) => {
+  const row = db.prepare('SELECT id FROM sites WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const list = Array.isArray(req.body?.hosts) ? req.body.hosts : String(req.body?.hosts || '').split(/[\s,]+/);
+  const hosts = [...new Set(list.map(h => String(h).trim().toLowerCase()).filter(Boolean))];
+  if (hosts.length > 50) return res.status(400).json({ error: 'At most 50 hosts' });
+  if (hosts.some(h => !/^[a-z0-9.-]+$/.test(h))) return res.status(400).json({ error: 'Entries must be hostnames' });
+  db.prepare('UPDATE sites SET scan_allowlist = ? WHERE id = ?').run(JSON.stringify(hosts), row.id);
+  res.json({ ok: true, hosts });
 });
 
 // ── Blue-green preview ─────────────────────────────────────

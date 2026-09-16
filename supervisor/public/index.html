@@ -289,6 +289,13 @@
           <div id="domain-requests-list"><p class="settings-desc muted">Loading…</p></div>
         </div>
       </div>
+      <div class="card" id="deploy-reviews-card">
+        <div class="card-header"><span class="card-title">Deploy reviews</span></div>
+        <div class="card-body">
+          <p class="settings-desc">Uploads the content scanner flagged. Nothing here is live yet: approve to publish, reject to discard.</p>
+          <div id="deploy-reviews-list"><p class="settings-desc muted">Loading…</p></div>
+        </div>
+      </div>
       <div id="domains-loading" class="overview-loading">
         <div class="skeleton" style="height:32px;margin-bottom:6px;border-radius:var(--r-control)"></div>
         <div class="skeleton" style="height:28px;margin-bottom:6px;border-radius:var(--r-control)"></div>
@@ -396,6 +403,33 @@
                 <div class="field">
                   <label class="field-label" for="f-invite-ttl">Invitation link validity (hours)</label>
                   <input class="g-input" id="f-invite-ttl" type="number" name="invite_ttl_hours" min="1" max="720" />
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Content scanner</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Every upload is checked before it goes live: executables, crypto-miners, phishing patterns, leaked secrets, obfuscated scripts, external scripts and forms.</p>
+              <form id="form-scanner" class="settings-form">
+                <div class="field">
+                  <span class="field-label">Mode</span>
+                  <div class="seg-ctl" id="policy-scan-seg" role="group" aria-label="Content scanner mode">
+                    <button type="button" data-value="quarantine" aria-pressed="false">Quarantine</button>
+                    <button type="button" data-value="log" aria-pressed="false">Log only</button>
+                    <button type="button" data-value="off" aria-pressed="false">Off</button>
+                  </div>
+                  <input type="hidden" name="scan_mode" id="policy-scan-value" value="quarantine" />
+                  <div class="field-help muted">Quarantine holds flagged member uploads under Domains, Deploy reviews and rejects dangerous ones outright. Log only publishes everything and keeps the findings. Admin uploads are never held.</div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="f-scan-allowlist">Allowed external script hosts</label>
+                  <textarea class="g-textarea" id="f-scan-allowlist" name="scan_script_allowlist" rows="4" placeholder="cdn.jsdelivr.net&#10;unpkg.com"></textarea>
+                  <div class="field-help muted">One hostname per line. A script loaded from any other host sends the upload into review. Site owners can extend the list for their own site under Site settings, Access.</div>
                 </div>
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary">Save</button>
@@ -1062,6 +1096,7 @@ systemctl start cloudflared</pre>
           <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
           <p class="deploy-status-text" id="deploy-status-text">Uploading…</p>
         </div>
+        <div id="deploy-outcome" class="hidden"></div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modal-deploy">Cancel</button>
@@ -1167,6 +1202,12 @@ systemctl start cloudflared</pre>
             <div class="settings-subsection-title">URL redirects <span class="settings-subsection-hint">optional — rewrite rules applied before serving files</span></div>
             <div id="redirects-list"></div>
             <button type="button" class="btn btn-sm" id="btn-add-redirect"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add redirect</button>
+          </div>
+
+          <div class="settings-subsection hidden" id="scan-allowlist-wrap">
+            <div class="settings-subsection-title">Allowed external script hosts <span class="settings-subsection-hint">optional — hosts the content scanner should not flag for this site</span></div>
+            <textarea class="g-textarea" id="settings-scan-allowlist" rows="3" placeholder="cdn.example.com" autocomplete="off"></textarea>
+            <div class="field-help muted">One hostname per line, added to the panel-wide list for this site only.</div>
           </div>
 
           <div class="settings-subsection" id="collab-wrap">

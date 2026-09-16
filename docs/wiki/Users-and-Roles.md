@@ -119,8 +119,19 @@ of two things happens depending on the panel's domain policy:
   a site.
 
 A pending request shows as a badge on the site's Domain field in Settings, and
-the Domains nav item carries a count badge for admins while requests are
-outstanding.
+the Domains nav item carries a count badge for admins while requests or
+deploy reviews are outstanding.
+
+## Deploy reviews
+
+Uploads by members that the [content scanner](Security-Model#content-safety)
+marks for review are held until an admin decides. They appear under
+**Domains → Deploy reviews** with the findings, a download of the exact zip,
+Approve and Reject (with an optional note the uploader sees). Meanwhile the
+member's site keeps serving the previous version, the card shows a "Review
+pending" badge, and the member can withdraw the upload from the card menu.
+Uploads by admins are never held. Executables, miners and phishing pages are
+rejected outright for everyone.
 
 ## What members see
 

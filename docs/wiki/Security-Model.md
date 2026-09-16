@@ -11,7 +11,7 @@ A site is content or code that someone else controls. Grimport assumes any site 
 3. use the server for scanning, spam or mining,
 4. escalate privileges inside its container.
 
-Content-level threats (phishing pages, malware downloads) are a separate layer: the deploy scanner and quarantine are planned for a later phase, and Cloudflare's WAF in front of public sites is still recommended.
+Content-level threats (phishing pages, malware downloads) are a separate layer: every upload passes the [content scanner](#content-safety) before it goes live, and Cloudflare's WAF in front of public sites is still recommended.
 
 ## One network per site
 
@@ -172,9 +172,50 @@ layered so no single control has to carry the whole burden:
 - The panel only answers on `SUPERVISOR_DOMAIN` — any other Host header gets the
   catch-all "domain not connected" page, never the login form.
 
+## Content safety
+
+Every deploy (zip upload or URL deploy) is extracted into a staging directory
+next to the site and scanned before anything touches the live files. The
+scanner runs inside the supervisor, is pure Node and never reaches the network.
+
+| Category | Verdict | What triggers it |
+|---|---|---|
+| Executables | blocked | binary extensions (`.exe`, `.dll`, `.msi`, `.scr`, ...), files starting with the MZ (Windows) or ELF (Linux) header |
+| Crypto-miners | blocked | known miner script signatures and pool domains |
+| Phishing | blocked | a password or card field plus a well-known brand name on a page whose form posts to another host |
+| Secrets | review | cloud keys, private keys, `.env` files, `api_key = "..."`-style literals |
+| Obfuscated JavaScript | review | packed or very high-entropy scripts |
+| External forms and redirects | review | forms posting to another host; `meta refresh` or JS redirects away from the index page |
+| External scripts | review | `<script src>` from a host that is not on the allow-list |
+| Large inline data | info | base64 blobs above 200 KB (recorded, never held) |
+
+The scan mode (Settings, General, Content scanner) decides what happens:
+
+- **Quarantine** (default): `clean` goes live. `review` goes live for panel
+  admins with the findings logged; for members the files are held in
+  `pending_html/` (or `pending_app/`) next to the live directory, the deployer
+  sees the findings and "waiting for review", admins are notified, and the
+  upload appears under Domains, Deploy reviews with the findings, a download
+  of the exact zip, Approve and Reject. `blocked` is rejected with HTTP 422
+  and the reasons; only the review record is kept.
+- **Log only**: everything goes live; findings land in the activity log and
+  admins are notified.
+- **Off**: no scan.
+
+Allow-lists: the panel-wide list of external script hosts (defaults include
+cdnjs, jsdelivr, unpkg, Google Fonts, Plausible, Umami, Google Tag Manager,
+Stripe, Tailwind, jQuery) is edited in Settings; a site owner can add hosts for
+their own site under Site settings, Access. Every decision (held, approved,
+rejected, withdrawn, blocked) is written to the activity log with the actor,
+and the uploader is notified of the outcome. A held or rejected upload never
+touches the live site.
+
+The scanner is a static heuristic filter, not malware detection. It catches
+the obvious cases (a phishing kit, a miner, a leaked key) so the panel owner
+only has to look at the rest. Reviewing flagged uploads stays a human decision.
+
 ## What is not covered yet
 
-- Content scanning of deployed files (phishing, miners, secrets) and quarantine — planned.
 - Passkeys / WebAuthn as a login method — planned.
 - A CSP report-only mode / violation reporting endpoint; device or session anomaly detection (new-country logins).
 - Automated certificate-expiry alerting (the `cert_expiry` alert event exists but has no producer yet).

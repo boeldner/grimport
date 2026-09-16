@@ -111,6 +111,7 @@ const CURATED_DEFAULT = [
   'settings-tokens', 'settings-users', 'settings-security', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
   'member-sites', 'member-new-site', 'member-settings',
   'member-onboarding-1', 'member-onboarding-2', 'modal-help', 'modal-new-site-templates',
+  'modal-deploy-review', 'settings-general-scanner',
 ];
 
 const OUT = args.out
@@ -244,6 +245,16 @@ async function main() {
     await shot(T('modal-deploy'));
     await closeModals();
 
+    // Deploy held by the content scanner: same modal, outcome box rendered
+    // from the findings the server would return with a 202.
+    await page.evaluate(id => openDeploy(sites.find(s => s.id === id)), s1);
+    await page.evaluate(() => renderDeployOutcome({ outcome: 'pending', findings: [
+      { category: 'external-script', severity: 'review', file: 'index.html', line: 12, detail: 'script loaded from analytics.tracker-example.net' },
+      { category: 'secret', severity: 'review', file: 'js/config.js', line: 3, detail: 'looks like an API key' },
+    ] }));
+    await shot(T('modal-deploy-review'), { wait: 300 });
+    await closeModals();
+
     await page.evaluate(id => openSettings(sites.find(s => s.id === id)), 's2bbbbbbbb');
     await shot(T('modal-settings-general'));
     await page.evaluate(() => document.getElementById('mtab-behaviour').click());
@@ -326,6 +337,8 @@ async function main() {
     await shot(T('settings-general-updates'), { wait: 300 });
     await page.evaluate(() => document.getElementById('backups-list').scrollIntoView({ block: 'center' }));
     await shot(T('settings-general-backups'), { wait: 300 });
+    await page.evaluate(() => document.getElementById('form-scanner').scrollIntoView({ block: 'center' }));
+    await shot(T('settings-general-scanner'), { wait: 300 });
     await page.evaluate(() => document.querySelector('.main').scrollTo(0, 0));
     for (const tab of ['server', 'tokens', 'webhooks', 'notifications', 'users', 'security']) {
       await page.evaluate(t => document.getElementById(`ptab-${t}`).click(), tab);

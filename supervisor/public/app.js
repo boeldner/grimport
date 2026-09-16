@@ -140,7 +140,12 @@ async function api(method, path, body) {
   }
   _onApiSuccess();
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -156,8 +161,12 @@ async function apiUpload(siteId, file, onProgress) {
     xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total, e.loaded, e.total);
     xhr.onload = () => {
       const data = JSON.parse(xhr.responseText || '{}');
-      if (xhr.status >= 400) reject(new Error(data.error || `HTTP ${xhr.status}`));
-      else resolve(data);
+      if (xhr.status >= 400) {
+        const err = new Error(data.error || `HTTP ${xhr.status}`);
+        err.status = xhr.status;
+        err.data = data;
+        reject(err);
+      } else resolve(data);
     };
     xhr.onerror = () => reject(new Error('Upload failed'));
     xhr.send(form);
@@ -849,6 +858,8 @@ function renderSites() {
       if (action === 'recreate')        recreateSiteContainer(site);
       if (action === 'suspend')         suspendSiteFlow(site);
       if (action === 'apply-template')  openApplyTemplateModal(site);
+      if (action === 'review-deploy')   navigateTo('domains');
+      if (action === 'withdraw-review') withdrawReviewFlow(site);
       if (action === 'unsuspend')       unsuspendSiteFlow(site);
       if (action === 'overflow') {
         const menu = document.getElementById(`overflow-${id}`);
@@ -941,6 +952,7 @@ function siteCard(site) {
     site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
     site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
     site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
+    site.pending_review   ? `<span class="badge badge-warn" title="An upload is waiting for review">${ICON.eye}Review pending</span>` : '',
   ].filter(Boolean).join('');
 
   const previewBadge = site.preview_container_id ? `
@@ -992,6 +1004,8 @@ function siteCard(site) {
             <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
             <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
             ${runtime === 'static' && site.my_role !== 'viewer' ? `<button data-action="apply-template" data-id="${site.id}" role="menuitem">${ICON.grid} Apply template…</button>` : ''}
+            ${site.pending_review && isPanelAdmin() ? `<button data-action="review-deploy" data-id="${site.id}" role="menuitem">${ICON.eye} Review upload…</button>` : ''}
+            ${site.pending_review && site.my_role !== 'viewer' ? `<button data-action="withdraw-review" data-id="${site.id}" role="menuitem">${ICON.x} Withdraw pending upload</button>` : ''}
             ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
             ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
             ${isPanelAdmin() ? (suspended
@@ -1021,6 +1035,7 @@ function siteRow(site) {
     site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
     site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
     site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
+    site.pending_review   ? `<span class="badge badge-warn" title="An upload is waiting for review">${ICON.eye}Review pending</span>` : '',
   ].filter(Boolean).join('');
 
   const u = uptimeData[site.id];
@@ -1375,6 +1390,7 @@ function openDeploy(site) {
   selectedDeployFile = null;
   activeDeployTab = 'upload';
   document.getElementById('deploy-site-name').textContent = site.name;
+  document.getElementById('deploy-outcome').classList.add('hidden');
   document.getElementById('deploy-progress').classList.add('hidden');
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('deploy-status-text').textContent = 'Uploading…';
@@ -1436,20 +1452,22 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
   const fill = document.getElementById('progress-fill');
   const status = document.getElementById('deploy-status-text');
   progress.classList.remove('hidden');
+  document.getElementById('deploy-outcome').classList.add('hidden');
   document.getElementById('btn-deploy-confirm').disabled = true;
 
+  let result;
   try {
     if (activeDeployTab === 'url') {
       const url = document.getElementById('deploy-url-input').value.trim();
       if (!url) throw new Error('No URL entered');
       status.textContent = 'Downloading…';
       fill.style.width = '40%';
-      await api('POST', `/deploy/${activeSiteId}/url`, { url });
+      result = await api('POST', `/deploy/${activeSiteId}/url`, { url });
       fill.style.width = '100%';
     } else {
       if (!selectedDeployFile) return;
       status.textContent = 'Uploading…';
-      await apiUpload(activeSiteId, selectedDeployFile, (pct, loaded, total) => {
+      result = await apiUpload(activeSiteId, selectedDeployFile, (pct, loaded, total) => {
         fill.style.width = `${Math.round(pct * 90)}%`;
         if (pct < 1) {
           const mb = n => (n / 1024 / 1024).toFixed(1);
@@ -1460,17 +1478,82 @@ document.getElementById('btn-deploy-confirm').addEventListener('click', async ()
       });
       fill.style.width = '100%';
     }
+    if (result?.pending_review) {
+      progress.classList.add('hidden');
+      renderDeployOutcome({ outcome: 'pending', findings: result.findings });
+      toast('Upload is waiting for review', 'warn');
+      await loadSites();
+      return;
+    }
     status.textContent = 'Done!';
     await new Promise(r => setTimeout(r, 600));
     closeModal('modal-deploy');
     toast('Site deployed successfully', 'success');
     await loadSites();
   } catch (err) {
+    if (err.status === 422 && Array.isArray(err.data?.findings)) {
+      progress.classList.add('hidden');
+      renderDeployOutcome({ outcome: 'blocked', findings: err.data.findings });
+      toast('Deploy blocked by the content scanner', 'error');
+      document.getElementById('btn-deploy-confirm').disabled = false;
+      loadSites();
+      return;
+    }
     toast(err.message, 'error');
     status.textContent = err.message;
     document.getElementById('btn-deploy-confirm').disabled = false;
   }
 });
+
+// ── Content scanner outcome (deploy modal + review queue) ──
+const FINDING_LABELS = {
+  executable: 'Executable file', miner: 'Crypto-miner script', phishing: 'Phishing pattern',
+  secret: 'Secret or private key', 'obfuscated-js': 'Obfuscated JavaScript',
+  'external-form': 'Form posting to another host', redirect: 'Redirect to another host',
+  'external-script': 'External script', 'large-inline-data': 'Large inline data',
+};
+
+function findingsHtml(findings) {
+  if (!Array.isArray(findings) || !findings.length) return '';
+  return `<ul class="findings-list">${findings.map(f => `
+    <li class="finding finding-${esc(f.severity || 'review')}">
+      <span class="finding-cat">${esc(FINDING_LABELS[f.category] || f.category)}</span>
+      <span class="finding-file">${esc(f.file || '')}${f.line ? `:${f.line}` : ''}</span>
+      ${f.detail ? `<span class="finding-detail">${esc(f.detail)}</span>` : ''}
+    </li>`).join('')}</ul>`;
+}
+
+function renderDeployOutcome({ outcome, findings }) {
+  const box = document.getElementById('deploy-outcome');
+  if (!box) return;
+  const pending = outcome === 'pending';
+  box.className = `notice-card ${pending ? 'notice-warn' : 'notice-err'}`;
+  box.innerHTML = `
+    <span class="notice-icon">${pending ? ICON.eye : ICON.warning}</span>
+    <div>
+      <div class="notice-title">${pending ? 'Waiting for review' : 'Deploy blocked'}</div>
+      <div class="notice-body">${pending
+        ? 'The scanner flagged something in this upload. The panel owner will look at it; the live site stays unchanged until it is approved. You can withdraw it from the card menu.'
+        : 'This upload contains something the panel does not host. Remove the files listed below and deploy again.'}</div>
+      ${findingsHtml(findings)}
+    </div>`;
+  box.classList.remove('hidden');
+}
+
+async function withdrawReviewFlow(site) {
+  const ok = await confirmDialog({
+    title: 'Withdraw the pending upload?',
+    body: `The upload waiting for review on "${site.name}" is discarded. The live site stays as it is.`,
+    confirmLabel: 'Withdraw',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api('DELETE', `/sites/${site.id}/review`);
+    toast('Pending upload withdrawn', 'success');
+    await loadSites();
+  } catch (err) { toast(err.message, 'error'); }
+}
 
 // ── Settings modal ────────────────────────────────────────
 // Tab switching (scoped to #modal-settings — the panel-level Settings
@@ -1693,6 +1776,11 @@ function openSettings(site) {
 
   renderHeadersList(site.custom_headers || []);
   renderRedirectsList(site.redirects || []);
+  const scanWrap = document.getElementById('scan-allowlist-wrap');
+  scanWrap.classList.toggle('hidden', !(site.my_role === 'owner' || isPanelAdmin()));
+  const scanTa = document.getElementById('settings-scan-allowlist');
+  scanTa.value = (site.scan_allowlist || []).join('\n');
+  scanTa.dataset.original = scanTa.value;
   populateAppConfigTab(site);
   applyDomainFieldUI(site);
   setSupportBanner('modal-settings', site);
@@ -1813,6 +1901,10 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
 
   try {
     await api('PUT', `/sites/${activeSiteId}`, payload);
+    const scanTa = document.getElementById('settings-scan-allowlist');
+    if (!document.getElementById('scan-allowlist-wrap').classList.contains('hidden') && scanTa.value !== scanTa.dataset.original) {
+      await api('PUT', `/sites/${activeSiteId}/scan-allowlist`, { hosts: scanTa.value.split(/[\s,]+/).filter(Boolean) });
+    }
     closeModal('modal-settings');
     toast('Settings saved', 'success');
     await loadSites();
@@ -2246,6 +2338,12 @@ const EVENT_LABELS = {
   containers_update_started: 'Container update started',
   container_recreated:       'Container updated',
   container_recreate_failed: 'Container update failed',
+  deploy_review:    'Upload waiting for review',
+  deploy_blocked:   'Deploy blocked',
+  deploy_approved:  'Upload approved',
+  deploy_rejected:  'Upload rejected',
+  deploy_withdrawn: 'Upload withdrawn',
+  deploy_findings:  'Scanner findings',
 };
 
 let activitySiteFilter = null;
@@ -3228,7 +3326,7 @@ async function init() {
   await loadSites();
   await loadNotifications();
   if (isPanelAdmin()) checkForUpdate();
-  if (isPanelAdmin()) loadDomainRequests();
+  if (isPanelAdmin()) { loadDomainRequests(); loadDeployReviews(); }
   if (me.needsOnboarding) openOnboarding();
   // Member first-run wizard: only members, only once, only while they own
   // nothing yet (never admins/owners — they get the wizard above — and
@@ -3309,6 +3407,7 @@ function renderNotifList(notifs) {
     unknown_domain: ICON.globe, site_down: ICON.warning, site_up: ICON.check,
     support_action: ICON.shield, domain_request: ICON.globe, domain_decided: ICON.check,
     site_suspended: ICON.warning, site_unsuspended: ICON.check, site_transferred: ICON.layers,
+    deploy_review: ICON.eye, deploy_blocked: ICON.warning, deploy_findings: ICON.shield, deploy_decided: ICON.check,
   };
   list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
@@ -4170,14 +4269,41 @@ document.getElementById('policy-domain-seg').addEventListener('click', e => {
   setPolicyDomainSeg(btn.dataset.value);
 });
 
+function setScanModeSeg(value) {
+  document.getElementById('policy-scan-value').value = value;
+  document.querySelectorAll('#policy-scan-seg button').forEach(b => {
+    const active = b.dataset.value === value;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+}
+document.getElementById('policy-scan-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-value]');
+  if (!btn) return;
+  setScanModeSeg(btn.dataset.value);
+});
+
 async function loadPolicies() {
   try {
     const p = await api('GET', '/settings/policies');
     setPolicyDomainSeg(p.custom_domain_policy);
     document.getElementById('f-default-preset').value = p.default_preset;
     document.getElementById('f-invite-ttl').value = p.invite_ttl_hours;
+    setScanModeSeg(p.scan_mode || 'quarantine');
+    document.getElementById('f-scan-allowlist').value = (p.scan_script_allowlist || []).join('\n');
   } catch { /* ignore */ }
 }
+
+document.getElementById('form-scanner').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('PUT', '/settings/policies', {
+      scan_mode: document.getElementById('policy-scan-value').value,
+      scan_script_allowlist: document.getElementById('f-scan-allowlist').value.split(/[\s,]+/).filter(Boolean),
+    });
+    toast('Scanner settings saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
 
 document.getElementById('form-policies').addEventListener('submit', async e => {
   e.preventDefault();
@@ -4464,13 +4590,16 @@ async function loadDomains() {
 
     document.getElementById('domains-loading').classList.add('hidden');
     document.getElementById('domains-table-wrap').classList.remove('hidden');
-    if (isPanelAdmin()) loadDomainRequests();
+    if (isPanelAdmin()) { loadDomainRequests(); loadDeployReviews(); }
   } catch (err) {
     viewError(loadingEl, viewErrorMessage('domains', err), loadDomains);
   }
 }
 
-function updateDomainsBadge(count) {
+const domainsBadgeCounts = { requests: 0, reviews: 0 };
+function updateDomainsBadge(kind, n) {
+  if (kind) domainsBadgeCounts[kind] = n;
+  const count = domainsBadgeCounts.requests + domainsBadgeCounts.reviews;
   const badge = document.getElementById('domains-badge');
   if (!badge) return;
   if (count > 0) { badge.textContent = count > 9 ? '9+' : String(count); badge.classList.remove('hidden'); }
@@ -4482,7 +4611,7 @@ async function loadDomainRequests() {
   if (!wrap) return;
   try {
     const reqs = await api('GET', '/domains/requests?status=pending');
-    updateDomainsBadge(reqs.length);
+    updateDomainsBadge('requests', reqs.length);
     if (!reqs.length) { wrap.innerHTML = '<p class="settings-desc muted">No pending requests.</p>'; return; }
     wrap.innerHTML = `
       <div class="table-scroll">
@@ -4517,6 +4646,50 @@ async function loadDomainRequests() {
         const note = await promptDialog({ title: 'Reject this domain request?', body: 'Optionally add a note for the requester.', placeholder: 'Note (optional)', confirmLabel: 'Reject', danger: true });
         if (note === null) return;
         try { await api('POST', `/domains/requests/${btn.dataset.rejectRequest}/reject`, note ? { note } : {}); toast('Domain request rejected', 'success'); loadDomains(); }
+        catch (err) { toast(err.message, 'error'); }
+      });
+    });
+  } catch { /* admin-only endpoint — ignore for non-admins */ }
+}
+
+async function loadDeployReviews() {
+  const wrap = document.getElementById('deploy-reviews-list');
+  if (!wrap) return;
+  try {
+    const reviews = await api('GET', '/reviews?status=pending');
+    updateDomainsBadge('reviews', reviews.length);
+    if (!reviews.length) { wrap.innerHTML = '<p class="settings-desc muted">Nothing waiting for review.</p>'; return; }
+    const mb = n => `${(n / 1024 / 1024).toFixed(1)} MB`;
+    wrap.innerHTML = reviews.map(r => `
+      <div class="review-item">
+        <div class="review-head">
+          <div class="review-meta">
+            <span class="review-site">${esc(r.site_name)} <span class="review-domain">${esc(r.site_domain || '')}</span></span>
+            <span class="review-by">${esc(r.created_by_name || 'unknown')} · ${timeAgo(r.created_at)} · ${esc(r.filename)}${r.size ? ` · ${mb(r.size)}` : ''}</span>
+          </div>
+          <span class="badge badge-warn">${r.findings_count} finding${r.findings_count === 1 ? '' : 's'}</span>
+        </div>
+        ${findingsHtml(r.findings)}
+        <div class="review-actions">
+          <a class="btn btn-sm btn-secondary" href="/api/reviews/${esc(r.id)}/download">${ICON.download} Download zip</a>
+          <button class="btn btn-sm btn-primary" data-approve-review="${esc(r.id)}">Approve</button>
+          <button class="btn btn-sm btn-danger" data-reject-review="${esc(r.id)}">Reject…</button>
+        </div>
+      </div>`).join('');
+    wrap.querySelectorAll('[data-approve-review]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ok = await confirmDialog({ title: 'Approve this upload?', body: 'The files go live on the site exactly as uploaded. Check the findings first.', confirmLabel: 'Approve' });
+        if (!ok) return;
+        btn.disabled = true;
+        try { await api('POST', `/reviews/${btn.dataset.approveReview}/approve`); toast('Upload approved and live', 'success'); loadDomains(); loadSites(); }
+        catch (err) { toast(err.message, 'error'); btn.disabled = false; }
+      });
+    });
+    wrap.querySelectorAll('[data-reject-review]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const note = await promptDialog({ title: 'Reject this upload?', body: 'The files are discarded. Optionally tell the uploader why.', placeholder: 'Note (optional)', confirmLabel: 'Reject', danger: true });
+        if (note === null) return;
+        try { await api('POST', `/reviews/${btn.dataset.rejectReview}/reject`, note ? { note } : {}); toast('Upload rejected', 'success'); loadDomains(); loadSites(); }
         catch (err) { toast(err.message, 'error'); }
       });
     });
