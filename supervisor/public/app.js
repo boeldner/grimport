@@ -81,6 +81,14 @@ let connectDomain = ''; // domain being connected from notification
 let currentUser = { role: 'admin', platform_role: 'owner', capabilities: {}, username: '' }; // populated on init
 function isPanelAdmin() { return currentUser.platform_role === 'owner' || currentUser.platform_role === 'admin'; }
 function canCreateSites() { return ['owner', 'admin', 'member'].includes(currentUser.platform_role); }
+// Beginner preset members (capability advanced_ui === false) get a reduced UI —
+// site settings show only General + Access, deploy loses the "From URL" tab.
+function beginnerMode() { return !isPanelAdmin() && currentUser.capabilities?.advanced_ui === false; }
+function advancedRevealed() { try { return localStorage.getItem('grimport-advanced') === '1'; } catch { return false; } }
+function debounce(fn, ms) {
+  let t = null;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
 // token routes: admins manage every token under /settings/tokens, everyone else their own under /tokens
 function tokensPath(id) { return (isPanelAdmin() ? '/settings/tokens' : '/tokens') + (id ? `/${id}` : ''); }
 let cachedUpdateData = null; // latest update check result
@@ -479,6 +487,114 @@ function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, 
   });
 }
 
+// ── Prompt dialog (Promise<string|null>) — confirm with an optional text field.
+// Used for suspend reasons and domain-request rejection notes.
+function promptDialog({ title, body, placeholder = '', confirmLabel = 'Confirm', danger = false }) {
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal confirm-dialog" role="dialog" aria-modal="true">
+        <div class="modal-header"><h2>${esc(title)}</h2></div>
+        <div class="confirm-body">
+          <p>${esc(body)}</p>
+          <input type="text" class="g-input" id="prompt-dialog-input" placeholder="${esc(placeholder)}" autocomplete="off" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
+          <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-role="confirm-ok">${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector('#prompt-dialog-input');
+    trapFocus(backdrop.querySelector('.modal'), document.activeElement);
+    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
+    backdrop.querySelector('[data-role="confirm-ok"]').addEventListener('click', () => cleanup(input.value.trim()));
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(null); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(null); }
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') cleanup(input.value.trim()); });
+    setTimeout(() => input.focus(), 30);
+  });
+}
+
+// ── Pick-a-user dialog (Promise<{id,username,display_name}|null>) — a
+// username search box (GET /users/lookup) inside a modal. Used for adding
+// collaborators to a site and for transferring ownership.
+function pickUserDialog({ title, body, confirmLabel = 'Confirm', excludeIds = [] }) {
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal confirm-dialog" role="dialog" aria-modal="true">
+        <div class="modal-header"><h2>${esc(title)}</h2></div>
+        <div class="confirm-body">
+          <p>${esc(body)}</p>
+          <div class="collab-lookup-wrap" style="position:relative">
+            <input type="text" class="g-input" id="pick-user-input" placeholder="Search username…" autocomplete="off" />
+            <div class="collab-lookup-results hidden" id="pick-user-results"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
+          <button type="button" class="btn btn-warn" data-role="confirm-ok" disabled>${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector('#pick-user-input');
+    const results = backdrop.querySelector('#pick-user-results');
+    const confirmBtn = backdrop.querySelector('[data-role="confirm-ok"]');
+    let picked = null;
+    trapFocus(backdrop.querySelector('.modal'), document.activeElement);
+    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
+    confirmBtn.addEventListener('click', () => { if (picked) cleanup(picked); });
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(null); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(null); }
+    });
+    input.addEventListener('input', debounce(async () => {
+      const q = input.value.trim();
+      picked = null;
+      confirmBtn.disabled = true;
+      if (!q) { results.classList.add('hidden'); results.innerHTML = ''; return; }
+      try {
+        const rows = await api('GET', `/users/lookup?q=${encodeURIComponent(q)}`);
+        const filtered = rows.filter(r => !excludeIds.includes(r.id));
+        results.innerHTML = filtered.length
+          ? filtered.map(r => `<button type="button" class="collab-lookup-item" data-uid="${esc(r.id)}" data-uname="${esc(r.username)}" data-dname="${esc(r.display_name || '')}">${esc(r.display_name || r.username)} <span class="muted">@${esc(r.username)}</span></button>`).join('')
+          : '<div class="collab-lookup-empty">No match</div>';
+        results.classList.remove('hidden');
+        results.querySelectorAll('[data-uid]').forEach(b => b.addEventListener('click', () => {
+          picked = { id: b.dataset.uid, username: b.dataset.uname, display_name: b.dataset.dname || null };
+          input.value = b.dataset.uname;
+          results.classList.add('hidden');
+          confirmBtn.disabled = false;
+        }));
+      } catch { /* ignore — keep previous results */ }
+    }, 250));
+    setTimeout(() => input.focus(), 30);
+  });
+}
+
+// ── Support-mode banner — shown at the top of any modal opened for a site
+// the current admin does not own or belong to (site.support === true, set
+// server-side by decorate()/authz.isSupportAccess).
+function renderSupportBanner(site) {
+  if (!site?.support) return '';
+  const ownerName = esc(site.owner?.display_name || site.owner?.username || 'the owner');
+  return `<div class="support-banner">${ICON.shield}<span>Support mode — this site belongs to ${ownerName}. Your actions are logged and ${ownerName} is notified.</span></div>`;
+}
+function setSupportBanner(modalId, site) {
+  const modal = document.querySelector(`#${modalId} .modal`);
+  if (!modal) return;
+  modal.querySelector(':scope > .support-banner')?.remove();
+  const html = renderSupportBanner(site);
+  if (html) modal.querySelector('.modal-header').insertAdjacentHTML('afterend', html);
+}
+
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => closeModal(btn.dataset.close));
 });
@@ -699,6 +815,8 @@ function renderSites() {
       if (action === 'preview-discard') previewDiscard(site);
       if (action === 'uptime-detail')   openUptimeDetail(site, btn);
       if (action === 'recreate')        recreateSiteContainer(site);
+      if (action === 'suspend')         suspendSiteFlow(site);
+      if (action === 'unsuspend')       unsuspendSiteFlow(site);
       if (action === 'overflow') {
         const menu = document.getElementById(`overflow-${id}`);
         const wasHidden = menu?.classList.contains('hidden');
@@ -707,6 +825,37 @@ function renderSites() {
       }
     });
   });
+}
+
+// ── Suspend / unsuspend a site (panel admins) ────────────────
+async function suspendSiteFlow(site) {
+  const reason = await promptDialog({
+    title: `Suspend "${site.name}"?`,
+    body: 'Stops the container and shows a suspended notice on the card. The owner is notified.',
+    placeholder: 'Reason (optional)',
+    confirmLabel: 'Suspend',
+    danger: true,
+  });
+  if (reason === null) return;
+  try {
+    await api('POST', `/sites/${site.id}/suspend`, reason ? { reason } : {});
+    toast(`"${site.name}" suspended`, 'success');
+    await loadSites();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function unsuspendSiteFlow(site) {
+  const ok = await confirmDialog({
+    title: `Unsuspend "${site.name}"?`,
+    body: 'Restarts the container and makes the site reachable again.',
+    confirmLabel: 'Unsuspend',
+  });
+  if (!ok) return;
+  try {
+    await api('POST', `/sites/${site.id}/unsuspend`);
+    toast(`"${site.name}" is active again`, 'success');
+    await loadSites();
+  } catch (err) { toast(err.message, 'error'); }
 }
 
 // Container lifecycle → { cls, label, error }. `cls` maps 1:1 onto the
@@ -749,8 +898,12 @@ function siteCard(site) {
   const { cls, label, error } = statusInfo(container);
   const isRunning = !!container?.running;
   const runtime = site.runtime || 'static';
+  const suspended = site.status === 'suspended';
+  const lockedForViewer = suspended && !isPanelAdmin();
 
   const tags = [
+    site.support          ? `<span class="badge badge-warn">${ICON.shield}Support</span>` : '',
+    suspended             ? `<span class="badge badge-err">Suspended</span>` : '',
     runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
     site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
     site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
@@ -768,14 +921,18 @@ function siteCard(site) {
       </div>
     </div>` : '';
 
-  const errorHint = error ? `
+  const errorHint = suspended ? `
+    <div class="site-error-hint">
+      ${ICON.warning}
+      <span>Suspended — contact the panel owner</span>
+    </div>` : error ? `
     <div class="site-error-hint">
       ${ICON.warning}
       <span>${esc(errorHintText(container))}<span id="down-duration-${site.id}"></span></span>
     </div>` : '';
 
   return `
-    <div class="site-card${error ? ' site-card--error' : ''}">
+    <div class="site-card${error ? ' site-card--error' : ''}${suspended ? ' site-card--suspended' : ''}">
       <div class="site-card-header">
         <span class="status status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span>
         <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
@@ -791,8 +948,8 @@ function siteCard(site) {
       ${errorHint}
       ${uptimeStrip(site.id)}
       <div class="site-actions">
-        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}">Deploy</button>
-        <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}">${isRunning ? 'Stop' : 'Start'}</button>
+        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>Deploy</button>
+        <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
         <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
         <button class="btn btn-sm btn-secondary" data-action="analytics" data-id="${site.id}">Analytics</button>
         <div class="site-overflow">
@@ -803,6 +960,9 @@ function siteCard(site) {
             <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
             ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
             ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
+            ${isPanelAdmin() ? (suspended
+              ? `<button data-action="unsuspend" data-id="${site.id}" role="menuitem">${ICON.check} Unsuspend</button>`
+              : `<button data-action="suspend" data-id="${site.id}" role="menuitem">${ICON.warning} Suspend site…</button>`) : ''}
           </div>
         </div>
       </div>
@@ -817,8 +977,12 @@ function siteRow(site) {
   const { cls, label, error } = statusInfo(container);
   const isRunning = !!container?.running;
   const runtime = site.runtime || 'static';
+  const suspended = site.status === 'suspended';
+  const lockedForViewer = suspended && !isPanelAdmin();
 
   const badges = [
+    site.support          ? `<span class="badge badge-warn">${ICON.shield}Support</span>` : '',
+    suspended             ? `<span class="badge badge-err">Suspended</span>` : '',
     runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
     site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
     site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
@@ -856,8 +1020,8 @@ function siteRow(site) {
       </td>
       <td>
         <div class="cell-actions">
-          <button class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}">Deploy</button>
-          <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}">${isRunning ? 'Stop' : 'Start'}</button>
+          <button class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>Deploy</button>
+          <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
           <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
           <div class="site-overflow">
             <button class="btn btn-sm btn-secondary btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions" aria-label="More actions">${ICON.more}</button>
@@ -867,6 +1031,9 @@ function siteRow(site) {
               <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
               ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
               ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
+              ${isPanelAdmin() ? (suspended
+                ? `<button data-action="unsuspend" data-id="${site.id}" role="menuitem">${ICON.check} Unsuspend</button>`
+                : `<button data-action="suspend" data-id="${site.id}" role="menuitem">${ICON.warning} Suspend site…</button>`) : ''}
             </div>
           </div>
         </div>
@@ -983,14 +1150,49 @@ function validateNewSiteDomain() {
 
 document.getElementById('new-site-domain').addEventListener('input', validateNewSiteDomain);
 
+// Members: hide runtimes their capabilities don't allow (admins always see all).
+function applyRuntimeCaps(segId) {
+  const seg = document.getElementById(segId);
+  if (!seg) return;
+  const allowed = isPanelAdmin() ? null : (currentUser.capabilities?.runtimes || ['static']);
+  seg.querySelectorAll('button[data-runtime]').forEach(b => {
+    b.classList.toggle('hidden', !!allowed && !allowed.includes(b.dataset.runtime));
+  });
+}
+
+function renderNewSiteQuota() {
+  const hint = document.getElementById('new-site-quota-hint');
+  if (!hint) return;
+  if (isPanelAdmin()) { hint.classList.add('hidden'); return; }
+  const max = currentUser.capabilities?.max_sites;
+  const owned = sites.filter(s => s.owner_id === currentUser.id).length;
+  hint.textContent = `${owned} of ${Number.isFinite(max) ? max : '∞'} sites used`;
+  hint.classList.remove('hidden');
+}
+
 document.getElementById('btn-new-site').addEventListener('click', async () => {
   document.getElementById('form-new-site').reset();
   setNewSiteRuntime('static');
-  if (config.siteBaseDomain) {
-    document.querySelector('#form-new-site input[name="domain"]').value =
-      `${randomSlug()}.${config.siteBaseDomain}`;
+  applyRuntimeCaps('new-site-runtime-seg');
+  renderNewSiteQuota();
+
+  const admin = isPanelAdmin();
+  const domainInput = document.querySelector('#form-new-site input[name="domain"]');
+  const optionalTag = document.getElementById('new-site-domain-optional-tag');
+  domainInput.required = admin;
+  optionalTag.classList.toggle('hidden', admin);
+  if (admin && config.siteBaseDomain) {
+    domainInput.value = `${randomSlug()}.${config.siteBaseDomain}`;
+  } else if (!admin) {
+    domainInput.value = '';
+    domainInput.placeholder = config.siteBaseDomain ? `yoursite.${config.siteBaseDomain}` : 'yoursite.example.com';
   }
   validateNewSiteDomain();
+  if (!admin) {
+    const help = document.getElementById('new-site-domain-help');
+    help.className = 'field-help muted';
+    help.textContent = 'Leave empty for an automatic address; a custom domain will be requested for approval.';
+  }
   // Apply panel defaults
   try {
     const s = await api('GET', '/settings');
@@ -1003,19 +1205,21 @@ document.getElementById('btn-new-site').addEventListener('click', async () => {
 document.getElementById('form-new-site').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const domain = fd.get('domain').trim().toLowerCase();
-  if (!validateNewSiteDomain()) {
-    toast('Invalid domain — use a format like mysite.example.com or test.localhost', 'error');
-    return;
+  const domain = (fd.get('domain') || '').trim().toLowerCase();
+  if (domain || isPanelAdmin()) {
+    if (!validateNewSiteDomain()) {
+      toast('Invalid domain — use a format like mysite.example.com or test.localhost', 'error');
+      return;
+    }
   }
   const runtime = fd.get('runtime') || 'static';
   const isApp = runtime === 'node' || runtime === 'python';
   const payload = {
     name: fd.get('name'),
-    domain,
     runtime,
     spa_mode: fd.get('spa_mode') === 'on',
     cache_enabled: fd.get('cache_enabled') === 'on',
+    ...(domain ? { domain } : {}),
     ...(isApp ? {
       build_cmd: fd.get('build_cmd') || null,
       start_cmd: fd.get('start_cmd') || null,
@@ -1023,9 +1227,9 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
     } : {}),
   };
   try {
-    await api('POST', '/sites', payload);
+    const site = await api('POST', '/sites', payload);
     closeModal('modal-new-site');
-    toast(`Site "${payload.name}" created`, 'success');
+    toast(site.domain_request ? `Site "${payload.name}" created — domain request sent for approval` : `Site "${payload.name}" created`, 'success');
     await loadSites();
   } catch (err) {
     toast(err.message, 'error');
@@ -1084,6 +1288,8 @@ function openDeploy(site) {
     const f = document.getElementById('deploy-file-input').files[0];
     if (f) selectDeployFile(f);
   });
+  document.querySelector('.deploy-tab[data-dtab="url"]')?.classList.toggle('hidden', beginnerMode());
+  setSupportBanner('modal-deploy', site);
   openModal('modal-deploy');
 }
 
@@ -1169,41 +1375,170 @@ document.querySelectorAll('#modal-settings .tab').forEach(tab => {
     tab.setAttribute('aria-selected', 'true');
     document.querySelectorAll('#modal-settings .tab-panel').forEach(p => p.classList.add('hidden'));
     document.getElementById(`stab-${tab.dataset.stab}`).classList.remove('hidden');
-    if (tab.dataset.stab === 'access' && isPanelAdmin()) loadSiteAccessUsers();
+    if (tab.dataset.stab === 'access') loadCollaborators();
   });
 });
 
-async function loadSiteAccessUsers() {
-  const wrap = document.getElementById('site-access-users-list');
-  if (!activeSiteId) return;
-  try {
-    const [allUsers, siteUsers] = await Promise.all([
-      api('GET', '/users'),
-      api('GET', `/sites/${activeSiteId}/users`),
-    ]);
-    const nonAdmins = allUsers.filter(u => u.role !== 'admin');
-    if (!nonAdmins.length) {
-      wrap.innerHTML = '<p class="settings-desc">No editor or viewer users exist yet.</p>';
-      return;
-    }
-    wrap.innerHTML = nonAdmins.map(u => `
-      <label class="g-checkbox" style="margin-bottom:8px">
-        <input type="checkbox" class="site-user-access-cb" data-uid="${u.id}"
-          ${siteUsers.user_ids.includes(u.id) ? 'checked' : ''} />
-        <span class="g-checkbox-box"></span>
-        ${esc(u.username)} <span class="badge badge-role-${esc(u.role)}" style="margin-left:4px">${esc(u.role)}</span>
-      </label>
-    `).join('');
+// ── Collaborators (site members) — Access tab ────────────────────────────
+let collabDraft = [];
+let collabPendingUser = null;
 
-    // Save on each toggle immediately
-    wrap.querySelectorAll('.site-user-access-cb').forEach(cb => {
-      cb.addEventListener('change', async () => {
-        const checked = [...wrap.querySelectorAll('.site-user-access-cb:checked')].map(c => c.dataset.uid);
-        await api('PUT', `/sites/${activeSiteId}/users`, { user_ids: checked }).catch(err => toast(err.message, 'error'));
-      });
-    });
+async function loadCollaborators() {
+  const wrap = document.getElementById('collab-list');
+  if (!activeSiteId) return;
+  const site = sites.find(s => s.id === activeSiteId);
+  const isOwner = site?.my_role === 'owner';
+  document.getElementById('collab-add-row').classList.toggle('hidden', !isOwner);
+  document.getElementById('collab-save-row').classList.toggle('hidden', !isOwner);
+  document.getElementById('btn-transfer-ownership').classList.toggle('hidden', !isOwner);
+  try {
+    const data = await api('GET', `/sites/${activeSiteId}/members`);
+    document.getElementById('collab-owner-line').textContent = data.owner
+      ? `Owner: ${data.owner.display_name || data.owner.username}`
+      : 'No owner set';
+    collabDraft = data.members.map(m => ({ user_id: m.user_id, username: m.username, display_name: m.display_name, site_role: m.site_role }));
+    renderCollabList(isOwner);
   } catch (err) {
-    wrap.innerHTML = `<p class="settings-desc" style="color:var(--red)">${esc(err.message)}</p>`;
+    wrap.innerHTML = `<p class="settings-desc" style="color:var(--err)">${esc(err.message)}</p>`;
+  }
+}
+
+function renderCollabList(isOwner) {
+  const wrap = document.getElementById('collab-list');
+  if (!collabDraft.length) {
+    wrap.innerHTML = '<p class="settings-desc muted">No collaborators yet.</p>';
+    return;
+  }
+  wrap.innerHTML = collabDraft.map((m, i) => `
+    <div class="collab-row">
+      <span class="collab-name">${esc(m.display_name || m.username)}</span>
+      ${isOwner ? `
+        <select class="g-select" style="width:auto" data-collab-role="${i}">
+          <option value="viewer" ${m.site_role === 'viewer' ? 'selected' : ''}>Viewer</option>
+          <option value="editor" ${m.site_role === 'editor' ? 'selected' : ''}>Editor</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-icon-only btn-danger" data-collab-remove="${i}" title="Remove">${ICON.x}</button>
+      ` : `<span class="badge badge-role-${esc(m.site_role)}">${esc(m.site_role)}</span>`}
+    </div>`).join('');
+  if (!isOwner) return;
+  wrap.querySelectorAll('[data-collab-role]').forEach(sel => {
+    sel.addEventListener('change', () => { collabDraft[Number(sel.dataset.collabRole)].site_role = sel.value; });
+  });
+  wrap.querySelectorAll('[data-collab-remove]').forEach(btn => {
+    btn.addEventListener('click', () => { collabDraft.splice(Number(btn.dataset.collabRemove), 1); renderCollabList(isOwner); });
+  });
+}
+
+document.getElementById('collab-add-username').addEventListener('input', debounce(async e => {
+  const q = e.target.value.trim();
+  collabPendingUser = null;
+  const results = document.getElementById('collab-lookup-results');
+  if (!q) { results.classList.add('hidden'); return; }
+  const site = sites.find(s => s.id === activeSiteId);
+  try {
+    const rows = await api('GET', `/users/lookup?q=${encodeURIComponent(q)}`);
+    const filtered = rows.filter(r => r.id !== site?.owner_id && !collabDraft.some(m => m.user_id === r.id));
+    results.innerHTML = filtered.length
+      ? filtered.map(r => `<button type="button" class="collab-lookup-item" data-uid="${esc(r.id)}" data-uname="${esc(r.username)}" data-dname="${esc(r.display_name || '')}">${esc(r.display_name || r.username)} <span class="muted">@${esc(r.username)}</span></button>`).join('')
+      : '<div class="collab-lookup-empty">No match</div>';
+    results.classList.remove('hidden');
+    results.querySelectorAll('[data-uid]').forEach(btn => btn.addEventListener('click', () => {
+      collabPendingUser = { id: btn.dataset.uid, username: btn.dataset.uname, display_name: btn.dataset.dname || null };
+      document.getElementById('collab-add-username').value = btn.dataset.uname;
+      results.classList.add('hidden');
+    }));
+  } catch { /* ignore */ }
+}, 250));
+
+document.getElementById('btn-collab-add').addEventListener('click', () => {
+  if (!collabPendingUser) { toast('Pick a user from the list', 'error'); return; }
+  const site_role = document.getElementById('collab-add-role').value;
+  collabDraft.push({ user_id: collabPendingUser.id, username: collabPendingUser.username, display_name: collabPendingUser.display_name, site_role });
+  collabPendingUser = null;
+  document.getElementById('collab-add-username').value = '';
+  renderCollabList(true);
+});
+
+document.getElementById('btn-collab-save').addEventListener('click', async () => {
+  try {
+    await api('PUT', `/sites/${activeSiteId}/members`, { members: collabDraft.map(m => ({ user_id: m.user_id, site_role: m.site_role })) });
+    toast('Collaborators saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-transfer-ownership').addEventListener('click', async () => {
+  const site = sites.find(s => s.id === activeSiteId);
+  if (!site) return;
+  const target = await pickUserDialog({
+    title: `Transfer "${site.name}"`,
+    body: 'Pick who should own this site. They get full control over it.',
+    confirmLabel: 'Transfer',
+    excludeIds: [site.owner_id].filter(Boolean),
+  });
+  if (!target) return;
+  const ok = await confirmDialog({
+    title: `Transfer to ${target.display_name || target.username}?`,
+    body: 'This cannot be undone by you — only the new owner can transfer it back.',
+    confirmLabel: 'Transfer ownership',
+    warn: true,
+  });
+  if (!ok) return;
+  try {
+    await api('POST', `/sites/${activeSiteId}/transfer`, { user_id: target.id });
+    closeModal('modal-settings');
+    toast(`"${site.name}" transferred to ${target.display_name || target.username}`, 'success');
+    await loadSites();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// Beginner-mode members: Behaviour/App tabs hidden behind a "Show advanced
+// settings" link, remembered per browser (localStorage `grimport-advanced`).
+function applyBeginnerModeSettings() {
+  const beginner = beginnerMode();
+  const revealed = !beginner || advancedRevealed();
+  document.querySelectorAll('#modal-settings .tab[data-stab="behaviour"], #modal-settings .tab[data-stab="app"]').forEach(t => {
+    t.classList.toggle('hidden', beginner && !revealed);
+  });
+  const link = document.getElementById('btn-show-advanced-settings');
+  if (link) link.classList.toggle('hidden', !beginner || revealed);
+}
+document.getElementById('btn-show-advanced-settings').addEventListener('click', () => {
+  try { localStorage.setItem('grimport-advanced', '1'); } catch {}
+  applyBeginnerModeSettings();
+});
+
+async function applyDomainFieldUI(site) {
+  const form = document.getElementById('form-settings');
+  const domainInput = form.elements['domain'];
+  const restartWarn = document.getElementById('settings-domain-help');
+  const memberHelp = document.getElementById('settings-domain-member-help');
+  const pendingBadge = document.getElementById('settings-domain-pending-badge');
+  const isOwner = site.my_role === 'owner';
+  const admin = isPanelAdmin();
+  memberHelp.classList.add('hidden');
+  pendingBadge.classList.add('hidden');
+  restartWarn.classList.remove('hidden');
+  domainInput.disabled = !isOwner;
+  if (!isOwner) {
+    restartWarn.classList.add('hidden');
+    memberHelp.textContent = 'Only the site owner can change the domain.';
+    memberHelp.classList.remove('hidden');
+  } else if (!admin) {
+    const approvalNeeded = currentUser.capabilities?.custom_domains !== 'free';
+    const base = config.siteBaseDomain || 'the base domain';
+    memberHelp.textContent = approvalNeeded
+      ? `Custom domains need approval; subdomains of ${base} apply immediately.`
+      : `Subdomains of ${base} and custom domains both apply immediately.`;
+    memberHelp.classList.remove('hidden');
+  }
+  if (isOwner) {
+    try {
+      const req = await api('GET', `/sites/${site.id}/domain-request`);
+      if (req && req.status === 'pending') {
+        pendingBadge.textContent = `Pending: ${req.domain}`;
+        pendingBadge.classList.remove('hidden');
+      }
+    } catch { /* ignore */ }
   }
 }
 
@@ -1217,6 +1552,8 @@ function openSettings(site) {
     t.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
   });
   document.querySelectorAll('#modal-settings .tab-panel').forEach((p, i) => p.classList.toggle('hidden', i !== 0));
+  applyBeginnerModeSettings();
+  applyRuntimeCaps('settings-runtime-seg');
 
   const form = document.getElementById('form-settings');
   form.elements['id'].value = site.id;
@@ -1246,6 +1583,8 @@ function openSettings(site) {
   renderHeadersList(site.custom_headers || []);
   renderRedirectsList(site.redirects || []);
   populateAppConfigTab(site);
+  applyDomainFieldUI(site);
+  setSupportBanner('modal-settings', site);
   openModal('modal-settings');
 }
 
@@ -1397,6 +1736,7 @@ async function openLogs(site) {
   activeSiteId = site.id;
   document.getElementById('logs-site-name').textContent = site.name;
   document.getElementById('logs-content').textContent = 'Loading…';
+  setSupportBanner('modal-logs', site);
   openModal('modal-logs');
   await fetchModalLogs();
 }
@@ -1489,6 +1829,7 @@ async function openAnalytics(site) {
   document.getElementById('analytics-site-name').textContent = site.name;
   document.querySelectorAll('.analytics-period-btn').forEach(b =>
     b.classList.toggle('is-active', b.dataset.period === activeAnalyticsPeriod));
+  setSupportBanner('modal-analytics', site);
   openModal('modal-analytics');
   await loadAnalytics();
 }
@@ -1618,6 +1959,7 @@ async function openDns(site) {
   document.querySelectorAll('[id^="dns-tunnel-wildcard"]').forEach(el => { el.textContent = baseDomain; });
   switchDnsTab('standard');
   setBanner('checking', 'Checking DNS…');
+  setSupportBanner('modal-dns', site);
   openModal('modal-dns');
   await checkDns(site.id);
 }
@@ -1695,6 +2037,7 @@ async function openHistory(site) {
   activeSiteId = site.id;
   document.getElementById('history-site-name').textContent = site.name;
   document.getElementById('history-list').innerHTML = '<p style="color:var(--tx3);padding:16px">Loading…</p>';
+  setSupportBanner('modal-history', site);
   openModal('modal-history');
   await refreshHistory(site.id, site.name);
 }
@@ -2076,6 +2419,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
 async function loadPanelSettings() {
   if (!isPanelAdmin()) { loadTokens(); return; }
   loadImageStatus();
+  loadPolicies();
   try {
     const s = await api('GET', '/settings');
     const form = document.getElementById('form-panel-settings');
@@ -2625,6 +2969,7 @@ async function init() {
   await loadSites();
   await loadNotifications();
   checkForUpdate();
+  if (isPanelAdmin()) loadDomainRequests();
   if (me.needsOnboarding) openOnboarding();
   setInterval(loadSites, 15_000);
   setInterval(loadNotifications, 30_000);
@@ -2690,7 +3035,11 @@ function renderNotifList(notifs) {
       </div>
     </div>` : '';
 
-  const NOTIF_ICONS = { unknown_domain: ICON.globe, site_down: ICON.warning, site_up: ICON.check };
+  const NOTIF_ICONS = {
+    unknown_domain: ICON.globe, site_down: ICON.warning, site_up: ICON.check,
+    support_action: ICON.shield, domain_request: ICON.globe, domain_decided: ICON.check,
+    site_suspended: ICON.warning, site_unsuspended: ICON.check, site_transferred: ICON.layers,
+  };
   list.innerHTML = updateHtml + notifs.map(n => {
     let data = {};
     try { data = JSON.parse(n.data || '{}'); } catch {}
@@ -2762,8 +3111,19 @@ function renderNotifList(notifs) {
     });
   }
 
+  // Domain-request notifications — always navigate to Domains, read or not.
+  list.querySelectorAll('.notif-item.notif-type-domain_request').forEach(item => {
+    item.addEventListener('click', async () => {
+      setNotifDropdownOpen(false);
+      navigateTo('domains');
+      if (!item.classList.contains('notif-unread')) return;
+      await api('POST', `/notifications/${item.dataset.notifId}/read`).catch(() => {});
+      loadNotifications();
+    });
+  });
+
   // Regular notifications — mark as read on click
-  list.querySelectorAll('.notif-item:not(#notif-update-item)').forEach(item => {
+  list.querySelectorAll('.notif-item:not(#notif-update-item):not(.notif-type-domain_request)').forEach(item => {
     item.addEventListener('click', async () => {
       if (!item.classList.contains('notif-unread')) return;
       await api('POST', `/notifications/${item.dataset.notifId}/read`).catch(() => {});
@@ -2997,14 +3357,14 @@ document.getElementById('form-analytics-snippet').addEventListener('submit', asy
 
 // ── Role-aware UI ─────────────────────────────────────────
 function applyRoleUI() {
-  const { role, username } = currentUser;
+  const { role, username, display_name } = currentUser;
 
-  // Sidebar user info
+  // Sidebar user info — display name when set, username as the title attribute
   const usernameEl = document.getElementById('sidebar-username');
   const roleBadge = document.getElementById('sidebar-role-badge');
   const avatarEl = document.getElementById('sidebar-avatar');
-  if (usernameEl) usernameEl.textContent = username;
-  if (roleBadge) { roleBadge.textContent = role; roleBadge.dataset.role = role; }
+  if (usernameEl) { usernameEl.textContent = display_name || username; usernameEl.title = username; }
+  if (roleBadge) { const pr = currentUser.platform_role || role; roleBadge.textContent = pr; roleBadge.dataset.role = pr; }
   if (avatarEl) avatarEl.textContent = (username || '?').slice(0, 2).toUpperCase();
 
   // Hide admin-only elements for non-admins (platform role owner/admin)
@@ -3135,11 +3495,26 @@ function populateAppConfigTab(site) {
 }
 
 // ── Users management ──────────────────────────────────────
+let cachedUsers = [];
+let cachedPresets = null;
+
+async function ensurePresetsLoaded() {
+  if (cachedPresets) return cachedPresets;
+  cachedPresets = await api('GET', '/users/presets');
+  return cachedPresets;
+}
+
+function presetDescription(p) {
+  if (!p) return '';
+  return `${p.max_sites} site${p.max_sites === 1 ? '' : 's'} · ${p.runtimes.join(', ')} · ${p.max_upload_mb} MB uploads · ${p.disk_quota_mb} MB disk · custom domains: ${p.custom_domains}`;
+}
+
 async function loadUsers() {
   const list = document.getElementById('users-list');
-  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
+  list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 5)}</tbody></table>`;
   try {
-    const users = await api('GET', '/users');
+    const [users] = await Promise.all([api('GET', '/users'), ensurePresetsLoaded()]);
+    cachedUsers = users;
     renderUserList(users);
   } catch (err) {
     viewError(list, viewErrorMessage('users', err), loadUsers);
@@ -3153,34 +3528,42 @@ function renderUserList(users) {
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.user}</div>
         <h3>No users yet.</h3>
-        <p>Create one below to grant access.</p>
+        <p>Invite one to grant access.</p>
       </div>`;
     return;
   }
   list.innerHTML = `
     <div class="table-scroll">
     <table class="data-table">
-      <thead><tr><th>User</th><th>Role</th><th>Site access</th><th></th></tr></thead>
+      <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Sites</th><th>Last login</th><th></th></tr></thead>
       <tbody>
         ${users.map(u => {
           const isSelf = u.id === currentUser.id;
           const initials = (u.username || '?').slice(0, 2).toUpperCase();
+          const ownedSites = u.owned_sites || [];
+          const memberSites = u.member_sites || [];
+          const isAll = u.sites === 'all';
+          const siteCount = ownedSites.length + memberSites.length;
+          const siteNames = [...ownedSites, ...memberSites].map(s => s.name).join(', ');
           return `
           <tr>
             <td>
               <div class="table-user">
                 <span class="table-avatar">${esc(initials)}</span>
-                <span>${esc(u.username)}</span>
+                <span>${esc(u.display_name || u.username)}${u.display_name ? ` <span class="field-help muted" style="display:inline">@${esc(u.username)}</span>` : ''}</span>
                 ${isSelf ? '<span class="badge badge-neutral">YOU</span>' : ''}
               </div>
             </td>
-            <td><span class="badge badge-role-${esc(u.role)}">${esc(u.role)}</span></td>
-            <td>${renderUserSites(u)}</td>
+            <td><span class="badge badge-role-${esc(u.platform_role)}">${esc(u.platform_role)}</span></td>
+            <td>${u.status === 'disabled' ? '<span class="badge badge-err">Disabled</span>' : '<span class="badge badge-ok">Active</span>'}</td>
+            <td>${isAll ? '<span class="badge badge-accent">All sites</span>' : (siteCount ? `<span title="${esc(siteNames)}">${siteCount}</span>` : '<span style="color:var(--tx3)">None</span>')}</td>
+            <td>${u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td>
             <td>
-              ${!isSelf ? `
+              ${(!isSelf && u.platform_role !== 'owner') ? `
                 <div class="cell-actions">
-                  <button class="btn btn-sm" data-edit-user="${u.id}" data-username="${esc(u.username)}" data-role="${u.role}">Edit</button>
-                  <button class="btn btn-sm btn-danger" data-delete-user="${u.id}" data-username="${esc(u.username)}">Delete…</button>
+                  <button class="btn btn-sm" data-edit-user="${u.id}">Edit</button>
+                  <button class="btn btn-sm" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === 'disabled' ? 'Enable' : 'Disable'}</button>
+                  <button class="btn btn-sm btn-danger" data-delete-user="${u.id}">Delete…</button>
                 </div>` : ''}
             </td>
           </tr>`;
@@ -3191,93 +3574,186 @@ function renderUserList(users) {
 
   list.querySelectorAll('[data-delete-user]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const ok = await confirmDialog({
-        title: `Delete user "${btn.dataset.username}"?`,
-        body: 'They will immediately lose access to this panel. This cannot be undone.',
-        confirmLabel: 'Delete',
-        danger: true,
-      });
-      if (!ok) return;
-      await api('DELETE', `/users/${btn.dataset.deleteUser}`).catch(err => toast(err.message, 'error'));
-      loadUsers();
+      const user = cachedUsers.find(u => u.id === btn.dataset.deleteUser);
+      if (!user) return;
+      const choice = await confirmDeleteUser(user);
+      if (!choice) return;
+      try {
+        await api('DELETE', `/users/${user.id}${choice.deleteSites ? '?delete_sites=1' : ''}`);
+        toast('User deleted', 'success');
+        loadUsers();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+
+  list.querySelectorAll('[data-toggle-user]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const next = btn.dataset.status === 'disabled' ? 'active' : 'disabled';
+      if (next === 'disabled') {
+        const ok = await confirmDialog({
+          title: 'Disable this user?',
+          body: 'Their sessions end immediately and their sites are suspended.',
+          confirmLabel: 'Disable',
+          danger: true,
+        });
+        if (!ok) return;
+      }
+      try {
+        await api('PATCH', `/users/${btn.dataset.toggleUser}`, { status: next });
+        loadUsers();
+      } catch (err) { toast(err.message, 'error'); }
     });
   });
 
   list.querySelectorAll('[data-edit-user]').forEach(btn => {
-    btn.addEventListener('click', () => openEditUser(btn.dataset.editUser, btn.dataset.username, btn.dataset.role));
+    btn.addEventListener('click', () => openEditUser(btn.dataset.editUser));
   });
 }
 
-function renderUserSites(u) {
-  if (u.role === 'admin' || u.sites === 'all') return '<span class="badge badge-accent">All sites</span>';
-  if (!u.sites?.length) return '<span style="color:var(--tx3)">None</span>';
-  const chips = u.sites.map(sid => {
-    const s = sites.find(x => x.id === sid);
-    return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
-  }).filter(Boolean).join('');
-  return `<div class="chip-wrap">${chips}</div>`;
+// Custom-delete dialog: transfer the user's sites to the owner (default) or
+// delete them outright. Resolves to { deleteSites } or null (cancelled).
+function confirmDeleteUser(user) {
+  return new Promise(resolve => {
+    const owned = user.owned_sites || [];
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal confirm-dialog" role="dialog" aria-modal="true">
+        <div class="modal-header"><h2>Delete user "${esc(user.username)}"?</h2></div>
+        <div class="confirm-body">
+          <p>They immediately lose access to this panel. This cannot be undone.</p>
+          ${owned.length ? `
+          <div class="role-select-list" role="radiogroup" aria-label="What happens to their sites">
+            <label class="role-select-opt">
+              <input type="radio" name="delete-user-sites" value="transfer" checked />
+              <span class="role-select-body">
+                <span class="role-select-name">Transfer ${owned.length} site${owned.length === 1 ? '' : 's'} to the owner</span>
+                <span class="role-select-desc">Recommended — sites keep running</span>
+              </span>
+            </label>
+            <label class="role-select-opt">
+              <input type="radio" name="delete-user-sites" value="delete" />
+              <span class="role-select-body">
+                <span class="role-select-name">Delete their sites</span>
+                <span class="role-select-desc">Removes containers and files permanently</span>
+              </span>
+            </label>
+          </div>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
+          <button type="button" class="btn btn-danger" data-role="confirm-ok">Delete</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    trapFocus(backdrop.querySelector('.modal'), document.activeElement);
+    function cleanup(result) { releaseFocusTrap(); backdrop.remove(); resolve(result); }
+    backdrop.querySelector('[data-role="confirm-cancel"]').addEventListener('click', () => cleanup(null));
+    backdrop.querySelector('[data-role="confirm-ok"]').addEventListener('click', () => {
+      const choice = backdrop.querySelector('input[name="delete-user-sites"]:checked')?.value || 'transfer';
+      cleanup({ deleteSites: choice === 'delete' });
+    });
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(null); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(null); }
+    });
+  });
 }
 
+// ── Edit user modal ───────────────────────────────────────
 function setEditUserRole(role) {
   document.querySelectorAll('#edit-user-role-list input[name="role"]').forEach(input => {
     input.checked = input.value === role;
     input.closest('.role-select-opt').classList.toggle('is-active', input.value === role);
   });
-  document.getElementById('edit-user-sites-wrap').classList.toggle('hidden', role === 'admin');
 }
 
-async function openEditUser(userId, username, role) {
-  document.getElementById('edit-user-id').value = userId;
-  document.getElementById('edit-user-name').textContent = username;
-  setEditUserRole(role);
-
-  // Load current site assignments for this user
-  const [siteData] = await Promise.all([
-    api('GET', `/users/${userId}/sites`).catch(() => ({ all: false, sites: [] })),
-  ]);
-
-  renderEditUserSites(siteData);
-  openModal('modal-edit-user');
+function populateCapFields(caps) {
+  const c = { runtimes: ['static'], max_sites: 0, max_upload_mb: 100, disk_quota_mb: 1000, custom_domains: 'approval', api_tokens: true, webhooks: false, advanced_ui: false, ...caps };
+  document.getElementById('edit-user-max-sites').value = c.max_sites;
+  document.querySelectorAll('#edit-user-runtimes input[type=checkbox]').forEach(cb => { cb.checked = (c.runtimes || []).includes(cb.value); });
+  document.getElementById('edit-user-upload-mb').value = c.max_upload_mb;
+  document.getElementById('edit-user-disk-mb').value = c.disk_quota_mb;
+  document.getElementById('edit-user-custom-domains').value = c.custom_domains;
+  document.getElementById('edit-user-api-tokens').checked = !!c.api_tokens;
+  document.getElementById('edit-user-webhooks').checked = !!c.webhooks;
+  document.getElementById('edit-user-advanced-ui').checked = !!c.advanced_ui;
 }
 
-// Role change hides/shows site list (delegated — radios are re-rendered per open)
-document.getElementById('edit-user-role-list').addEventListener('change', e => {
-  const input = e.target.closest('input[name="role"]');
-  if (!input) return;
-  setEditUserRole(input.value);
+function setEditUserPreset(name, overrideCaps) {
+  document.getElementById('edit-user-preset').value = name;
+  document.querySelectorAll('#edit-user-preset-seg button').forEach(b => {
+    const active = b.dataset.preset === name;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  document.getElementById('edit-user-custom-caps').classList.toggle('hidden', name !== 'custom');
+  const caps = name === 'custom' ? (overrideCaps || {}) : (cachedPresets?.presets?.[name] || {});
+  populateCapFields(caps);
+}
+
+document.getElementById('edit-user-preset-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-preset]');
+  if (!btn) return;
+  setEditUserPreset(btn.dataset.preset);
 });
 
-function renderEditUserSites(siteData) {
-  const wrap = document.getElementById('edit-user-sites-list');
-  if (!sites.length) {
-    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
-    return;
-  }
-  wrap.innerHTML = sites.map(s => `
-    <label class="g-checkbox" style="margin-bottom:8px">
-      <input type="checkbox" name="site_access" value="${s.id}"
-        ${siteData.all || (siteData.sites || []).includes(s.id) ? 'checked' : ''} />
-      <span class="g-checkbox-box"></span>
-      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
-    </label>
-  `).join('');
+function samePreset(overrideCaps, presetCaps) {
+  if (!overrideCaps || !presetCaps) return false;
+  const keys = ['runtimes', 'max_sites', 'max_upload_mb', 'disk_quota_mb', 'custom_domains', 'api_tokens', 'webhooks', 'advanced_ui'];
+  return keys.every(k => JSON.stringify(overrideCaps[k]) === JSON.stringify(presetCaps[k]));
+}
+
+async function openEditUser(userId) {
+  const user = cachedUsers.find(u => u.id === userId);
+  if (!user) return;
+  await ensurePresetsLoaded();
+  document.getElementById('edit-user-id').value = user.id;
+  document.getElementById('edit-user-name').textContent = user.display_name || user.username;
+  setEditUserRole(user.platform_role);
+
+  const ownerOnly = currentUser.platform_role === 'owner';
+  document.querySelectorAll('#edit-user-role-list [data-role-opt="admin"]').forEach(el => el.classList.toggle('hidden', !ownerOnly));
+  const adminLocked = user.platform_role === 'admin' && !ownerOnly;
+  document.getElementById('edit-user-admin-hint').style.display = adminLocked ? 'block' : 'none';
+  document.querySelectorAll('#edit-user-role-list input[name="role"]').forEach(input => { input.disabled = adminLocked; });
+  document.getElementById('form-edit-user').dataset.adminLocked = adminLocked ? '1' : '0';
+
+  let presetName = 'custom';
+  if (samePreset(user.capabilities_override, cachedPresets.presets.beginner)) presetName = 'beginner';
+  else if (samePreset(user.capabilities_override, cachedPresets.presets.maker)) presetName = 'maker';
+  setEditUserPreset(presetName, user.capabilities_override);
+
+  openModal('modal-edit-user');
 }
 
 document.getElementById('form-edit-user').addEventListener('submit', async e => {
   e.preventDefault();
   const userId = document.getElementById('edit-user-id').value;
-  const newRole = document.querySelector('#edit-user-role-list input[name="role"]:checked')?.value;
-
+  const preset = document.getElementById('edit-user-preset').value;
+  const payload = {};
+  // Only an owner may change an admin's role — see openEditUser's adminLocked
+  // check; omitting platform_role here avoids tripping that same guard
+  // server-side for an unrelated preset/capability-only edit.
+  if (e.target.dataset.adminLocked !== '1') {
+    payload.platform_role = document.querySelector('#edit-user-role-list input[name="role"]:checked')?.value;
+  }
+  if (preset === 'custom') {
+    payload.capabilities = {
+      max_sites: Number(document.getElementById('edit-user-max-sites').value) || 0,
+      runtimes: [...document.querySelectorAll('#edit-user-runtimes input:checked')].map(cb => cb.value),
+      max_upload_mb: Number(document.getElementById('edit-user-upload-mb').value) || 1,
+      disk_quota_mb: Number(document.getElementById('edit-user-disk-mb').value) || 1,
+      custom_domains: document.getElementById('edit-user-custom-domains').value,
+      api_tokens: document.getElementById('edit-user-api-tokens').checked,
+      webhooks: document.getElementById('edit-user-webhooks').checked,
+      advanced_ui: document.getElementById('edit-user-advanced-ui').checked,
+    };
+  } else {
+    payload.preset = preset;
+  }
   try {
-    await api('PATCH', `/users/${userId}`, { role: newRole });
-
-    // Update site assignments only for non-admin users
-    if (newRole !== 'admin') {
-      const checked = [...document.querySelectorAll('#edit-user-sites-list input[type=checkbox]:checked')];
-      const site_ids = checked.map(cb => cb.value);
-      await api('PUT', `/users/${userId}/sites`, { site_ids });
-    }
-
+    await api('PATCH', `/users/${userId}`, payload);
     closeModal('modal-edit-user');
     toast('User updated', 'success');
     loadUsers();
@@ -3293,7 +3769,8 @@ document.getElementById('form-create-user').addEventListener('submit', async e =
     await api('POST', '/users', {
       username: fd.get('username').trim(),
       password: fd.get('password'),
-      role: fd.get('role'),
+      platform_role: fd.get('platform_role'),
+      preset: fd.get('preset'),
     });
     e.target.reset();
     toast('User created', 'success');
@@ -3301,10 +3778,153 @@ document.getElementById('form-create-user').addEventListener('submit', async e =
   } catch (err) { toast(err.message, 'error'); }
 });
 
+// ── Invitations ────────────────────────────────────────────
+async function loadInvitations() {
+  const wrap = document.getElementById('invitations-list');
+  try {
+    const invites = await api('GET', '/users/invitations');
+    renderInvitations(invites);
+  } catch (err) {
+    wrap.innerHTML = `<p class="settings-desc" style="color:var(--err)">${esc(err.message)}</p>`;
+  }
+}
+
+function renderInvitations(invites) {
+  const wrap = document.getElementById('invitations-list');
+  const open = invites.filter(i => !i.used_by);
+  if (!open.length) {
+    wrap.innerHTML = '<p class="settings-desc muted">No open invitations.</p>';
+    return;
+  }
+  wrap.innerHTML = open.map(i => `
+    <div class="invite-row">
+      <div class="invite-row-main">
+        <span class="invite-row-label">${esc(i.label)} <span class="badge badge-role-${esc(i.platform_role)}">${esc(i.platform_role)}</span></span>
+        <span class="invite-row-meta">${i.expired ? 'Expired' : `Expires ${timeAgo(i.expires_at)}`}</span>
+      </div>
+      <button class="btn btn-sm btn-danger" data-revoke-invite="${i.id}">Revoke</button>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-revoke-invite]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await api('DELETE', `/users/invitations/${btn.dataset.revokeInvite}`); loadInvitations(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+  });
+}
+
+function setInvitePreset(name) {
+  document.getElementById('invite-preset').value = name;
+  document.querySelectorAll('#invite-preset-seg button').forEach(b => {
+    const active = b.dataset.preset === name;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  document.getElementById('invite-preset-desc').textContent = presetDescription(cachedPresets?.presets?.[name]);
+}
+
+document.getElementById('invite-preset-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-preset]');
+  if (!btn) return;
+  setInvitePreset(btn.dataset.preset);
+});
+
+document.getElementById('btn-open-invite').addEventListener('click', async () => {
+  await ensurePresetsLoaded();
+  document.getElementById('form-invite').reset();
+  document.getElementById('form-invite').classList.remove('hidden');
+  document.getElementById('invite-reveal').classList.add('hidden');
+  document.querySelector('#invite-role-list input[value="member"]').checked = true;
+  document.getElementById('invite-role-admin-opt').classList.toggle('hidden', currentUser.platform_role !== 'owner');
+  setInvitePreset('beginner');
+  document.getElementById('invite-ttl').value = 48;
+  openModal('modal-invite');
+});
+
+document.getElementById('form-invite').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const platform_role = document.querySelector('#invite-role-list input[name="invite_role"]:checked')?.value || 'member';
+  try {
+    const inv = await api('POST', '/users/invitations', {
+      label: fd.get('label').trim(),
+      platform_role,
+      preset: document.getElementById('invite-preset').value,
+      ttl_hours: Number(fd.get('ttl_hours')) || 48,
+    });
+    document.getElementById('form-invite').classList.add('hidden');
+    const reveal = document.getElementById('invite-reveal');
+    document.getElementById('invite-reveal-value').textContent = inv.url;
+    document.getElementById('btn-copy-invite').textContent = 'Copy';
+    reveal.classList.remove('hidden');
+    loadInvitations();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-copy-invite').addEventListener('click', e => {
+  copyToClipboard(document.getElementById('invite-reveal-value').textContent, e.currentTarget);
+});
+
+// ── Profile (Settings > Security) ─────────────────────────
+function loadProfile() {
+  document.getElementById('f-display-name').value = currentUser.display_name || '';
+  document.getElementById('f-profile-username').value = currentUser.username;
+  const badge = document.getElementById('profile-role-badge');
+  badge.textContent = currentUser.platform_role;
+  badge.className = `badge badge-role-${currentUser.platform_role}`;
+}
+
+document.getElementById('form-profile').addEventListener('submit', async e => {
+  e.preventDefault();
+  const display_name = e.target.elements['display_name'].value.trim();
+  try {
+    await api('PATCH', `/users/${currentUser.id}`, { display_name: display_name || null });
+    currentUser.display_name = display_name || null;
+    applyRoleUI();
+    toast('Profile saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Members policy (Settings > General) ───────────────────
+function setPolicyDomainSeg(value) {
+  document.getElementById('policy-domain-value').value = value;
+  document.querySelectorAll('#policy-domain-seg button').forEach(b => {
+    const active = b.dataset.value === value;
+    b.classList.toggle('is-active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+}
+document.getElementById('policy-domain-seg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-value]');
+  if (!btn) return;
+  setPolicyDomainSeg(btn.dataset.value);
+});
+
+async function loadPolicies() {
+  try {
+    const p = await api('GET', '/settings/policies');
+    setPolicyDomainSeg(p.custom_domain_policy);
+    document.getElementById('f-default-preset').value = p.default_preset;
+    document.getElementById('f-invite-ttl').value = p.invite_ttl_hours;
+  } catch { /* ignore */ }
+}
+
+document.getElementById('form-policies').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('PUT', '/settings/policies', {
+      custom_domain_policy: document.getElementById('policy-domain-value').value,
+      default_preset: document.getElementById('f-default-preset').value,
+      invite_ttl_hours: Number(document.getElementById('f-invite-ttl').value) || 48,
+    });
+    toast('Policies saved', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
 // ── Extend settings ptab to load users ───────────────────
 document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    if (tab.dataset.stab === 'users') loadUsers();
+    if (tab.dataset.stab === 'users') { loadUsers(); loadInvitations(); }
+    if (tab.dataset.stab === 'security') loadProfile();
   });
 });
 
@@ -3573,9 +4193,63 @@ async function loadDomains() {
 
     document.getElementById('domains-loading').classList.add('hidden');
     document.getElementById('domains-table-wrap').classList.remove('hidden');
+    if (isPanelAdmin()) loadDomainRequests();
   } catch (err) {
     viewError(loadingEl, viewErrorMessage('domains', err), loadDomains);
   }
+}
+
+function updateDomainsBadge(count) {
+  const badge = document.getElementById('domains-badge');
+  if (!badge) return;
+  if (count > 0) { badge.textContent = count > 9 ? '9+' : String(count); badge.classList.remove('hidden'); }
+  else badge.classList.add('hidden');
+}
+
+async function loadDomainRequests() {
+  const wrap = document.getElementById('domain-requests-list');
+  if (!wrap) return;
+  try {
+    const reqs = await api('GET', '/domains/requests?status=pending');
+    updateDomainsBadge(reqs.length);
+    if (!reqs.length) { wrap.innerHTML = '<p class="settings-desc muted">No pending requests.</p>'; return; }
+    wrap.innerHTML = `
+      <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Site</th><th>Current domain</th><th>Requested</th><th>By</th><th>When</th><th></th></tr></thead>
+        <tbody>
+          ${reqs.map(r => `
+            <tr>
+              <td>${esc(r.site_name)}</td>
+              <td class="cell-mono">${esc(r.current_domain)}</td>
+              <td class="cell-mono">${esc(r.domain)}</td>
+              <td>${esc(r.requested_by_name || '—')}</td>
+              <td>${timeAgo(r.created_at)}</td>
+              <td>
+                <div class="cell-actions">
+                  <button class="btn btn-sm btn-primary" data-approve-request="${r.id}">Approve</button>
+                  <button class="btn btn-sm btn-danger" data-reject-request="${r.id}">Reject…</button>
+                </div>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>`;
+    wrap.querySelectorAll('[data-approve-request]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try { await api('POST', `/domains/requests/${btn.dataset.approveRequest}/approve`); toast('Domain approved', 'success'); loadDomains(); }
+        catch (err) { toast(err.message, 'error'); }
+      });
+    });
+    wrap.querySelectorAll('[data-reject-request]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const note = await promptDialog({ title: 'Reject this domain request?', body: 'Optionally add a note for the requester.', placeholder: 'Note (optional)', confirmLabel: 'Reject', danger: true });
+        if (note === null) return;
+        try { await api('POST', `/domains/requests/${btn.dataset.rejectRequest}/reject`, note ? { note } : {}); toast('Domain request rejected', 'success'); loadDomains(); }
+        catch (err) { toast(err.message, 'error'); }
+      });
+    });
+  } catch { /* admin-only endpoint — ignore for non-admins */ }
 }
 
 // ── Overview ──────────────────────────────────────────────

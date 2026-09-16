@@ -107,8 +107,9 @@ const GRIMPORT_PASS = process.env.GRIMPORT_PASS || 'changeme';
 const DEFAULT_OUT = path.join(__dirname, '..', '..', 'docs', 'screenshots');
 const CURATED_DEFAULT = [
   'sites', 'sites-list', 'sites-overflow', 'notifications', 'modal-deploy', 'modal-settings-general',
-  'modal-analytics', 'overview', 'activity', 'deployments', 'settings-general',
-  'settings-tokens', 'sites-phone', 'sites-phone-custom-bar', 'login',
+  'modal-settings-access', 'modal-analytics', 'overview', 'activity', 'deployments', 'settings-general',
+  'settings-tokens', 'settings-users', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
+  'member-sites', 'member-new-site', 'member-settings',
 ];
 
 const OUT = args.out
@@ -330,6 +331,12 @@ async function main() {
     await new Promise(r => setTimeout(r, 800));
     await closeModals();
 
+    await page.evaluate(() => document.getElementById('btn-open-invite').click());
+    await new Promise(r => setTimeout(r, 400));
+    await page.type('#invite-label', 'Dora');
+    await shot(T('modal-invite'), { wait: 300 });
+    await closeModals();
+
     await view('sites');
     await page.setViewport({ width: 820, height: 900 });
     await fakeSites();
@@ -360,6 +367,36 @@ async function main() {
     await page.goto(`${BASE}/login.html`, { waitUntil: 'networkidle0' });
     await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
     await shot(`login__${theme}`);
+  }
+
+  // ── Second pass: log in as carla (member, beginner preset) for the
+  // member-facing shots (task 12). logOut + loginAs re-authenticate the
+  // same page as a different demo user.
+  async function logOut() {
+    await page.evaluate(() => fetch('/api/auth/logout', { method: 'POST' }));
+  }
+  async function loginAs(username, password) {
+    await page.goto(`${BASE}/login.html`, { waitUntil: 'networkidle0' });
+    await page.type('#username-input', username);
+    await page.type('#password-input', password);
+    await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('#btn-login')]);
+  }
+
+  await logOut();
+  for (const theme of THEMES) {
+    const T = n => `${n}__${theme}`;
+    await loginAs('carla', 'demo-password');
+    await page.evaluate(t => { localStorage.setItem('grimport-theme', t); applyTheme(t); }, theme);
+    await new Promise(r => setTimeout(r, 500));
+    await shot(T('member-sites'), { wait: 500 });
+
+    await page.evaluate(() => document.getElementById('btn-new-site').click());
+    await shot(T('member-new-site'), { wait: 400 });
+    await closeModals();
+
+    await page.evaluate(() => document.querySelector('.nav-item[data-view="panel-settings"]').click());
+    await shot(T('member-settings'), { wait: 500 });
+    await logOut();
   }
 
   await browser.close();

@@ -10,11 +10,27 @@ Create tokens in **Settings → API Tokens**. Tokens carry their own role (admin
 
 ## Roles
 
-- **admin** — full access to everything, including users, tokens, webhooks, backups, settings, and self-update
-- **editor** — can deploy, roll back, start/stop, and edit sites they have access to; no admin-only routes
-- **viewer** — read-only access to sites they have access to
+Two layers: a **platform role** (`owner` | `admin` | `member` | `guest`) and,
+per site, a **site role** (`owner` | `editor` | `viewer`). See
+[Users and Roles](Users-and-Roles) for the full model, capability presets and
+invitation flow.
 
-Admins see and act on all sites. Editors/viewers are scoped to sites explicitly granted via **site access** (`site_permissions`). A scoped API token narrows this further — it can never widen access beyond what its role already allows.
+- **owner** — exactly one; everything, including users, domains, updates, backups and panel settings
+- **admin** — same as owner except promoting/demoting/deleting other admins
+- **member** — creates and owns sites within their capability quota; manages collaborators and tokens on their own sites
+- **guest** — no sites of their own; acts only through a site role granted by someone else
+
+Owner and admin have an implicit `owner` site role on every site ("support
+access" — every action taken this way is logged against the site and its
+owner is notified). A legacy `role` (`admin` | `editor` | `viewer`) is still
+present on every user/token response for backward compatibility; it's derived
+from the platform role and site role and kept in sync automatically.
+
+Every site response carries `my_role` (the caller's effective site role),
+`owner` (`{ id, username, display_name }` or `null`), `support` (`true` when
+the caller is an admin acting outside their own sites) and `status`
+(`active` | `suspended`). A scoped API token narrows access further — it can
+never widen it beyond what its owning user already has.
 
 ## Base URL
 

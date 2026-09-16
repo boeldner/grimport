@@ -76,7 +76,7 @@
       <a href="#" class="nav-item nav-editor" data-view="logs">Logs</a>
 
       <span class="nav-section nav-section-admin">Admin</span>
-      <a href="#" class="nav-item nav-admin" data-view="domains">Domains</a>
+      <a href="#" class="nav-item nav-admin" data-view="domains">Domains <span class="nav-badge hidden" id="domains-badge"></span></a>
       <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
     </nav>
     <!-- Update banner (shown when new version available) -->
@@ -282,6 +282,12 @@
           <p class="subtitle" id="domains-count">Loading…</p>
         </div>
       </header>
+      <div class="card" id="domain-requests-card">
+        <div class="card-header"><span class="card-title">Domain requests</span></div>
+        <div class="card-body">
+          <div id="domain-requests-list"><p class="settings-desc muted">Loading…</p></div>
+        </div>
+      </div>
       <div id="domains-loading" class="overview-loading">
         <div class="skeleton" style="height:32px;margin-bottom:6px;border-radius:var(--r-control)"></div>
         <div class="skeleton" style="height:28px;margin-bottom:6px;border-radius:var(--r-control)"></div>
@@ -358,6 +364,38 @@
                   <span class="g-toggle-track"></span>
                   <span>Asset caching by default</span>
                 </label>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Members</span></div>
+            <div class="card-body">
+              <p class="settings-desc">Defaults applied to new invitations and to custom domains requested by members.</p>
+              <form id="form-policies" class="settings-form">
+                <div class="field">
+                  <span class="field-label">Custom domain policy</span>
+                  <div class="seg-ctl" id="policy-domain-seg" role="group" aria-label="Custom domain policy">
+                    <button type="button" data-value="approval" aria-pressed="false">Needs approval</button>
+                    <button type="button" data-value="free" aria-pressed="false">Free</button>
+                  </div>
+                  <input type="hidden" name="custom_domain_policy" id="policy-domain-value" value="approval" />
+                  <div class="field-help muted">Whether a member's custom domain goes live immediately or waits for your approval.</div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="f-default-preset">Default preset for new invitations</label>
+                  <select class="g-select" id="f-default-preset" name="default_preset">
+                    <option value="beginner">Beginner</option>
+                    <option value="maker">Maker</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="f-invite-ttl">Invitation link validity (hours)</label>
+                  <input class="g-input" id="f-invite-ttl" type="number" name="invite_ttl_hours" min="1" max="720" />
+                </div>
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary">Save</button>
                 </div>
@@ -760,26 +798,71 @@ systemctl start cloudflared</pre>
         <!-- Users -->
         <div id="spanel-users" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-users">
           <div class="card">
-            <div class="card-header"><span class="card-title">User accounts</span></div>
+            <div class="card-header">
+              <span class="card-title">User accounts</span>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-open-invite">Invite</button>
+            </div>
             <div class="card-body">
-              <p class="settings-desc">Admin manages everything · Editor deploys &amp; manages assigned sites · Viewer monitors assigned sites, read-only.</p>
+              <p class="settings-desc">Owner &amp; admin run the panel · Member creates and owns sites within their quota · Guest only has roles granted on other people's sites.</p>
               <div id="users-list"></div>
-              <form id="form-create-user" class="user-create-form">
-                <input class="g-input" type="text" name="username" placeholder="Username" autocomplete="off" required />
-                <input class="g-input" type="password" name="password" placeholder="Password (min 8 chars)" autocomplete="new-password" required />
-                <select class="g-select" name="role">
-                  <option value="editor">Editor</option>
-                  <option value="viewer">Viewer</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button type="submit" class="btn btn-primary">Create user</button>
-              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><span class="card-title">Open invitations</span></div>
+            <div class="card-body">
+              <div id="invitations-list"><p class="settings-desc muted">Loading…</p></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body">
+              <details class="disclosure">
+                <summary>Create without invitation</summary>
+                <form id="form-create-user" class="user-create-form" style="margin-top:12px">
+                  <input class="g-input" type="text" name="username" placeholder="Username" autocomplete="off" required />
+                  <input class="g-input" type="password" name="password" placeholder="Password (min 10 chars)" autocomplete="new-password" required minlength="10" />
+                  <select class="g-select" name="platform_role">
+                    <option value="member">Member</option>
+                    <option value="guest">Guest</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <select class="g-select" name="preset">
+                    <option value="beginner">Beginner</option>
+                    <option value="maker">Maker</option>
+                  </select>
+                  <button type="submit" class="btn btn-primary">Create user</button>
+                </form>
+              </details>
             </div>
           </div>
         </div>
 
         <!-- Security -->
         <div id="spanel-security" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-security">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Profile</span></div>
+            <div class="card-body">
+              <form id="form-profile" class="settings-form">
+                <div class="field">
+                  <label class="field-label" for="f-display-name">Display name</label>
+                  <input class="g-input" id="f-display-name" type="text" name="display_name" maxlength="64" placeholder="Shown instead of your username" />
+                </div>
+                <div class="field">
+                  <span class="field-label">Username</span>
+                  <input class="g-input" id="f-profile-username" type="text" readonly disabled />
+                </div>
+                <div class="field">
+                  <span class="field-label">Role</span>
+                  <div><span class="badge badge-role-member" id="profile-role-badge"></span></div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-header"><span class="card-title">Change password</span></div>
             <div class="card-body">
@@ -816,9 +899,10 @@ systemctl start cloudflared</pre>
           <div class="field">
             <label class="field-label" for="new-site-name">Name</label>
             <input class="g-input" id="new-site-name" type="text" name="name" placeholder="wedding-page" required />
+            <div class="field-help muted hidden" id="new-site-quota-hint"></div>
           </div>
           <div class="field">
-            <label class="field-label" for="new-site-domain">Domain</label>
+            <label class="field-label" for="new-site-domain">Domain <span class="field-optional hidden" id="new-site-domain-optional-tag">optional</span></label>
             <input class="g-input" id="new-site-domain" type="text" name="domain" placeholder="wedding-page.grim.host" required aria-describedby="new-site-domain-help" />
             <div class="field-help muted" id="new-site-domain-help">Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</div>
           </div>
@@ -926,6 +1010,7 @@ systemctl start cloudflared</pre>
         <button class="tab" id="mtab-access" data-stab="access" role="tab" aria-selected="false" aria-controls="stab-access">Access</button>
         <button class="tab" id="mtab-app" data-stab="app" role="tab" aria-selected="false" aria-controls="stab-app">App config</button>
       </div>
+      <button type="button" class="link-btn hidden" id="btn-show-advanced-settings" style="margin:10px 20px 0">Show advanced settings</button>
 
       <form id="form-settings">
         <input type="hidden" name="id" />
@@ -937,9 +1022,10 @@ systemctl start cloudflared</pre>
             <input class="g-input" id="settings-name" type="text" name="name" required />
           </div>
           <div class="field">
-            <label class="field-label" for="settings-domain">Domain</label>
+            <label class="field-label" for="settings-domain">Domain <span class="badge badge-warn hidden" id="settings-domain-pending-badge" style="margin-left:6px"></span></label>
             <input class="g-input" id="settings-domain" type="text" name="domain" required aria-describedby="settings-domain-help" />
             <div class="field-help warn" id="settings-domain-help">Changing the domain requires a container restart — existing traffic will briefly drop.</div>
+            <div class="field-help muted hidden" id="settings-domain-member-help"></div>
           </div>
         </div>
 
@@ -1002,9 +1088,25 @@ systemctl start cloudflared</pre>
             <button type="button" class="btn btn-sm" id="btn-add-redirect"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add redirect</button>
           </div>
 
-          <div class="settings-subsection admin-only" id="site-access-users-wrap">
-            <div class="settings-subsection-title">Panel user access <span class="settings-subsection-hint">grant editors &amp; viewers access to this site</span></div>
-            <div id="site-access-users-list"><p class="settings-desc">Loading…</p></div>
+          <div class="settings-subsection" id="collab-wrap">
+            <div class="settings-subsection-title">Collaborators <span class="settings-subsection-hint">people with viewer or editor access to this site</span></div>
+            <p class="settings-desc" id="collab-owner-line">Loading…</p>
+            <div id="collab-list"></div>
+            <div class="collab-add-row hidden" id="collab-add-row">
+              <div class="collab-add-row collab-lookup-wrap">
+                <input class="g-input" type="text" id="collab-add-username" placeholder="Search username…" autocomplete="off" />
+                <div class="collab-lookup-results hidden" id="collab-lookup-results"></div>
+              </div>
+              <select class="g-select" id="collab-add-role">
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+              </select>
+              <button type="button" class="btn btn-sm" id="btn-collab-add">Add</button>
+            </div>
+            <div class="form-actions hidden" id="collab-save-row" style="margin-top:10px">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-collab-save">Save collaborators</button>
+            </div>
+            <button type="button" class="link-btn hidden" id="btn-transfer-ownership" style="margin-top:14px">Transfer ownership…</button>
           </div>
         </div>
 
@@ -1364,41 +1466,161 @@ systemctl start cloudflared</pre>
       <form id="form-edit-user">
         <input type="hidden" id="edit-user-id" />
         <div class="field">
-          <span class="field-label">Role</span>
-          <div class="role-select-list" id="edit-user-role-list" role="radiogroup" aria-label="Role">
-            <label class="role-select-opt">
+          <span class="field-label">Platform role</span>
+          <div class="role-select-list" id="edit-user-role-list" role="radiogroup" aria-label="Platform role">
+            <label class="role-select-opt" data-role-opt="member">
+              <input type="radio" name="role" value="member" />
+              <span class="role-select-body">
+                <span class="role-select-name">Member</span>
+                <span class="role-select-desc">Creates and owns sites within their quota</span>
+              </span>
+            </label>
+            <label class="role-select-opt" data-role-opt="guest">
+              <input type="radio" name="role" value="guest" />
+              <span class="role-select-body">
+                <span class="role-select-name">Guest</span>
+                <span class="role-select-desc">No sites of their own — only roles granted on other sites</span>
+              </span>
+            </label>
+            <label class="role-select-opt" data-role-opt="admin">
               <input type="radio" name="role" value="admin" />
               <span class="role-select-body">
                 <span class="role-select-name">Admin</span>
-                <span class="role-select-desc">Everything, incl. users, domains, updates</span>
-              </span>
-            </label>
-            <label class="role-select-opt">
-              <input type="radio" name="role" value="editor" />
-              <span class="role-select-body">
-                <span class="role-select-name">Editor</span>
-                <span class="role-select-desc">Deploy and manage assigned sites</span>
-              </span>
-            </label>
-            <label class="role-select-opt">
-              <input type="radio" name="role" value="viewer" />
-              <span class="role-select-body">
-                <span class="role-select-name">Viewer</span>
-                <span class="role-select-desc">Monitor assigned sites, read-only</span>
+                <span class="role-select-desc">Runs the panel — users, domains, updates, every site</span>
               </span>
             </label>
           </div>
+          <div class="field-help muted" id="edit-user-admin-hint" style="display:none">Only the owner can change an admin's role.</div>
         </div>
-        <div id="edit-user-sites-wrap" style="margin-top:16px">
-          <div class="settings-subsection-title">Site access</div>
-          <p class="settings-desc" style="margin:4px 0 10px">Select which sites this user can access.</p>
-          <div id="edit-user-sites-list"></div>
+        <div class="field" id="edit-user-preset-wrap" style="margin-top:16px">
+          <span class="field-label">Capability preset</span>
+          <div class="seg-ctl" id="edit-user-preset-seg" role="group" aria-label="Capability preset">
+            <button type="button" data-preset="beginner" aria-pressed="false">Beginner</button>
+            <button type="button" data-preset="maker" aria-pressed="false">Maker</button>
+            <button type="button" data-preset="custom" aria-pressed="false">Custom</button>
+          </div>
+          <input type="hidden" id="edit-user-preset" value="beginner" />
+        </div>
+        <div id="edit-user-custom-caps" class="hidden" style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
+          <div class="field">
+            <label class="field-label" for="edit-user-max-sites">Max sites</label>
+            <input class="g-input" id="edit-user-max-sites" type="number" min="0" step="1" />
+          </div>
+          <div class="field">
+            <span class="field-label">Runtimes</span>
+            <div id="edit-user-runtimes" style="display:flex;gap:14px;flex-wrap:wrap">
+              <label class="g-checkbox"><input type="checkbox" value="static" /><span class="g-checkbox-box"></span>Static</label>
+              <label class="g-checkbox"><input type="checkbox" value="php" /><span class="g-checkbox-box"></span>PHP</label>
+              <label class="g-checkbox"><input type="checkbox" value="node" /><span class="g-checkbox-box"></span>Node</label>
+              <label class="g-checkbox"><input type="checkbox" value="python" /><span class="g-checkbox-box"></span>Python</label>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="edit-user-upload-mb">Max upload (MB)</label>
+            <input class="g-input" id="edit-user-upload-mb" type="number" min="1" step="1" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="edit-user-disk-mb">Disk quota (MB)</label>
+            <input class="g-input" id="edit-user-disk-mb" type="number" min="1" step="1" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="edit-user-custom-domains">Custom domains</label>
+            <select class="g-select" id="edit-user-custom-domains">
+              <option value="approval">Needs approval</option>
+              <option value="free">Free</option>
+            </select>
+          </div>
+          <label class="g-toggle">
+            <input type="checkbox" id="edit-user-api-tokens" />
+            <span class="g-toggle-track"></span>
+            <span>API tokens</span>
+          </label>
+          <label class="g-toggle">
+            <input type="checkbox" id="edit-user-webhooks" />
+            <span class="g-toggle-track"></span>
+            <span>Webhooks</span>
+          </label>
+          <label class="g-toggle">
+            <input type="checkbox" id="edit-user-advanced-ui" />
+            <span class="g-toggle-track"></span>
+            <span>Advanced UI (Behaviour &amp; App config tabs shown by default)</span>
+          </label>
         </div>
         <div class="modal-actions" style="margin-top:16px">
           <button type="button" class="btn" data-close="modal-edit-user">Cancel</button>
           <button type="submit" class="btn btn-primary">Save changes</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ── Modal: Invite user ──────────────────────────── -->
+  <div id="modal-invite" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-invite-title">
+      <div class="modal-header">
+        <h2 id="modal-invite-title">Invite someone</h2>
+        <button class="modal-close" data-close="modal-invite"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <form id="form-invite">
+        <div class="field">
+          <label class="field-label" for="invite-label">Their name</label>
+          <input class="g-input" id="invite-label" type="text" name="label" placeholder="Anna" required maxlength="64" />
+        </div>
+        <div class="field" style="margin-top:14px">
+          <span class="field-label">Role</span>
+          <div class="role-select-list" id="invite-role-list" role="radiogroup" aria-label="Role">
+            <label class="role-select-opt">
+              <input type="radio" name="invite_role" value="member" checked />
+              <span class="role-select-body">
+                <span class="role-select-name">Member</span>
+                <span class="role-select-desc">Creates and owns sites within their quota</span>
+              </span>
+            </label>
+            <label class="role-select-opt">
+              <input type="radio" name="invite_role" value="guest" />
+              <span class="role-select-body">
+                <span class="role-select-name">Guest</span>
+                <span class="role-select-desc">No sites of their own — only roles granted on other sites</span>
+              </span>
+            </label>
+            <label class="role-select-opt" id="invite-role-admin-opt">
+              <input type="radio" name="invite_role" value="admin" />
+              <span class="role-select-body">
+                <span class="role-select-name">Admin</span>
+                <span class="role-select-desc">Runs the panel — users, domains, updates, every site</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <span class="field-label">Capability preset</span>
+          <div class="seg-ctl" id="invite-preset-seg" role="group" aria-label="Capability preset">
+            <button type="button" data-preset="beginner" aria-pressed="false">Beginner</button>
+            <button type="button" data-preset="maker" aria-pressed="false">Maker</button>
+          </div>
+          <input type="hidden" id="invite-preset" value="beginner" />
+          <div class="field-help muted" id="invite-preset-desc"></div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label class="field-label" for="invite-ttl">Link validity (hours)</label>
+          <input class="g-input" id="invite-ttl" type="number" name="ttl_hours" min="1" max="720" value="48" />
+        </div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button type="button" class="btn" data-close="modal-invite">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-invite-submit">Create invitation</button>
+        </div>
+      </form>
+      <div id="invite-reveal" class="token-reveal hidden" style="margin:0 20px 20px">
+        <div class="token-reveal-label">Invitation created — copy the link now, it works once and expires:</div>
+        <div class="token-reveal-row">
+          <code id="invite-reveal-value" class="token-value"></code>
+          <button class="copy-btn" id="btn-copy-invite" type="button">Copy</button>
+        </div>
+        <div class="modal-actions" style="margin-top:14px;padding:0">
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-primary" data-close="modal-invite">Done</button>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -21,6 +21,8 @@ if (!process.env.DATA_PATH) {
 
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { PRESETS } = require('../src/authz');
 
 fs.mkdirSync(process.env.DATA_PATH, { recursive: true });
 
@@ -154,17 +156,51 @@ db.prepare(`
 });
 
 // ----------------------------------------------------------------- users --
+// Multi-user platform (docs/roadmap/multi-user-platform.md §2/§4): anna and
+// ben are guests with a role granted on someone else's site, carla is a
+// member who owns her own site. Fixed ids kept stable across re-runs.
 const passwordHash = bcrypt.hashSync('demo-password', 4);
-db.prepare(`
-  INSERT OR REPLACE INTO users (id, username, password_hash, role)
-  VALUES ('user-anna', 'anna', @hash, 'editor')
-`).run({ hash: passwordHash });
-db.prepare(`
-  INSERT OR REPLACE INTO users (id, username, password_hash, role)
-  VALUES ('user-ben', 'ben', @hash, 'viewer')
-`).run({ hash: passwordHash });
+const beginnerCaps = JSON.stringify(PRESETS.beginner);
+const owner = db.prepare("SELECT id FROM users WHERE platform_role = 'owner' LIMIT 1").get();
 
-db.prepare(`INSERT OR IGNORE INTO site_permissions (user_id, site_id) VALUES ('user-anna', 's1aaaaaaaa')`).run();
+db.prepare(`
+  INSERT OR REPLACE INTO users (id, username, password_hash, role, platform_role, capabilities, status, display_name)
+  VALUES ('user-anna', 'anna', @hash, 'viewer', 'guest', @caps, 'active', 'Anna')
+`).run({ hash: passwordHash, caps: beginnerCaps });
+db.prepare(`
+  INSERT OR REPLACE INTO users (id, username, password_hash, role, platform_role, capabilities, status, display_name)
+  VALUES ('user-ben', 'ben', @hash, 'viewer', 'guest', @caps, 'active', 'Ben')
+`).run({ hash: passwordHash, caps: beginnerCaps });
+db.prepare(`
+  INSERT OR REPLACE INTO users (id, username, password_hash, role, platform_role, capabilities, status, display_name)
+  VALUES ('user-carla', 'carla', @hash, 'editor', 'member', @caps, 'active', 'Carla')
+`).run({ hash: passwordHash, caps: beginnerCaps });
+
+// Collaborator roles (site_members replaces the legacy site_permissions
+// grant): anna edits "Bakery landing", ben only views "Board-game club".
+db.prepare(`DELETE FROM site_permissions WHERE user_id IN ('user-anna', 'user-ben')`).run();
+db.prepare(`INSERT OR REPLACE INTO site_members (site_id, user_id, site_role, added_by) VALUES ('s1aaaaaaaa', 'user-anna', 'editor', @by)`).run({ by: owner ? owner.id : null });
+db.prepare(`INSERT OR REPLACE INTO site_members (site_id, user_id, site_role, added_by) VALUES ('s2bbbbbbbb', 'user-ben', 'viewer', @by)`).run({ by: owner ? owner.id : null });
+
+// Carla owns "Reading list" and has a pending custom-domain request on it.
+db.prepare(`UPDATE sites SET owner_id = 'user-carla' WHERE id = 's5eeeeeeee'`).run();
+db.prepare(`DELETE FROM domain_requests WHERE id = 'dreq-carla-reading'`).run();
+db.prepare(`
+  INSERT INTO domain_requests (id, site_id, domain, requested_by, status)
+  VALUES ('dreq-carla-reading', 's5eeeeeeee', 'reading.example.org', 'user-carla', 'pending')
+`).run();
+
+// One open invitation ("Dora") — link-only, single-use, not yet accepted.
+db.prepare(`DELETE FROM invitations WHERE id = 'inv-dora'`).run();
+db.prepare(`
+  INSERT INTO invitations (id, token_hash, label, platform_role, capabilities, created_by, expires_at)
+  VALUES ('inv-dora', @hash, 'Dora', 'member', @caps, @createdBy, @expiresAt)
+`).run({
+  hash: crypto.createHash('sha256').update('demo-invite-dora-token').digest('hex'),
+  caps: beginnerCaps,
+  createdBy: owner ? owner.id : null,
+  expiresAt: now + 48 * HOUR,
+});
 
 // --------------------------------------------------------- uptime checks --
 db.prepare(`DELETE FROM uptime_checks WHERE site_id IN ('s1aaaaaaaa','s2bbbbbbbb')`).run();
@@ -202,5 +238,6 @@ db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_don
 console.log(
   `[demo-seed] ${SITES.length} sites, ${DEPLOYMENTS.length} deployments, ` +
   `${ACTIVITY.length} activity rows, 2 notifications, 1 webhook, 2 api tokens, ` +
-  `2 users, ${CHECK_COUNT * 2} uptime checks seeded into ${process.env.DATA_PATH}`
+  `3 users (anna/ben guests, carla member), 1 domain request, 1 open invitation, ` +
+  `${CHECK_COUNT * 2} uptime checks seeded into ${process.env.DATA_PATH}`
 );
