@@ -168,6 +168,7 @@ app.use('/api/tokens',          requireAuth, require('./routes/tokens'));
 app.use('/api/domains',         requireAuth, require('./routes/domains'));
 app.use('/api/reviews',         requireAuth, require('./routes/reviews'));
 app.use('/api/me',              requireAuth, require('./routes/me'));
+app.use('/api/push',            requireAuth, require('./routes/push'));
 
 // ── MCP for Claude (docs/wiki/MCP.md): POST /mcp with a Bearer token, plus an
 // OAuth 2.1 server (/authorize, /token, /register, /.well-known/*) so clients

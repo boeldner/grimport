@@ -342,6 +342,17 @@ async function main() {
     await page.evaluate(() => document.querySelector('.main').scrollTo(0, 0));
     for (const tab of ['server', 'tokens', 'webhooks', 'notifications', 'users', 'security']) {
       await page.evaluate(t => document.getElementById(`ptab-${t}`).click(), tab);
+      if (tab === 'notifications') {
+        // Headless Chrome denies notifications outright; show the normal
+        // "off, can be enabled" state a real browser starts in.
+        await new Promise(r => setTimeout(r, 400));
+        await page.evaluate(() => {
+          setPushStatus('Off for this device', 'status-muted');
+          setPushHint('');
+          const b = document.getElementById('btn-push-toggle');
+          b.disabled = false; b.textContent = 'Enable on this device'; b.classList.add('btn-primary');
+        });
+      }
       await shot(T(`settings-${tab}`), { wait: 900 });
       await page.evaluate(() => { const m = document.querySelector('.main'); m.scrollTo(0, m.scrollHeight); });
       await shot(T(`settings-${tab}-bottom`), { wait: 300 });
@@ -440,6 +451,10 @@ async function main() {
 
     await page.evaluate(() => document.getElementById('btn-new-site').click());
     await shot(T('member-new-site'), { wait: 400 });
+    await closeModals();
+    // The New site modal finishes loading templates asynchronously and can
+    // re-show itself; close it again once that has settled.
+    await new Promise(r => setTimeout(r, 600));
     await closeModals();
 
     await page.evaluate(() => document.querySelector('.nav-item[data-view="panel-settings"]').click());

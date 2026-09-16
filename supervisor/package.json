@@ -1,6 +1,6 @@
 {
   "name": "grimport",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Grimport — self-hosted static site publishing panel",
   "main": "src/index.js",
   "scripts": {
@@ -23,6 +23,7 @@
     "multer": "^2.0.0",
     "nanoid": "^5.0.9",
     "qrcode": "1.5.4",
+    "web-push": "^3.6.7",
     "zod": "^3.25.76"
   },
   "devDependencies": {

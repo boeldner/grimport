@@ -27,6 +27,7 @@ Copy `.env.example` to `.env` and edit before starting.
 | `TRAEFIK_CONTAINER` | `webhost-traefik` | Container the supervisor attaches to each site network and probes sites through for uptime checks |
 | `PANEL_URL` | `https://<SUPERVISOR_DOMAIN>` | Public address of the panel, used for the OAuth endpoints of the [MCP](MCP) integration (must be https, or localhost) |
 | `MCP_JSON_LIMIT` | `64mb` | Largest request body `/mcp` accepts (a base64 zip in `deploy_zip` counts against it) |
+| `PUSH_DISABLED` | _(empty)_ | Set to `1` to stop web push delivery panel-wide (subscriptions stay) |
 | `EGRESS_GUARD_INTERVAL` | `60` | Seconds between re-applying the egress rules |
 | `EGRESS_NEW_CONN_PER_SEC` | `50` | New outbound connections per second an app site may open |
 | `DEPLOY_MAX_ENTRIES` | `20000` | Maximum files in a deploy zip |

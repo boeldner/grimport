@@ -535,6 +535,23 @@ Access tokens are `api_tokens` rows owned by the signing-in user (24 h, refresh 
 
 ---
 
+## Push notifications
+
+Session required (per user, per device). See [Mobile and PWA](Mobile-and-PWA#push-notifications).
+
+```
+GET    /push/vapid-key                       { publicKey, groups }
+GET    /push/subscriptions                   this user's devices
+POST   /push/subscribe                       { subscription: PushSubscription JSON, events?: ["availability","deploys","requests","account"] | null, label? }
+PUT    /push/subscriptions/:id               { events?, label? }
+DELETE /push/subscriptions/:id
+POST   /push/unsubscribe                     { endpoint }
+POST   /push/test                            { endpoint? }  -> { sent, failed }
+```
+`events: null` means every group. Re-subscribing with a known endpoint updates that device (and moves it to the signing-in user). Dead endpoints (404/410 from the push service) are removed automatically; at most 20 devices per user.
+
+---
+
 ## Users
 
 _Auth: admin only, except `PATCH /users/:id`, which a user may also call on themselves to change their own password._

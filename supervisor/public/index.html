@@ -346,7 +346,7 @@
           <button class="tab admin-only" id="ptab-server" data-stab="server" role="tab" aria-selected="false" aria-controls="spanel-server">Server &amp; DNS</button>
           <button class="tab" id="ptab-tokens" data-stab="tokens" role="tab" aria-selected="false" aria-controls="spanel-tokens">API Tokens</button>
           <button class="tab admin-only" id="ptab-webhooks" data-stab="webhooks" role="tab" aria-selected="false" aria-controls="spanel-webhooks">Webhooks</button>
-          <button class="tab admin-only" id="ptab-notifications" data-stab="notifications" role="tab" aria-selected="false" aria-controls="spanel-notifications">Notifications</button>
+          <button class="tab" id="ptab-notifications" data-stab="notifications" role="tab" aria-selected="false" aria-controls="spanel-notifications">Notifications</button>
           <button class="tab admin-only" id="ptab-users" data-stab="users" role="tab" aria-selected="false" aria-controls="spanel-users">Users</button>
           <button class="tab" id="ptab-security" data-stab="security" role="tab" aria-selected="false" aria-controls="spanel-security">Security</button>
         </div>
@@ -758,8 +758,29 @@ systemctl start cloudflared</pre>
         </div>
 
         <!-- Notifications -->
-        <div id="spanel-notifications" class="tab-panel hidden admin-only" role="tabpanel" aria-labelledby="ptab-notifications">
-          <div class="card">
+        <div id="spanel-notifications" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-notifications">
+          <div class="card" id="push-card">
+            <div class="card-header"><span class="card-title">Push notifications <span class="help-slot" data-help="Mobile-and-PWA.md#push-notifications"></span></span></div>
+            <div class="card-body">
+              <p class="settings-desc">Get panel notifications on this device even when Grimport is closed. Works in the installed app on iPhone and iPad, and in Chrome, Edge, Firefox and Safari on desktop and Android.</p>
+              <div class="push-status-row">
+                <span class="status status-muted" id="push-status">Checking…</span>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-push-toggle" disabled>Enable on this device</button>
+                <button type="button" class="btn btn-sm hidden" id="btn-push-test">Send a test</button>
+              </div>
+              <p class="field-help muted hidden" id="push-hint"></p>
+              <div class="field" id="push-events-wrap" style="margin-top:14px">
+                <span class="field-label">Events for this device</span>
+                <label class="g-checkbox"><input type="checkbox" name="push_group" value="availability" checked /><span class="g-checkbox-box"></span>Sites going down or coming back</label>
+                <label class="g-checkbox"><input type="checkbox" name="push_group" value="deploys" checked /><span class="g-checkbox-box"></span>Deploys held, blocked, approved or rejected</label>
+                <label class="g-checkbox"><input type="checkbox" name="push_group" value="requests" checked /><span class="g-checkbox-box"></span>Domain requests and decisions, unknown domains</label>
+                <label class="g-checkbox"><input type="checkbox" name="push_group" value="account" checked /><span class="g-checkbox-box"></span>Support access, suspensions, transfers</label>
+              </div>
+              <div id="push-devices" style="margin-top:14px"></div>
+            </div>
+          </div>
+
+          <div class="card admin-only">
             <div class="card-header"><span class="card-title">Bell notifications</span></div>
             <div class="card-body">
               <p class="settings-desc">Choose which events appear in the notification bell.</p>
@@ -786,7 +807,7 @@ systemctl start cloudflared</pre>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card admin-only">
             <div class="card-header"><span class="card-title">Notification feed</span></div>
             <div class="card-body">
               <p class="settings-desc" id="notif-unread-summary">— unread notifications</p>
@@ -794,7 +815,7 @@ systemctl start cloudflared</pre>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card admin-only">
             <div class="card-header"><span class="card-title">Alert channels</span></div>
             <div class="card-body">
               <p class="settings-desc">Push alerts to an ntfy topic (ntfy.sh or a self-hosted server) when events happen. URLs are checked to make sure they don't point at a private address.</p>

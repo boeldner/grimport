@@ -35,6 +35,7 @@ It's built for:
 - Container isolation — each site runs in its own `nginx:alpine` container (~10 MB)
 - Content scanner — every upload is checked for executables, miners, phishing patterns and leaked secrets before it goes live; flagged member uploads wait for your approval
 - MCP for Claude — Claude Code, Claude Desktop and claude.ai create, deploy, inspect and roll back sites with your role and quota
+- Phone app — installable PWA with web push for outages, held deploys and requests, plus pull to refresh
 - Wildcard subdomains — set a base domain, get auto-generated URLs instantly
 - Per-site SPA mode, cache control headers, custom response headers, redirects
 - Maintenance mode — take a site offline with one click, serves a custom page
@@ -84,6 +85,14 @@ It's built for:
 - Tenant isolation: one network per site, hardened containers, egress guard, deploy limits and rate limits (see the [Security Model](docs/wiki/Security-Model.md))
 
 ---
+
+## What's new in 0.16.0
+
+Phase 6 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): the panel as a phone app. Details in [Mobile and PWA](docs/wiki/Mobile-and-PWA.md).
+
+- Web push on any device (installed app on iPhone and iPad): sites down or back, deploys held or blocked, domain requests, support access
+- Per-device event groups, test button, device list under Settings → Notifications; members get it too
+- Pull to refresh
 
 ## What's new in 0.15.0
 

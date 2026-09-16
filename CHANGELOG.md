@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-16
+
+Phase 6 of the roadmap to 1.0: the panel as a phone app. See [Mobile and PWA](docs/wiki/Mobile-and-PWA.md).
+
+### Added
+- Web push: every bell notification (sites down/up, deploys held or blocked, domain requests and decisions, support access, suspensions) reaches subscribed devices while the panel is closed; VAPID keys are generated automatically, each device picks its event groups, tapping a notification opens the matching view
+- Settings → Notifications → "Push notifications" card for every user (enable per device, test, device list); the Notifications tab is now visible to members with the admin cards hidden
+- Pull to refresh on touch devices
+- `/api/push/*` endpoints; `PUSH_DISABLED` setting; deep links `/?view=<name>`
+
+### Changed
+- Service worker cache bumped; the MCP and OAuth endpoints are never cached
+
 ## [0.15.0] - 2026-09-16
 
 Phase 5 of the roadmap to 1.0: MCP for Claude. Claude Code, Claude Desktop and claude.ai can list, create, deploy, inspect and roll back sites with a token that carries the user's role, scope and quota. See [MCP for Claude](docs/wiki/MCP.md).

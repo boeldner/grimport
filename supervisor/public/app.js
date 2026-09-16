@@ -2768,6 +2768,223 @@ function limitTokenRoleOptions() {
   [...sel.options].forEach(o => { if (!allowed.includes(o.value)) o.remove(); });
   sel.value = allowed[0];
 }
+// ── Web push (Settings > Notifications > Push notifications) ──
+const PUSH_GROUPS = ['availability', 'deploys', 'requests', 'account'];
+let pushRegistration = null;
+let pushSubscription = null;
+let pushVapidKey = null;
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+function isIosBrowserTab() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return ios && !window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone;
+}
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'Device';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  return `${os} · ${browser}`;
+}
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+function selectedPushGroups() {
+  const picked = [...document.querySelectorAll('input[name="push_group"]:checked')].map(i => i.value);
+  return picked.length === PUSH_GROUPS.length ? null : picked;
+}
+function setPushStatus(text, cls) {
+  const el = document.getElementById('push-status');
+  if (!el) return;
+  el.className = `status ${cls || 'status-muted'}`;
+  el.innerHTML = `${GLYPH}${esc(text)}`;
+}
+function setPushHint(text) {
+  const el = document.getElementById('push-hint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+async function refreshPushCard() {
+  const toggle = document.getElementById('btn-push-toggle');
+  const testBtn = document.getElementById('btn-push-test');
+  if (!toggle) return;
+  if (!pushSupported()) {
+    setPushStatus('Not supported in this browser', 'status-muted');
+    setPushHint(isIosBrowserTab() ? 'On iPhone and iPad, add Grimport to the Home Screen first (Share, Add to Home Screen) and open it from there.' : '');
+    toggle.disabled = true;
+    renderPushDevices();
+    return;
+  }
+  try {
+    pushRegistration = await navigator.serviceWorker.ready;
+    pushSubscription = await pushRegistration.pushManager.getSubscription();
+  } catch { pushSubscription = null; }
+  if (Notification.permission === 'denied') {
+    setPushStatus('Blocked in browser settings', 'status-down');
+    setPushHint('Allow notifications for this site in the browser or system settings, then try again.');
+    toggle.disabled = true;
+    testBtn.classList.add('hidden');
+  } else if (pushSubscription) {
+    setPushStatus('On for this device', 'status-up');
+    setPushHint('');
+    toggle.disabled = false;
+    toggle.textContent = 'Disable on this device';
+    toggle.classList.remove('btn-primary');
+    testBtn.classList.remove('hidden');
+  } else {
+    setPushStatus('Off for this device', 'status-muted');
+    setPushHint(isIosBrowserTab() ? 'On iPhone and iPad, add Grimport to the Home Screen first (Share, Add to Home Screen) and open it from there.' : '');
+    toggle.disabled = isIosBrowserTab();
+    toggle.textContent = 'Enable on this device';
+    toggle.classList.add('btn-primary');
+    testBtn.classList.add('hidden');
+  }
+  renderPushDevices();
+}
+
+async function renderPushDevices() {
+  const wrap = document.getElementById('push-devices');
+  if (!wrap) return;
+  try {
+    const devices = await api('GET', '/push/subscriptions');
+    if (!devices.length) { wrap.innerHTML = '<p class="settings-desc muted">No devices yet.</p>'; return; }
+    const mine = pushSubscription?.endpoint;
+    wrap.innerHTML = devices.map(d => {
+      const isThis = d.endpoint === mine;
+      if (isThis) {
+        document.querySelectorAll('input[name="push_group"]').forEach(i => { i.checked = d.events === null || d.events.includes(i.value); });
+      }
+      const groups = d.events === null ? 'all events' : (d.events.length ? d.events.join(', ') : 'no events');
+      return `
+      <div class="push-device">
+        <div class="push-device-meta">
+          <span>${esc(d.label || 'Device')}${isThis ? ' <span class="badge badge-accent">This device</span>' : ''}</span>
+          <span class="push-device-sub">${esc(groups)} · added ${timeAgo(d.created_at)}${d.last_used ? ` · last push ${timeAgo(d.last_used)}` : ''}</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-danger" data-push-remove="${esc(d.id)}">Remove</button>
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-push-remove]').forEach(btn => btn.addEventListener('click', async () => {
+      try {
+        await api('DELETE', `/push/subscriptions/${btn.dataset.pushRemove}`);
+        const d = devices.find(x => x.id === btn.dataset.pushRemove);
+        if (d && d.endpoint === mine && pushSubscription) { try { await pushSubscription.unsubscribe(); } catch {} }
+        toast('Device removed', 'success');
+        refreshPushCard();
+      } catch (err) { toast(err.message, 'error'); }
+    }));
+  } catch { wrap.innerHTML = ''; }
+}
+
+async function enablePush() {
+  const toggle = document.getElementById('btn-push-toggle');
+  toggle.disabled = true;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Notifications were not allowed');
+    if (!pushVapidKey) pushVapidKey = (await api('GET', '/push/vapid-key')).publicKey;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(pushVapidKey) });
+    await api('POST', '/push/subscribe', { subscription: sub.toJSON(), events: selectedPushGroups(), label: deviceLabel() });
+    toast('Push notifications enabled on this device', 'success');
+  } catch (err) {
+    toast(err.message || 'Could not enable push', 'error');
+  }
+  refreshPushCard();
+}
+
+async function disablePush() {
+  const toggle = document.getElementById('btn-push-toggle');
+  toggle.disabled = true;
+  try {
+    if (pushSubscription) {
+      await api('POST', '/push/unsubscribe', { endpoint: pushSubscription.endpoint });
+      try { await pushSubscription.unsubscribe(); } catch {}
+    }
+    toast('Push notifications disabled on this device', 'success');
+  } catch (err) { toast(err.message, 'error'); }
+  refreshPushCard();
+}
+
+(function bindPushCard() {
+  const toggle = document.getElementById('btn-push-toggle');
+  if (!toggle) return;
+  toggle.addEventListener('click', () => (pushSubscription ? disablePush() : enablePush()));
+  document.getElementById('btn-push-test').addEventListener('click', async () => {
+    try {
+      const r = await api('POST', '/push/test', pushSubscription ? { endpoint: pushSubscription.endpoint } : {});
+      toast(r.sent ? 'Test notification sent' : 'Push service did not accept it', r.sent ? 'success' : 'error');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  document.querySelectorAll('input[name="push_group"]').forEach(i => i.addEventListener('change', async () => {
+    if (!pushSubscription) return;
+    try {
+      const devices = await api('GET', '/push/subscriptions');
+      const mine = devices.find(d => d.endpoint === pushSubscription.endpoint);
+      if (mine) { await api('PUT', `/push/subscriptions/${mine.id}`, { events: selectedPushGroups() }); toast('Saved for this device', 'success'); }
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+})();
+
+// ── Pull-to-refresh (touch devices, top of the scroll container) ──
+function currentViewName() {
+  const v = document.querySelector('.view:not(.hidden)');
+  return v ? v.id.replace(/^view-/, '') : 'sites';
+}
+async function refreshCurrentView() {
+  const view = currentViewName();
+  try {
+    if (view === 'sites') await loadSites();
+    else if (view === 'overview') await loadOverview();
+    else if (view === 'activity') await loadActivity();
+    else if (view === 'deployments') await loadDeployments();
+    else if (view === 'logs') await loadLogsView();
+    else if (view === 'domains') await loadDomains();
+    else if (view === 'panel-settings') await loadPanelSettings();
+    await loadNotifications();
+  } catch { /* individual loaders show their own errors */ }
+}
+(function initPullToRefresh() {
+  const main = document.querySelector('.main');
+  if (!main || !('ontouchstart' in window)) return;
+  const THRESHOLD = 72;
+  const bar = document.createElement('div');
+  bar.className = 'ptr-indicator';
+  bar.setAttribute('aria-hidden', 'true');
+  bar.innerHTML = ICON.refreshCw;
+  main.prepend(bar);
+  let startY = 0, dist = 0, pulling = false;
+  main.addEventListener('touchstart', e => {
+    if (main.scrollTop > 0 || document.querySelector('.modal-backdrop:not(.hidden)')) { pulling = false; return; }
+    startY = e.touches[0].clientY; dist = 0; pulling = true;
+  }, { passive: true });
+  main.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    dist = e.touches[0].clientY - startY;
+    if (dist <= 0 || main.scrollTop > 0) { bar.style.height = '0px'; return; }
+    bar.style.height = `${Math.min(dist, THRESHOLD + 24) * 0.55}px`;
+    bar.classList.toggle('ptr-ready', dist >= THRESHOLD);
+  }, { passive: true });
+  const end = async () => {
+    if (!pulling) return;
+    pulling = false;
+    if (dist >= THRESHOLD) {
+      bar.classList.add('ptr-loading');
+      await refreshCurrentView();
+    }
+    bar.classList.remove('ptr-ready', 'ptr-loading');
+    bar.style.height = '0px';
+  };
+  main.addEventListener('touchend', end, { passive: true });
+  main.addEventListener('touchcancel', end, { passive: true });
+})();
+
 function initMcpConnect() {
   const ep = document.getElementById('mcp-endpoint');
   const snippet = document.getElementById('mcp-snippet');
@@ -3340,6 +3557,11 @@ async function init() {
   await loadSites();
   await loadNotifications();
   if (isPanelAdmin()) checkForUpdate();
+  // Deep link from a push notification: /?view=domains etc.
+  try {
+    const wanted = new URLSearchParams(location.search).get('view');
+    if (wanted) { navigateTo(wanted); history.replaceState(null, '', location.pathname); }
+  } catch {}
   if (isPanelAdmin()) { loadDomainRequests(); loadDeployReviews(); }
   if (me.needsOnboarding) openOnboarding();
   // Member first-run wizard: only members, only once, only while they own
@@ -4336,6 +4558,7 @@ document.querySelectorAll('#view-panel-settings .tab').forEach(tab => {
   tab.addEventListener('click', () => {
     if (tab.dataset.stab === 'users') { loadUsers(); loadInvitations(); }
     if (tab.dataset.stab === 'security') loadProfile();
+    if (tab.dataset.stab === 'notifications') refreshPushCard();
   });
 });
 

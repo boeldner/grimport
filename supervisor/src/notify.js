@@ -37,6 +37,11 @@ function notify({ type, title, detail = null, data = null, siteId = null, userId
     if (admins) { insert.run(type, title, detail, payload, null); n++; }
     for (const uid of recipients) { insert.run(type, title, detail, payload, uid); n++; }
   } catch {}
+  // Same recipients get a web push on their subscribed devices (push.js);
+  // fire-and-forget so a slow push service never delays the caller.
+  try {
+    require('./push').fanout({ type, title, detail, data, userIds: [...recipients], admins }).catch(() => {});
+  } catch {}
   return n;
 }
 

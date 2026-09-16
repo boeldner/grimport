@@ -37,6 +37,24 @@ the app still opens without a connection. What that means in practice:
 
 Reconnecting refreshes the current view automatically.
 
+## Push notifications
+
+Every notification that lands in the bell can also reach your devices while the panel is closed: sites going down or coming back, deploys held or blocked by the scanner, domain requests and decisions, support access and suspensions.
+
+Turn it on under **Settings → Notifications → Push notifications** with "Enable on this device", allow notifications when the browser asks, and pick the event groups this device should get. "Send a test" confirms the path works. Each device is listed with its label; remove one there or disable push on the device itself. Members see the same card for the events that concern their sites.
+
+Where it works:
+
+- **iPhone and iPad**: only in the installed app (Share, Add to Home Screen, open from there), iOS 16.4 or later. The card explains this when opened in Safari.
+- **Android**: Chrome, Edge, Firefox, Samsung Internet, installed or in the browser.
+- **Desktop**: Chrome, Edge, Firefox, Safari 16 or later.
+
+Nothing to configure on the server: the VAPID key pair is generated on first use and stored in the database. The contact address sent to the push services is your ACME email (or the panel URL). Tapping a notification opens the panel on the matching view. Set `PUSH_DISABLED=1` to switch delivery off panel-wide.
+
+## Pull to refresh
+
+On touch devices, pull the current view down from the top and release to reload it (sites, overview, activity, deployments, logs, domains or settings) together with the bell.
+
 ## Update prompts
 
 When a new version of the panel is deployed, your open tab detects it in
