@@ -87,6 +87,9 @@
       font-size: 11px;
       color: var(--tx3);
     }
+
+    .login-remember { margin-top: -4px; }
+    .login-back-row { display: flex; justify-content: center; margin-top: -4px; }
   </style>
 </head>
 <body>
@@ -116,8 +119,28 @@
             autocomplete="current-password" required
             placeholder="Enter your password" />
         </div>
+        <label class="g-toggle login-remember">
+          <input type="checkbox" id="remember-input" name="remember" />
+          <span class="g-toggle-track"></span>
+          <span>Remember this device for 30 days</span>
+        </label>
         <p class="login-error" id="login-error" role="alert"></p>
         <button type="submit" class="btn btn-primary" id="btn-login">Sign in</button>
+      </form>
+
+      <form id="totp-form" class="hidden">
+        <div class="field">
+          <label class="field-label" for="totp-code-input">Authenticator code</label>
+          <input type="text" id="totp-code-input" name="code" class="g-input"
+            inputmode="numeric" autocomplete="one-time-code"
+            placeholder="123456 or a recovery code" required />
+          <div class="field-help muted">Enter the 6-digit code from your app, or one of your recovery codes.</div>
+        </div>
+        <p class="login-error" id="totp-error" role="alert"></p>
+        <button type="submit" class="btn btn-primary" id="btn-totp-verify">Verify</button>
+        <div class="login-back-row">
+          <button type="button" class="link-btn" id="btn-totp-back">Back to sign in</button>
+        </div>
       </form>
     </div>
 
@@ -127,6 +150,27 @@
   <script>
     fetch('/api/config').then(r => r.json()).then(d => {
       if (d.version) document.getElementById('login-footer-version').textContent = `Grimport v${d.version} · self-hosted`;
+    }).catch(() => {});
+
+    function showTotpStep() {
+      document.getElementById('login-form').classList.add('hidden');
+      document.getElementById('totp-form').classList.remove('hidden');
+      document.getElementById('login-error').classList.remove('visible');
+      document.getElementById('totp-code-input').value = '';
+      document.getElementById('totp-code-input').focus();
+    }
+
+    function showLoginStep() {
+      document.getElementById('totp-form').classList.add('hidden');
+      document.getElementById('login-form').classList.remove('hidden');
+      document.getElementById('totp-error').classList.remove('visible');
+    }
+
+    // A page reload mid-2FA (correct password already accepted, code not
+    // yet entered) leaves a pending session — resume the code step instead
+    // of re-asking for the password.
+    fetch('/api/auth/me').then(r => r.json()).then(me => {
+      if (me && me.totp_required) showTotpStep();
     }).catch(() => {});
 
     document.getElementById('login-form').addEventListener('submit', async e => {
@@ -143,13 +187,19 @@
           body: JSON.stringify({
             username: document.getElementById('username-input').value.trim(),
             password: document.getElementById('password-input').value,
+            remember: document.getElementById('remember-input').checked,
           }),
         });
         const data = await res.json();
-        if (res.ok) {
+        if (res.ok && data.totp_required) {
+          btn.disabled = false;
+          btn.textContent = 'Sign in';
+          showTotpStep();
+        } else if (res.ok) {
           window.location.href = '/';
         } else {
-          err.textContent = data.error || 'Sign in failed';
+          if (res.status === 429) err.textContent = data.error || 'Too many failed logins';
+          else err.textContent = data.error || 'Sign in failed';
           err.classList.add('visible');
           btn.disabled = false;
           btn.textContent = 'Sign in';
@@ -160,6 +210,41 @@
         btn.disabled = false;
         btn.textContent = 'Sign in';
       }
+    });
+
+    document.getElementById('totp-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-totp-verify');
+      const err = document.getElementById('totp-error');
+      btn.disabled = true;
+      btn.textContent = 'Verifying…';
+      err.classList.remove('visible');
+      try {
+        const res = await fetch('/api/auth/totp/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: document.getElementById('totp-code-input').value.trim() }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          err.textContent = data.error || 'Invalid code';
+          err.classList.add('visible');
+          btn.disabled = false;
+          btn.textContent = 'Verify';
+        }
+      } catch {
+        err.textContent = 'Network error — is the server running?';
+        err.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+      }
+    });
+
+    document.getElementById('btn-totp-back').addEventListener('click', async () => {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+      showLoginStep();
     });
   </script>
 </body>

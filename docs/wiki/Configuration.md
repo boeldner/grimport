@@ -60,6 +60,13 @@ Most configuration is also available at runtime from the **Settings** page witho
 
 ### Security tab
 - Change the panel password
+- Set up / disable two-factor authentication (TOTP) and view recovery codes
+- View and revoke your own active sessions
+- **Require 2FA for admins** (`require_totp_admins`, default off) — set via `PUT
+  /api/settings`. When on, any admin account without TOTP enabled is forced
+  through setup before using the rest of the panel. See
+  [Security-Model](Security-Model#panel-login) for the full login-hardening
+  picture (lockout schedule, recovery codes, sessions, CSRF, CSP).
 
 ## Per-site settings
 

@@ -12,13 +12,14 @@ const { assertPublicUrl } = require('./validate');
 // cert_expiry has no producer yet (no cert-expiry detection exists in this
 // codebase) — it's accepted as a config option so the UI/route can wire it
 // up when that detection lands, but nothing fires it today.
-const ALL_ALERT_EVENTS = ['site_down', 'site_up', 'deploy_failed', 'cert_expiry'];
+const ALL_ALERT_EVENTS = ['site_down', 'site_up', 'deploy_failed', 'cert_expiry', 'login_lockout'];
 
 const EVENT_META = {
   site_down:     { title: 'Site down',            priority: '5', tags: 'rotating_light' },
   site_up:       { title: 'Site recovered',       priority: '3', tags: 'white_check_mark' },
   deploy_failed: { title: 'Deploy failed',        priority: '4', tags: 'x' },
   cert_expiry:   { title: 'Certificate expiring', priority: '4', tags: 'hourglass' },
+  login_lockout: { title: 'Login lockout',        priority: '4', tags: 'lock' },
 };
 
 function getNtfyConfig() {

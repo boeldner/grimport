@@ -28,12 +28,15 @@ router.get('/', (req, res) => {
     acme_email: getSetting('acme_email') || process.env.ACME_EMAIL || '',
     analytics_snippet: getSetting('analytics_snippet') || '',
     onboarding_done: getSetting('onboarding_done') === '1',
+    // Owner/admin 2FA policy — see docs/wiki/Security-Model.md "Panel login".
+    // Off by default so an existing install is never suddenly locked out.
+    require_totp_admins: getSetting('require_totp_admins') === '1',
   });
 });
 
 // PUT /api/settings
 router.put('/', (req, res) => {
-  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet, onboarding_done } = req.body;
+  const { site_base_domain, default_spa_mode, default_cache_enabled, acme_email, analytics_snippet, onboarding_done, require_totp_admins } = req.body;
   if (site_base_domain !== undefined) setSetting('site_base_domain', site_base_domain.trim().toLowerCase());
   if (default_spa_mode !== undefined) setSetting('default_spa_mode', default_spa_mode ? '1' : '0');
   if (default_cache_enabled !== undefined) setSetting('default_cache_enabled', default_cache_enabled ? '1' : '0');
@@ -42,6 +45,7 @@ router.put('/', (req, res) => {
   // onboarding_done is write-once in practice: the wizard sets it true on
   // finish/skip and never unsets it, so first-run detection never re-fires.
   if (onboarding_done !== undefined) setSetting('onboarding_done', onboarding_done ? '1' : '0');
+  if (require_totp_admins !== undefined) setSetting('require_totp_admins', require_totp_admins ? '1' : '0');
   res.json({ ok: true, restart_required: acme_email !== undefined });
 });
 

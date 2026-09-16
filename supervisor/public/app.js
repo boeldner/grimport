@@ -95,7 +95,11 @@ let cachedUpdateData = null; // latest update check result
 
 // ── API helpers ───────────────────────────────────────────
 async function api(method, path, body) {
-  const opts = { method, headers: {} };
+  // X-Requested-With satisfies the server's CSRF guard (src/csrf.js) on
+  // mutating requests — a plain cross-site <form> post can't set this
+  // header, only same-origin JS can. Sent on every call (not just
+  // mutating ones) since it's harmless on GET/HEAD too.
+  const opts = { method, headers: { 'X-Requested-With': 'grimport' } };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   let res;
   try {
@@ -121,6 +125,9 @@ async function apiUpload(siteId, file, onProgress) {
     form.append('file', file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/deploy/${siteId}`);
+    // Same CSRF header as api() above — multipart uploads never carry a
+    // JSON content type, so this is the only thing that satisfies the guard.
+    xhr.setRequestHeader('X-Requested-With', 'grimport');
     xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total, e.loaded, e.total);
     xhr.onload = () => {
       const data = JSON.parse(xhr.responseText || '{}');
@@ -766,7 +773,7 @@ function renderSites() {
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
         <p>Upload a zip and Grimport serves it over HTTPS on your domain.</p>
-        ${canCreateSites() ? `<button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('btn-new-site').click()">${ICON.plus} Create your first site</button>` : ''}
+        ${canCreateSites() ? `<button class="btn btn-primary" style="margin-top:16px" data-empty-action="new-site">${ICON.plus} Create your first site</button>` : ''}
       </div>`;
     return;
   }
@@ -776,7 +783,7 @@ function renderSites() {
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No other sites match "${esc(searchQuery)}"</h3>
-        <p>Search covers names and domains · <button type="button" class="link-btn" onclick="clearSiteSearch()">Clear search</button></p>
+        <p>Search covers names and domains · <button type="button" class="link-btn" data-empty-action="clear-search">Clear search</button></p>
       </div>`;
     return;
   }
@@ -4878,4 +4885,185 @@ async function pollUpdateStatus() {
       });
     }
   } catch {}
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+ * Panel login hardening — appended block (docs/roadmap/multi-user-
+ * platform.md §4 "Login and panel hardening"). Self-contained: only
+ * touches elements inside #spanel-security (Two-factor authentication +
+ * Sessions cards), the two data-empty-action buttons in the sites empty
+ * states, and reads GET /api/auth/me once more to enforce a forced 2FA
+ * setup notice. Does not modify any function defined above this block.
+ * ══════════════════════════════════════════════════════════════════ */
+
+// ── Empty-state actions (CSP forbids inline onclick=; delegated here) ──
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-empty-action]');
+  if (!el) return;
+  if (el.dataset.emptyAction === 'new-site') document.getElementById('btn-new-site')?.click();
+  else if (el.dataset.emptyAction === 'clear-search') clearSiteSearch();
+});
+
+// ── Helpers ─────────────────────────────────────────────────────────
+function fmtSessionTime(ms) {
+  if (!ms) return '—';
+  try { return new Date(ms).toLocaleString(); } catch { return '—'; }
+}
+
+function shortenUa(ua) {
+  if (!ua) return 'Unknown device';
+  const browserMatch = ua.match(/(Firefox|Chrome|Safari|Edg|OPR)\/[\d.]+/);
+  const osMatch = ua.match(/(Windows NT [\d.]+|Mac OS X [\d_.]+|Linux|Android [\d.]+|iPhone OS [\d_]+|CPU OS [\d_]+)/);
+  const browser = browserMatch
+    ? browserMatch[0].replace('Edg/', 'Edge ').replace('OPR/', 'Opera ').replace('/', ' ')
+    : 'Unknown browser';
+  const os = osMatch
+    ? osMatch[0].replace(/_/g, '.').replace('CPU OS', 'iOS').replace('Mac OS X', 'macOS').replace('Windows NT', 'Windows')
+    : '';
+  return [browser, os].filter(Boolean).join(' · ');
+}
+
+// ── Two-factor authentication ───────────────────────────────────────
+async function loadTotpStatus() {
+  const badge = document.getElementById('totp-status-badge');
+  if (!badge) return;
+  let me;
+  try { me = await api('GET', '/auth/me'); } catch (err) { toast(err.message, 'error'); return; }
+
+  const enabled = !!me.totp_enabled;
+  badge.textContent = enabled ? 'Enabled' : 'Disabled';
+  badge.className = `badge ${enabled ? 'badge-ok' : 'badge-warn'}`;
+  const text = document.getElementById('totp-status-text');
+  if (text) {
+    text.textContent = enabled
+      ? 'Your account requires a 6-digit code (or a recovery code) at login.'
+      : 'Add a 6-digit authenticator code as a second factor at login.';
+  }
+  document.getElementById('totp-setup-actions')?.classList.toggle('hidden', enabled);
+  document.getElementById('form-totp-disable')?.classList.toggle('hidden', !enabled);
+  if (!me.totp_setup_required) document.getElementById('totp-required-notice')?.classList.add('hidden');
+}
+
+document.getElementById('btn-totp-start-setup')?.addEventListener('click', async () => {
+  try {
+    const data = await api('POST', '/auth/totp/setup');
+    document.getElementById('totp-qr-img').src = data.qr_data_url;
+    document.getElementById('totp-secret-value').textContent = data.secret;
+    document.getElementById('f-totp-enable-code').value = '';
+    document.getElementById('totp-setup-actions')?.classList.add('hidden');
+    document.getElementById('totp-setup-flow')?.classList.remove('hidden');
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-totp-cancel-setup')?.addEventListener('click', () => {
+  document.getElementById('totp-setup-flow')?.classList.add('hidden');
+  document.getElementById('totp-setup-actions')?.classList.remove('hidden');
+});
+
+document.getElementById('form-totp-enable')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const code = document.getElementById('f-totp-enable-code').value.trim();
+  try {
+    const data = await api('POST', '/auth/totp/enable', { code });
+    document.getElementById('totp-setup-flow')?.classList.add('hidden');
+    const list = document.getElementById('totp-recovery-list');
+    if (list) list.innerHTML = data.recovery_codes.map(c => `<code class="totp-recovery-code">${esc(c)}</code>`).join('');
+    document.getElementById('totp-recovery-reveal')?.classList.remove('hidden');
+    toast('Two-factor authentication enabled', 'success');
+    await loadTotpStatus();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('btn-copy-recovery-codes')?.addEventListener('click', e => {
+  const codes = Array.from(document.querySelectorAll('#totp-recovery-list .totp-recovery-code')).map(el => el.textContent);
+  copyToClipboard(codes.join('\n'), e.currentTarget);
+});
+
+document.getElementById('btn-totp-recovery-confirm')?.addEventListener('click', () => {
+  document.getElementById('totp-recovery-reveal')?.classList.add('hidden');
+  document.getElementById('totp-setup-actions')?.classList.remove('hidden');
+  document.getElementById('totp-required-notice')?.classList.add('hidden');
+});
+
+document.getElementById('form-totp-disable')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  try {
+    await api('POST', '/auth/totp/disable', { password: form.elements['password'].value });
+    form.reset();
+    toast('Two-factor authentication disabled', 'success');
+    await loadTotpStatus();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// ── Sessions ─────────────────────────────────────────────────────────
+async function loadSessionsList() {
+  const container = document.getElementById('sessions-list');
+  if (!container) return;
+  let data;
+  try { data = await api('GET', '/auth/sessions'); } catch (err) {
+    container.innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+    return;
+  }
+  if (!data.sessions.length) {
+    container.innerHTML = '<p class="muted">No active sessions.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <table class="sessions-table">
+      <thead><tr><th>Device</th><th>IP</th><th>Last seen</th><th></th></tr></thead>
+      <tbody>
+        ${data.sessions.map(s => `
+          <tr>
+            <td>${esc(shortenUa(s.ua))}${s.current ? ' <span class="badge badge-ok">This device</span>' : ''}</td>
+            <td>${esc(s.ip || '—')}</td>
+            <td>${esc(fmtSessionTime(s.last_seen))}</td>
+            <td>${s.current ? '' : `<button type="button" class="btn btn-sm btn-danger" data-revoke-session="${esc(s.sid)}">Revoke</button>`}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+document.getElementById('sessions-list')?.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-revoke-session]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await api('DELETE', `/auth/sessions/${encodeURIComponent(btn.dataset.revokeSession)}`);
+    toast('Session revoked', 'success');
+    await loadSessionsList();
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('btn-sessions-revoke-others')?.addEventListener('click', async () => {
+  try {
+    const res = await api('POST', '/auth/sessions/revoke-others');
+    toast(`Signed out ${res.revoked} other session${res.revoked === 1 ? '' : 's'}`, 'success');
+    await loadSessionsList();
+  } catch (err) { toast(err.message, 'error'); }
+});
+
+// Load Security tab data whenever it's opened (additional listener —
+// doesn't touch the existing settings-tab switch statement above).
+document.getElementById('ptab-security')?.addEventListener('click', () => {
+  loadTotpStatus();
+  loadSessionsList();
+});
+
+// ── Forced 2FA setup (require_totp_admins) ──────────────────────────
+// A second, independent read of /me (the main init() above already
+// consumed its own copy) — if the server says this admin must set up 2FA
+// before doing anything else, jump to Security and pin a non-dismissable
+// notice at the top of it.
+(async function enforceTotpSetup() {
+  let me;
+  try { me = await fetch('/api/auth/me', { headers: { 'X-Requested-With': 'grimport' } }).then(r => r.json()); }
+  catch { return; }
+  if (!me || !me.totp_setup_required) return;
+  document.getElementById('totp-required-notice')?.classList.remove('hidden');
+  document.querySelector('.nav-item[data-view="panel-settings"]')?.click();
+  document.getElementById('ptab-security')?.click();
 })();
