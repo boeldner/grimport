@@ -242,7 +242,38 @@ db.exec(`
     note       TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_deploy_reviews_site ON deploy_reviews(site_id, status);
+
+  -- OAuth clients/codes/refresh tokens for the MCP endpoint (src/mcp/oauth.js).
+  -- Access tokens are rows in api_tokens with oauth_client_id set.
+  CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id     TEXT PRIMARY KEY,
+    client_secret TEXT,
+    client_name   TEXT,
+    redirect_uris TEXT NOT NULL,           -- JSON array
+    metadata      TEXT NOT NULL DEFAULT '{}',
+    created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS oauth_codes (
+    code_hash      TEXT PRIMARY KEY,
+    client_id      TEXT NOT NULL,
+    user_id        TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    redirect_uri   TEXT NOT NULL,
+    scope          TEXT,
+    resource       TEXT,
+    expires_at     INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    token_hash   TEXT PRIMARY KEY,
+    client_id    TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    api_token_id TEXT NOT NULL,
+    scope        TEXT,
+    expires_at   INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `);
+try { db.exec('ALTER TABLE api_tokens ADD COLUMN oauth_client_id TEXT'); } catch {}
 
 // One-time backfill of the new columns from the legacy role model.
 // Runs until every user has a platform_role; idempotent afterwards.

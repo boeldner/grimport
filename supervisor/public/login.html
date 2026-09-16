@@ -148,6 +148,12 @@
   </div>
 
   <script>
+    // After login, return to a same-origin page that sent us here (e.g. the
+    // OAuth consent page). Only relative paths are accepted.
+    function nextUrl() {
+      var n = new URLSearchParams(location.search).get('next') || '';
+      return (n.charAt(0) === '/' && n.charAt(1) !== '/' && n.charAt(1) !== '\\') ? n : '/';
+    }
     fetch('/api/config').then(r => r.json()).then(d => {
       if (d.version) document.getElementById('login-footer-version').textContent = `Grimport v${d.version} · self-hosted`;
     }).catch(() => {});
@@ -196,7 +202,7 @@
           btn.textContent = 'Sign in';
           showTotpStep();
         } else if (res.ok) {
-          window.location.href = '/';
+          window.location.href = nextUrl();
         } else {
           if (res.status === 429) err.textContent = data.error || 'Too many failed logins';
           else err.textContent = data.error || 'Sign in failed';
@@ -227,7 +233,7 @@
         });
         const data = await res.json();
         if (res.ok) {
-          window.location.href = '/';
+          window.location.href = nextUrl();
         } else {
           err.textContent = data.error || 'Invalid code';
           err.classList.add('visible');

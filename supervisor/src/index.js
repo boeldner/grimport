@@ -51,6 +51,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// MCP requests may carry a base64 zip (deploy_zip), so /mcp gets a larger
+// JSON limit than the regular API. Must run before the global 1mb parser.
+app.use('/mcp', express.json({ limit: process.env.MCP_JSON_LIMIT || '64mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(sessionMiddleware);
 
@@ -58,6 +61,7 @@ app.use(sessionMiddleware);
 // 600 req / 15 min by default (API_RATE_LIMIT, 0 disables); /api/health is exempt.
 const { apiLimiter } = require('./rate-limit');
 app.use('/api', apiLimiter());
+app.use('/mcp', apiLimiter());
 
 // ── CSRF guard (mutating /api/* requests from a cookie session) ─
 app.use(csrfProtection);
@@ -84,6 +88,7 @@ function serveWithNonce(filePath) {
 app.get('/login.html', serveWithNonce(path.join(__dirname, '../public/login.html')));
 app.get('/offline.html', serveWithNonce(path.join(__dirname, '../public/offline.html')));
 app.get('/invite/:token', serveWithNonce(path.join(__dirname, '../public/invite.html')));
+app.get('/oauth/consent', serveWithNonce(path.join(__dirname, '../public/oauth.html')));
 
 // ── Public routes (no auth) ────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
@@ -162,6 +167,20 @@ app.use('/api/users',           requireAuth, requireHumanSession, require('./rou
 app.use('/api/tokens',          requireAuth, require('./routes/tokens'));
 app.use('/api/domains',         requireAuth, require('./routes/domains'));
 app.use('/api/reviews',         requireAuth, require('./routes/reviews'));
+app.use('/api/me',              requireAuth, require('./routes/me'));
+
+// ── MCP for Claude (docs/wiki/MCP.md): POST /mcp with a Bearer token, plus an
+// OAuth 2.1 server (/authorize, /token, /register, /.well-known/*) so clients
+// without a token field can sign in through the panel.
+const { mountMcp, panelBaseUrl } = require('./mcp/remote');
+mountMcp(app, { requireAuth, port: PORT });
+try {
+  const oauth = require('./mcp/oauth');
+  app.use(oauth.createAuthRouter({ issuerUrl: panelBaseUrl() }));
+  app.use('/api/oauth', requireAuth, requireHumanSession, oauth.createConsentRouter());
+} catch (err) {
+  console.warn(`[mcp] OAuth endpoints disabled: ${err.message} (set PANEL_URL to the panel's https address)`);
+}
 app.use('/api/update',          requireAuth, requireRole('admin'), require('./routes/update'));
 app.use('/api/backups',         requireAuth, requireRole('admin'), requireHumanSession, require('./routes/backups'));
 

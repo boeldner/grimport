@@ -693,6 +693,16 @@ systemctl start cloudflared</pre>
 
               <div id="tokens-list" style="margin-top:16px"></div>
 
+              <div class="settings-subsection" id="mcp-connect" style="margin-top:20px">
+                <div class="settings-subsection-title">Connect Claude <span class="help-slot" data-help="MCP.md"></span> <span class="settings-subsection-hint">use your sites from Claude Code, Claude Desktop or claude.ai</span></div>
+                <p class="settings-desc">Claude talks to this panel over MCP with one of your tokens and acts with your role and quota. Endpoint: <code id="mcp-endpoint"></code></p>
+                <div class="token-reveal-row">
+                  <code id="mcp-snippet" class="token-value"></code>
+                  <button class="copy-btn" id="btn-copy-mcp" type="button">Copy</button>
+                </div>
+                <p class="field-help muted" style="margin-top:8px">Claude Code: run the command with a token from above. claude.ai and Claude Desktop: add a custom connector with the endpoint URL and sign in here when asked; the token it receives shows up in the list and can be revoked any time.</p>
+              </div>
+
               <form id="form-create-token" class="token-create-form" style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
                 <input class="g-input" type="text" name="token_name" placeholder="Token name, e.g. “laptop-cli”" />
                 <div style="display:flex;gap:12px;flex-wrap:wrap">

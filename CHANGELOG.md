@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-16
+
+Phase 5 of the roadmap to 1.0: MCP for Claude. Claude Code, Claude Desktop and claude.ai can list, create, deploy, inspect and roll back sites with a token that carries the user's role, scope and quota. See [MCP for Claude](docs/wiki/MCP.md).
+
+### Added
+- Remote MCP endpoint `POST /mcp` (Streamable HTTP, stateless, Bearer tokens only) with tools `whoami`, `list_sites`, `get_site`, `get_site_status`, `create_site`, `deploy_zip`, `deploy_url`, `get_deploy_history`, `rollback`, `get_logs`, `start_site`, `stop_site`, `set_maintenance`, `set_env_vars`, `preview_create`, `preview_swap`, `preview_discard`; resources `grimport://sites` and `grimport://sites/{id}/logs`; prompt `publish-project`
+- OAuth 2.1 server (dynamic client registration, PKCE, refresh rotation, revocation) so claude.ai custom connectors and Claude Desktop sign in through the panel's own login and a "Connect an app" consent page; issued tokens show under API tokens with a "Connected app" badge and can be revoked there
+- Local stdio server `mcp/server.js` for Claude Code with the same tools plus `deploy_directory` (zips a folder honouring `.gitignore`)
+- `GET /api/me`: role, capabilities, quota, base domain, accessible sites, MCP endpoint
+- Settings → API tokens: "Connect Claude" card with the endpoint and a ready-made `claude mcp add` command
+- Login page honours `?next=` for same-origin return paths (used by the consent page)
+- `PANEL_URL` and `MCP_JSON_LIMIT` settings
+
+### Changed
+- Tokens that belong to a user may create sites within the owner's quota (before: admin tokens only); a site-scoped token gains the site it created and nothing else
+
 ## [0.14.1] - 2026-09-16
 
 ### Fixed

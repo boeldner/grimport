@@ -34,6 +34,7 @@ It's built for:
 **Hosting**
 - Container isolation — each site runs in its own `nginx:alpine` container (~10 MB)
 - Content scanner — every upload is checked for executables, miners, phishing patterns and leaked secrets before it goes live; flagged member uploads wait for your approval
+- MCP for Claude — Claude Code, Claude Desktop and claude.ai create, deploy, inspect and roll back sites with your role and quota
 - Wildcard subdomains — set a base domain, get auto-generated URLs instantly
 - Per-site SPA mode, cache control headers, custom response headers, redirects
 - Maintenance mode — take a site offline with one click, serves a custom page
@@ -83,6 +84,14 @@ It's built for:
 - Tenant isolation: one network per site, hardened containers, egress guard, deploy limits and rate limits (see the [Security Model](docs/wiki/Security-Model.md))
 
 ---
+
+## What's new in 0.15.0
+
+Phase 5 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): MCP for Claude. Setup in [MCP for Claude](docs/wiki/MCP.md).
+
+- `https://<panel>/mcp` for Claude Code (token) and for claude.ai / Claude Desktop (sign in through the panel, revoke under API tokens)
+- Tools for listing, creating, deploying, logs, rollback, maintenance, env vars and previews; a local server adds `deploy_directory` for folders on your machine
+- Every action carries your role, site scope and quota; uploads pass the content scanner
 
 ## What's new in 0.14.0
 
@@ -314,6 +323,7 @@ Grimport is designed to be the deployment target. Pair it with:
 | **Webflow** | Export site → zip → deploy via panel or API |
 | **Astro / Next.js / Vite** | `npm run build` → zip `dist/` → deploy |
 | **Cloudflare** | Use as proxy (CDN + DDoS) or Tunnel (no open ports) |
+| **Claude** | Connect Claude Code, Claude Desktop or claude.ai over MCP — see [MCP for Claude](docs/wiki/MCP.md) |
 
 ---
 

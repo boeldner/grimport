@@ -1,0 +1,9 @@
+{
+  "name": "grimport-mcp",
+  "version": "0.15.0",
+  "description": "Local stdio MCP server for Grimport (Claude Code / Claude Desktop). Resolves its dependencies from ../supervisor.",
+  "private": true,
+  "bin": { "grimport-mcp": "server.js" },
+  "main": "server.js",
+  "license": "MIT"
+}

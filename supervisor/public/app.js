@@ -2768,6 +2768,20 @@ function limitTokenRoleOptions() {
   [...sel.options].forEach(o => { if (!allowed.includes(o.value)) o.remove(); });
   sel.value = allowed[0];
 }
+function initMcpConnect() {
+  const ep = document.getElementById('mcp-endpoint');
+  const snippet = document.getElementById('mcp-snippet');
+  if (!ep || !snippet) return;
+  const url = `${location.origin}/mcp`;
+  ep.textContent = url;
+  const cmd = `claude mcp add --transport http grimport ${url} --header "Authorization: Bearer <your token>"`;
+  snippet.textContent = cmd;
+  document.getElementById('btn-copy-mcp').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(cmd); toast('Command copied', 'success'); } catch { toast('Copy failed', 'error'); }
+  });
+}
+initMcpConnect();
+
 async function loadTokens() {
   limitTokenRoleOptions();
   const list = document.getElementById('tokens-list');
@@ -2828,7 +2842,7 @@ function renderTokens(tokens) {
       <tbody>
         ${tokens.map(t => `
           <tr>
-            <td>${esc(t.name)}</td>
+            <td>${esc(t.name)}${t.oauth_client_id ? ` <span class="badge badge-vio" title="Issued by signing in from an app (OAuth); refreshes itself">Connected app</span>` : ''}</td>
             <td><span class="badge badge-neutral">${esc(t.role || 'admin')}</span></td>
             <td>${renderTokenScope(t.site_scope)}</td>
             <td class="cell-mono">${t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : 'never'}</td>

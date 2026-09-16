@@ -19,7 +19,7 @@ function shape(t) {
 
 router.get('/', (req, res) => {
   if (req.user.capabilities && req.user.capabilities.api_tokens === false) return res.json([]);
-  const rows = db.prepare('SELECT id, name, role, site_scope, expires_at, created_at, last_used FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+  const rows = db.prepare('SELECT id, name, role, site_scope, expires_at, created_at, last_used, oauth_client_id FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
   res.json(rows.map(shape));
 });
 

@@ -162,7 +162,7 @@ Content-Type: application/json
 
 { "name": "My Site", "domain": "mysite.com", "runtime": "static" }
 ```
-Admin only. `runtime` is `static` (default), `php`, `node`, or `python`; `node`/`python` also accept `build_cmd`, `start_cmd`, `app_port`.
+Admins and members (within their site quota; members get an automatic subdomain when `domain` is omitted, a custom domain becomes a request unless the policy is free). Tokens act for their owner; a site-scoped token gains the site it created. `runtime` is `static` (default), `php`, `node`, or `python`; `node`/`python` also accept `build_cmd`, `start_cmd`, `app_port`.
 
 ### Update site settings
 ```
@@ -483,6 +483,55 @@ DELETE /notifications               (admin)
 DELETE /notifications/:id           (admin)
 ```
 `GET` respects the enabled event types from `/settings/notification-events`.
+
+---
+
+## Me
+
+```
+GET /me
+```
+Session or token. Who the caller is and what it may do, meant for agents (see [MCP for Claude](MCP)):
+
+```json
+{
+  "auth": { "kind": "token", "token_id": "abc", "site_scope": ["s1"] },
+  "user": { "id": "u1", "username": "carla", "display_name": "Carla" },
+  "platform_role": "member", "role": "editor",
+  "capabilities": { "runtimes": ["static"], "max_sites": 3, "max_upload_mb": 100, "disk_quota_mb": 1000, "custom_domains": "approval", "api_tokens": true, "webhooks": false, "advanced_ui": false },
+  "quota": { "sites_used": 1, "sites_max": 3, "sites_left": 2 },
+  "site_base_domain": "sites.example.com", "automatic_subdomain": "<slug>.sites.example.com",
+  "accessible_site_ids": ["s1"],
+  "panel_url": "https://panel.example.com", "mcp_endpoint": "https://panel.example.com/mcp", "version": "0.15.0"
+}
+```
+`null` in `max_sites`, `disk_quota_mb`, `sites_max` or `accessible_site_ids` means unlimited / every site (admins).
+
+---
+
+## MCP
+
+```
+POST /mcp
+Authorization: Bearer grim_...
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+Streamable HTTP transport, stateless (no session id, JSON responses; `GET`/`DELETE` answer `405`). Bearer tokens only, a browser session is refused with `401` and a `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"` header. Body limit `MCP_JSON_LIMIT` (64 MB). Tools, resources and the prompt are listed in [MCP for Claude](MCP#tools); each tool maps onto the REST calls documented here with the caller's own token.
+
+OAuth 2.1 endpoints for clients without a token field (claude.ai connectors, Claude Desktop), active when `PANEL_URL` is https (or localhost):
+
+```
+GET  /.well-known/oauth-authorization-server
+GET  /.well-known/oauth-protected-resource/mcp
+POST /register                       dynamic client registration (public clients, PKCE S256 required)
+GET  /authorize                      redirects to /oauth/consent (panel login + Allow)
+POST /token                          authorization_code and refresh_token grants
+POST /revoke
+GET  /api/oauth/consent-info?client_id=   session: what the consent page shows
+POST /api/oauth/consent              session: { client_id, redirect_uri, code_challenge, state, scope, decision: "allow" | "deny" } -> { redirect }
+```
+Access tokens are `api_tokens` rows owned by the signing-in user (24 h, refresh 90 days, rotated on every refresh) and appear under `GET /tokens` with `oauth_client_id` set.
 
 ---
 

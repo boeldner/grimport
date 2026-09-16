@@ -111,7 +111,7 @@ const CURATED_DEFAULT = [
   'settings-tokens', 'settings-users', 'settings-security', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
   'member-sites', 'member-new-site', 'member-settings',
   'member-onboarding-1', 'member-onboarding-2', 'modal-help', 'modal-new-site-templates',
-  'modal-deploy-review', 'settings-general-scanner',
+  'modal-deploy-review', 'settings-general-scanner', 'oauth-consent',
 ];
 
 const OUT = args.out
@@ -359,6 +359,21 @@ async function main() {
     await page.type('#invite-label', 'Dora');
     await shot(T('modal-invite'), { wait: 300 });
     await closeModals();
+
+    // OAuth consent page ("Connect an app"): register a throwaway client the
+    // way claude.ai would, then open the page the /authorize redirect lands on.
+    const consentUrl = await page.evaluate(async () => {
+      const res = await fetch('/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redirect_uris: ['https://claude.ai/api/mcp/auth_callback'], client_name: 'Claude', token_endpoint_auth_method: 'none' }) });
+      const c = await res.json();
+      const q = new URLSearchParams({ client_id: c.client_id, redirect_uri: 'https://claude.ai/api/mcp/auth_callback', code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', state: 'demo' });
+      return `/oauth/consent?${q}`;
+    });
+    await page.goto(`${BASE}${consentUrl}`, { waitUntil: 'networkidle0' });
+    await page.evaluate(t => { localStorage.setItem('grimport-theme', t); document.documentElement.setAttribute('data-theme', t); }, theme);
+    await shot(T('oauth-consent'), { wait: 500 });
+    await page.goto(`${BASE}/`, { waitUntil: 'networkidle0' });
+    await page.evaluate(t => { localStorage.setItem('grimport-theme', t); applyTheme(t); }, theme);
+    await new Promise(r => setTimeout(r, 400));
 
     await view('sites');
     await page.setViewport({ width: 820, height: 900 });

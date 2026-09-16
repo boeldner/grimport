@@ -134,15 +134,23 @@ function resolveDomainForCreate(req, name, requested) {
 // POST /api/sites — create a site (owner/admin/member within capabilities)
 router.post('/', asyncHandler(async (req, res) => {
   const pr = req.user.platform_role;
-  if (req.user.id === 'token' && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  // Tokens act for their owner (an agent creating a site on the owner's
+  // behalf). Ownerless legacy tokens only when they are admin tokens; viewer
+  // tokens never.
+  if (req.user.id === 'token') {
+    if (!req.user.tokenOwner && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (req.user.role === 'viewer') return res.status(403).json({ error: 'Forbidden: a viewer token cannot create sites' });
+  }
   if (!['owner', 'admin', 'member'].includes(pr)) return res.status(403).json({ error: 'Forbidden: your account cannot create sites' });
+  const ownerId = req.user.id === 'token' ? (req.user.tokenOwner?.id || null) : req.user.id;
+  const actorName = req.user.id === 'token' ? `${req.user.tokenOwner?.username || 'api'} (token)` : req.user.username;
   const { name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
 
   const caps = req.user.capabilities || {};
   const siteRuntime = runtime || 'static';
   if (!isPanelAdmin(req.user)) {
-    const owned = db.prepare('SELECT COUNT(*) AS c FROM sites WHERE owner_id = ?').get(req.user.id).c;
+    const owned = ownerId ? db.prepare('SELECT COUNT(*) AS c FROM sites WHERE owner_id = ?').get(ownerId).c : 0;
     if (owned >= (caps.max_sites ?? 0)) return res.status(403).json({ error: `Site limit reached (${caps.max_sites}) — ask the owner to raise it` });
     if (!(caps.runtimes || ['static']).includes(siteRuntime)) return res.status(403).json({ error: `Runtime "${siteRuntime}" is not enabled for your account` });
   }
@@ -154,7 +162,6 @@ router.post('/', asyncHandler(async (req, res) => {
   if (resolved.request && !isValidHostname(resolved.request)) return res.status(400).json({ error: 'Invalid domain' });
 
   const id = nanoid(10);
-  const ownerId = req.user.id === 'token' ? (req.user.tokenOwner?.id || null) : req.user.id;
   try {
     db.prepare(
       `INSERT INTO sites (id, name, domain, spa_mode, cache_enabled, runtime, build_cmd, start_cmd, app_port, owner_id)
@@ -165,17 +172,25 @@ router.post('/', asyncHandler(async (req, res) => {
       siteRuntime, build_cmd || null, start_cmd || null, app_port || null, ownerId
     );
 
+    // A token pinned to a list of sites gains the site it just created —
+    // least privilege still holds (nothing else widens), and the agent can
+    // deploy to it right away.
+    if (req.user.id === 'token' && Array.isArray(req.user.tokenSiteScope) && req.user.tokenId) {
+      req.user.tokenSiteScope = [...req.user.tokenSiteScope, id];
+      db.prepare('UPDATE api_tokens SET site_scope = ? WHERE id = ?').run(JSON.stringify(req.user.tokenSiteScope), req.user.tokenId);
+    }
+
     const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
     const containerId = await createSiteContainer(parseSiteForContainer(row));
     db.prepare('UPDATE sites SET container_id = ? WHERE id = ?').run(containerId, id);
     const site = decorate(db.prepare('SELECT * FROM sites WHERE id = ?').get(id), req);
     site.container = await containerStatus(containerId);
-    logActivity(id, site.name, 'created', resolved.domain, req.user?.username || 'system');
+    logActivity(id, site.name, 'created', resolved.domain, actorName || 'system');
 
     if (resolved.request) {
       const rid = nanoid(10);
       db.prepare('INSERT INTO domain_requests (id, site_id, domain, requested_by) VALUES (?, ?, ?, ?)').run(rid, id, resolved.request, ownerId);
-      notify({ type: 'domain_request', title: `${req.user.username} requests ${resolved.request} for ${site.name}`, detail: 'Approve or reject under Domains', data: { siteId: id, requestId: rid, domain: resolved.request }, force: true });
+      notify({ type: 'domain_request', title: `${actorName} requests ${resolved.request} for ${site.name}`, detail: 'Approve or reject under Domains', data: { siteId: id, requestId: rid, domain: resolved.request }, force: true });
       site.domain_request = { id: rid, domain: resolved.request, status: 'pending' };
     }
     res.status(201).json(site);

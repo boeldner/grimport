@@ -1,6 +1,6 @@
 {
   "name": "grimport",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Grimport — self-hosted static site publishing panel",
   "main": "src/index.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "screenshots": "node tools/screenshots.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.6.0",
@@ -21,7 +22,8 @@
     "express-session": "^1.18.0",
     "multer": "^2.0.0",
     "nanoid": "^5.0.9",
-    "qrcode": "1.5.4"
+    "qrcode": "1.5.4",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "puppeteer-core": "^25.11.0"

@@ -17,6 +17,7 @@ Welcome to the Grimport wiki — self-hosted static site publishing panel.
 | Per-site networks, container hardening, deploy limits, rate limits | [Security Model](Security-Model) |
 | Roles, presets, invitations, collaborators, support mode, suspension | [Users and Roles](Users-and-Roles) |
 | GitHub Actions, GitLab CI, curl | [CI/CD Integration](CICD-Integration) |
+| Claude Code, Claude Desktop, claude.ai over MCP | [MCP for Claude](MCP) |
 | All API endpoints and authentication | [API Reference](API-Reference) |
 | Backup site data and database | [Backups](Backups) |
 | Upgrade to a new version | [Upgrading](Upgrading) |
