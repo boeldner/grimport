@@ -3068,3 +3068,94 @@ details.disclosure[open] > summary::before { content: '▾ '; }
 }
 .sessions-table tr:last-child td { border-bottom: none; }
 .sessions-table .badge { margin-left: 6px; }
+
+/* ── Contextual help links (Phase 3 "learning") ─────────────────────
+   A muted 14px question-mark icon next to a field/card label, turning
+   accent on hover. Kept OUTSIDE any .g-toggle label (see .g-toggle-wrap)
+   so clicking it never also toggles the switch it sits beside. */
+.help-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tx3);
+  vertical-align: middle;
+  transition: color var(--transition);
+}
+.help-link:hover, .help-link:focus-visible { color: var(--acc); }
+.help-link svg { display: block; width: 14px; height: 14px; }
+.g-toggle-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.card-title .help-link, .field-label .help-link { margin-left: 4px; }
+
+/* ── Starter template picker (New site / member wizard / apply-template) ── */
+.template-picker { display: flex; gap: 10px; flex-wrap: wrap; }
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 148px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--tx);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.template-card:hover { border-color: var(--line2); }
+.template-card.is-selected { border-color: var(--acc); box-shadow: 0 0 0 3px var(--accent-ring); }
+.template-card-swatch { display: block; width: 100%; height: 42px; border-radius: 6px; flex-shrink: 0; }
+.template-card-swatch.is-none {
+  background-image: repeating-linear-gradient(45deg, var(--panel2), var(--panel2) 6px, var(--line) 6px, var(--line) 7px);
+}
+.template-card-name { font-size: 12.5px; font-weight: 600; }
+.template-card-desc { font-size: 11px; color: var(--tx2); line-height: 1.4; }
+@media (max-width: 480px) {
+  .template-card { width: 100%; }
+}
+
+/* ── Member first-run wizard — visually identical to the admin onboarding
+   wizard above, but under its own class names so the two wizards' unscoped
+   querySelectorAll() step logic never cross-toggle each other's panels. ── */
+.member-onboarding-modal { display: flex; flex-direction: column; gap: 16px; }
+.member-onboarding-steps { display: flex; gap: 6px; justify-content: center; }
+.member-onboarding-step-dot {
+  width: 22px; height: 4px; border-radius: var(--r-pill); background: var(--line);
+  transition: background 0.15s ease;
+}
+.member-onboarding-step-dot.is-active { background: var(--acc); }
+.member-onboarding-step-dot.is-done { background: var(--vio); }
+@media (prefers-reduced-motion: reduce) {
+  .member-onboarding-step-dot { transition: none; }
+}
+.member-onboarding-panel { display: flex; flex-direction: column; gap: 14px; }
+.member-onboarding-panel.hidden { display: none; }
+.member-onboarding-lede { font-size: 14px; color: var(--tx2); line-height: 1.5; }
+.member-onboarding-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--tx2); line-height: 1.5; }
+.member-onboarding-actions { padding-top: 4px; }
+
+.mob-break-row { display: flex; gap: 12px; align-items: flex-start; }
+.mob-break-icon {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--accSoft); color: var(--acc);
+  display: flex; align-items: center; justify-content: center;
+}
+.mob-break-row strong { display: block; font-size: 13px; font-weight: 600; }
+.mob-break-row p { margin: 2px 0 0; font-size: 12.5px; color: var(--tx2); line-height: 1.45; }
+.mob-create-status { display: flex; align-items: center; gap: 8px; color: var(--tx2); font-size: 12.5px; }
+.mob-result-link { font-weight: 600; }
+
+/* ── In-panel Help modal ─────────────────────────────────────────────── */
+.help-modal-list { display: flex; flex-direction: column; gap: 2px; }
+.help-modal-list a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: var(--r-control);
+  color: var(--tx); text-decoration: none; font-size: 13px;
+}
+.help-modal-list a:hover { background: var(--panel2); }
+.help-modal-list a svg { color: var(--tx3); flex-shrink: 0; }
+.help-modal-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--tx3);
+}

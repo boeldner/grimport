@@ -56,6 +56,27 @@ docker compose down && docker compose up -d
 
 Traefik will obtain a Let's Encrypt certificate automatically on first request.
 
+## For invited members
+
+If you were sent an invite link rather than installing the panel yourself,
+the flow is shorter: pick a username and password, and you land straight in
+a three-step wizard.
+
+1. **Your address** — every site you create gets `<name>.<base>` automatically;
+   no DNS record to add. It also shows your site quota and which runtimes
+   (static, PHP, Node, Python) your account can use.
+2. **Your first site** — name it and optionally pick a starter template
+   (blank, one-page, or portfolio — see [Starter templates](Deploying-Sites#starter-templates)).
+   Create sends you straight to a live URL.
+3. **When something breaks** — points at the three places to look: the
+   status label on the site card, Logs, and the notification bell.
+
+Any step can be skipped; skipping (or finishing) never shows the wizard
+again on that browser. Every field in the panel that has a small "?" icon
+links straight to the relevant wiki page — and the **Help** entry at the
+bottom of the sidebar opens a short curated list of pages plus a link to
+report a problem.
+
 ## Next steps
 
 - [Configure DNS records](DNS-and-Networking)

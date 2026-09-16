@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{SITE_NAME}}</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="nav">
+  <span class="nav-brand">{{SITE_NAME}}</span>
+  <nav class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#contact">Contact</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <h1>{{SITE_NAME}}</h1>
+  <p>A one-page site, ready to make your own. Edit this text, swap the images, and deploy again.</p>
+  <a class="btn" href="#contact">Get in touch</a>
+</section>
+
+<section class="features" id="features">
+  <div class="feature">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    <h2>Fast</h2>
+    <p>Served straight from a static file cache — no build step to wait on.</p>
+  </div>
+  <div class="feature">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    <h2>Simple</h2>
+    <p>One HTML file and one stylesheet. Nothing to configure, nothing to break.</p>
+  </div>
+  <div class="feature">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    <h2>Yours</h2>
+    <p>Everything here is a placeholder — replace it with your own words and pictures.</p>
+  </div>
+</section>
+
+<section class="contact" id="contact">
+  <h2>Get in touch</h2>
+  <p>Swap this for a real form, an email link, or however you'd like people to reach you.</p>
+  <a class="btn btn-outline" href="mailto:hello@{{SITE_DOMAIN}}">hello@{{SITE_DOMAIN}}</a>
+</section>
+
+<footer class="foot">
+  <span>{{SITE_NAME}} · {{SITE_DOMAIN}}</span>
+</footer>
+</body>
+</html>

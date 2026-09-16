@@ -74,6 +74,28 @@ X-Frame-Options: SAMEORIGIN
 Content-Security-Policy: default-src 'self'
 ```
 
+## Starter templates
+
+For static sites, the New site modal (and a site's overflow menu →
+**Apply template…**) offer three self-contained starter templates — no
+build step, no external requests:
+
+- **blank** — a friendly "It works" placeholder page with the site name.
+- **one-page** — a hero, three feature blocks, and a contact section.
+- **portfolio** — a header, a project grid (six placeholder cards) and an
+  about section.
+
+Applying a template writes `index.html` and `style.css` into the site's
+`html/` directory, replacing only those two files — anything else already
+deployed there (images, other pages) is left alone. `{{SITE_NAME}}` and
+`{{SITE_DOMAIN}}` placeholders in the template are filled in with the
+site's own name and domain. Each template is tasteful and light (system
+font stack, one accent colour) and adapts to the visitor's light/dark
+system theme automatically.
+
+Applying a template overwrites the current `index.html`/`style.css` — the
+panel asks for confirmation before doing so on an existing site.
+
 ## Default settings for new sites
 
 In **Settings → General**, you can configure defaults applied to every newly created site:

@@ -83,6 +83,14 @@ It's built for:
 
 ---
 
+## What's new in 0.13.0
+
+Phase 3 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): onboarding and learning.
+
+- Invited members get a three-step first-run: address, first site from a starter template, where to look when something breaks
+- Starter templates (Blank, One page, Portfolio) in the New site dialog and from the card menu
+- Help links next to the tricky fields and an in-panel Help entry
+
 ## What's new in 0.12.0
 
 Phase 2 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): multi-user core and panel hardening. Details in [Users and Roles](docs/wiki/Users-and-Roles.md) and the [Security Model](docs/wiki/Security-Model.md).

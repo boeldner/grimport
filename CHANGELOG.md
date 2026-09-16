@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-16
+
+Phase 3 of the roadmap to 1.0: onboarding and learning.
+
+### Added
+- Member first-run wizard: your address, your first site (name + starter template, created and published in one go), where to look when something breaks
+- Starter templates (Blank, One page, Portfolio) — pick one when creating a site or apply later from the card menu; `GET /api/templates`, `POST /api/templates/:id/apply/:siteId`
+- Contextual help links next to the fields people ask about (domain, runtime, SPA fallback, caching, basic auth, tokens, two-factor)
+- In-panel Help (sidebar, drawer and command palette) linking the wiki pages and the issue tracker
+
+### Changed
+- Docker image now ships the starter templates
+
 ## [0.12.0] - 2026-09-16
 
 Phase 2 of the roadmap to 1.0: multi-user core and panel hardening. Invite friends, give them their own sites within quotas, help them when things break, and keep the panel safe on the public internet. See [Users and Roles](docs/wiki/Users-and-Roles.md) and the [Security Model](docs/wiki/Security-Model.md).

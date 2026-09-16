@@ -218,6 +218,24 @@ Editor or admin with site access. `POST /preview` stands up a second container o
 
 ---
 
+## Templates
+
+_Auth: any authenticated user for the list; site editor or higher to apply one — see [Starter templates](Deploying-Sites#starter-templates)._
+
+### List templates
+```
+GET /templates
+```
+Returns every starter template: `[{ "id", "name", "description", "preview_bg" }]`.
+
+### Apply a template
+```
+POST /templates/:id/apply/:siteId
+```
+Site editor/owner or admin. The site must be static and not suspended. Writes the template's `index.html`/`style.css` into the site's `html/` directory (placeholders `{{SITE_NAME}}`/`{{SITE_DOMAIN}}` replaced, other files left alone), applies the change immediately, and logs a `template_applied` activity row. `404` for an unknown template id, `400` if the site isn't static, `423` if it's suspended.
+
+---
+
 ## Deployments
 
 _Auth: editor/admin for deploy/rollback (with site access); admin or editor for the global history list._

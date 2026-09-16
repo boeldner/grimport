@@ -110,6 +110,7 @@ const CURATED_DEFAULT = [
   'modal-settings-access', 'modal-analytics', 'overview', 'activity', 'deployments', 'settings-general',
   'settings-tokens', 'settings-users', 'settings-security', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
   'member-sites', 'member-new-site', 'member-settings',
+  'member-onboarding-1', 'member-onboarding-2', 'modal-help', 'modal-new-site-templates',
 ];
 
 const OUT = args.out
@@ -258,6 +259,11 @@ async function main() {
 
     await page.evaluate(() => document.getElementById('btn-new-site').click());
     await shot(T('modal-new-site'));
+    // The template picker fills in from an async GET /templates fired by the
+    // click handler above; wait for it rather than racing a fixed delay.
+    await page.waitForFunction(() => document.querySelectorAll('#new-site-template-picker .template-card').length > 1);
+    await page.evaluate(() => document.querySelector('#new-site-template-picker .template-card[data-template-id="one-page"]')?.click());
+    await shot(T('modal-new-site-templates'), { wait: 400 });
     await page.evaluate(() => setNewSiteRuntime('node'));
     await shot(T('modal-new-site-node'));
     await closeModals();
@@ -299,6 +305,10 @@ async function main() {
 
     await page.evaluate(() => { openModal('cmdk-backdrop'); document.getElementById('cmdk-input').dispatchEvent(new Event('input')); });
     await shot(T('cmdk'), { wait: 400 });
+    await closeModals();
+
+    await page.evaluate(() => openHelpModal());
+    await shot(T('modal-help'), { wait: 300 });
     await closeModals();
 
     await view('overview'); await shot(T('overview'), { wait: 800 });
@@ -389,6 +399,16 @@ async function main() {
     await page.evaluate(t => { localStorage.setItem('grimport-theme', t); applyTheme(t); }, theme);
     await new Promise(r => setTimeout(r, 500));
     await shot(T('member-sites'), { wait: 500 });
+
+    // Member first-run wizard: carla (seed data) already owns sites, so
+    // instead of reseeding, clear the "seen it" flag and open the wizard
+    // directly — same function init() calls for a genuinely-new member.
+    await page.evaluate(() => { try { localStorage.removeItem('grimport-member-onboarded'); } catch {} });
+    await page.evaluate(() => openMemberOnboarding());
+    await shot(T('member-onboarding-1'), { wait: 500 });
+    await page.evaluate(() => document.getElementById('btn-mob-next').click());
+    await shot(T('member-onboarding-2'), { wait: 400 });
+    await closeModals();
 
     await page.evaluate(() => document.getElementById('btn-new-site').click());
     await shot(T('member-new-site'), { wait: 400 });

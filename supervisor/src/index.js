@@ -140,6 +140,7 @@ app.get('/api/debug/status', requireAuth, requireRole('admin'), async (req, res)
 
 // ── Protected routes ───────────────────────────────────────
 app.use('/api/sites',    requireAuth, require('./routes/sites'));
+app.use('/api/templates', requireAuth, require('./routes/templates'));
 app.use('/api/deploy',   requireAuth, require('./routes/deploy'));
 app.use('/api/settings/webhooks', requireAuth, requireRole('admin'), require('./routes/webhooks'));
 app.use('/api/settings', requireAuth, requireRole('admin'), require('./routes/settings'));

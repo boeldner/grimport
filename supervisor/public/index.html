@@ -78,6 +78,7 @@
       <span class="nav-section nav-section-admin">Admin</span>
       <a href="#" class="nav-item nav-admin" data-view="domains">Domains <span class="nav-badge hidden" id="domains-badge"></span></a>
       <a href="#" class="nav-item" data-view="panel-settings">Settings</a>
+      <a href="#" class="nav-item" id="nav-help-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Help</a>
     </nav>
     <!-- Update banner (shown when new version available) -->
     <div id="update-banner" class="update-banner hidden">
@@ -643,7 +644,7 @@ systemctl start cloudflared</pre>
         <!-- API Tokens -->
         <div id="spanel-tokens" class="tab-panel hidden" role="tabpanel" aria-labelledby="ptab-tokens">
           <div class="card">
-            <div class="card-header"><span class="card-title">API Tokens</span></div>
+            <div class="card-header"><span class="card-title">API Tokens <span class="help-slot" data-help="CICD-Integration.md"></span></span></div>
             <div class="card-body">
               <p class="settings-desc">Tokens authenticate the deploy API for CI/CD pipelines or scripts without a browser session. Tokens have full API access — treat them like passwords.</p>
               <p class="settings-desc">Example: <code>curl -H "Authorization: Bearer $TOKEN" -F file=@site.zip https://panel.yourdomain.com/api/deploy/SITE_ID</code></p>
@@ -892,7 +893,7 @@ systemctl start cloudflared</pre>
           </div>
 
           <div class="card">
-            <div class="card-header"><span class="card-title">Two-factor authentication</span></div>
+            <div class="card-header"><span class="card-title">Two-factor authentication <span class="help-slot" data-help="Security-Model.md#panel-login"></span></span></div>
             <div class="card-body">
               <div class="totp-status-row">
                 <span id="totp-status-badge" class="badge badge-warn">Disabled</span>
@@ -972,12 +973,12 @@ systemctl start cloudflared</pre>
             <div class="field-help muted hidden" id="new-site-quota-hint"></div>
           </div>
           <div class="field">
-            <label class="field-label" for="new-site-domain">Domain <span class="field-optional hidden" id="new-site-domain-optional-tag">optional</span></label>
+            <label class="field-label" for="new-site-domain">Domain <span class="help-slot" data-help="Deploying-Sites.md#creating-a-site"></span> <span class="field-optional hidden" id="new-site-domain-optional-tag">optional</span></label>
             <input class="g-input" id="new-site-domain" type="text" name="domain" placeholder="wedding-page.grim.host" required aria-describedby="new-site-domain-help" />
             <div class="field-help muted" id="new-site-domain-help">Must match a DNS record pointing to this server. Use <code>.localhost</code> for local testing.</div>
           </div>
           <div class="field">
-            <span class="field-label">Runtime</span>
+            <span class="field-label">Runtime <span class="help-slot" data-help="Deploying-Sites.md#creating-a-site"></span></span>
             <div class="seg-ctl" id="new-site-runtime-seg" role="group" aria-label="Runtime">
               <button type="button" class="is-active" data-runtime="static" aria-pressed="true">Static</button>
               <button type="button" data-runtime="php" aria-pressed="false">PHP</button>
@@ -997,6 +998,10 @@ systemctl start cloudflared</pre>
               <span class="g-toggle-track"></span>
               <span>Cache assets</span>
             </label>
+          </div>
+          <div id="new-site-template-section" class="field">
+            <span class="field-label">Start from <span class="field-optional">optional</span></span>
+            <div class="template-picker" id="new-site-template-picker" role="group" aria-label="Starter template"></div>
           </div>
           <div id="new-site-app-opts" class="hidden">
             <div class="field">
@@ -1102,16 +1107,22 @@ systemctl start cloudflared</pre>
         <!-- Tab: Behaviour -->
         <div class="tab-panel hidden" id="stab-behaviour" role="tabpanel" aria-labelledby="mtab-behaviour">
           <div class="field-row-toggles" style="flex-direction:column;align-items:flex-start;gap:12px">
-            <label class="g-toggle">
-              <input type="checkbox" name="spa_mode" />
-              <span class="g-toggle-track"></span>
-              <span>SPA fallback</span>
-            </label>
-            <label class="g-toggle">
-              <input type="checkbox" name="cache_enabled" />
-              <span class="g-toggle-track"></span>
-              <span>Cache assets</span>
-            </label>
+            <span class="g-toggle-wrap">
+              <label class="g-toggle">
+                <input type="checkbox" name="spa_mode" />
+                <span class="g-toggle-track"></span>
+                <span>SPA fallback</span>
+              </label>
+              <span class="help-slot" data-help="Deploying-Sites.md#site-settings"></span>
+            </span>
+            <span class="g-toggle-wrap">
+              <label class="g-toggle">
+                <input type="checkbox" name="cache_enabled" />
+                <span class="g-toggle-track"></span>
+                <span>Cache assets</span>
+              </label>
+              <span class="help-slot" data-help="Deploying-Sites.md#site-settings"></span>
+            </span>
             <label class="g-toggle">
               <input type="checkbox" name="maintenance_mode" />
               <span class="g-toggle-track"></span>
@@ -1134,7 +1145,7 @@ systemctl start cloudflared</pre>
         <!-- Tab: Access -->
         <div class="tab-panel hidden" id="stab-access" role="tabpanel" aria-labelledby="mtab-access">
           <div class="settings-subsection">
-            <div class="settings-subsection-title">Basic auth <span class="settings-subsection-hint">optional — password-protect this site</span></div>
+            <div class="settings-subsection-title">Basic auth <span class="help-slot" data-help="Deploying-Sites.md#basic-auth"></span> <span class="settings-subsection-hint">optional — password-protect this site</span></div>
             <div class="auth-grid">
               <div class="field">
                 <label class="field-label" for="settings-auth-username">Username</label>
@@ -1460,6 +1471,24 @@ systemctl start cloudflared</pre>
     </div>
   </div>
 
+  <!-- ── Modal: Apply template ───────────────────── -->
+  <div id="modal-apply-template" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-apply-template-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-apply-template-title">Apply template to <span id="apply-template-site-name"></span></h2>
+        <button class="modal-close" data-close="modal-apply-template"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="template-picker" id="apply-template-picker" role="group" aria-label="Starter template"></div>
+        <div class="field-help warn">Overwrites this site's <code>index.html</code> and <code>style.css</code> — other files are kept. This cannot be undone.</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modal-apply-template">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btn-apply-template-confirm" disabled>Apply template</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Modal: Update ────────────────────────────── -->
   <div id="modal-update" class="modal-backdrop hidden">
     <div class="modal" style="max-width:420px" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
@@ -1758,6 +1787,98 @@ systemctl start cloudflared</pre>
         <div style="flex:1"></div>
         <button type="button" class="btn" id="btn-onboarding-back">Back</button>
         <button type="button" class="btn btn-primary" id="btn-onboarding-next">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Member first-run wizard (Phase 3) — shown once to an invited
+       member with zero sites; never to owner/admin/guest. Own class names
+       (member-onboarding-*) so this never shares JS/CSS selectors with the
+       admin wizard above. ───────────────────────────────────────────── -->
+  <div id="member-onboarding" class="modal-backdrop hidden">
+    <div class="modal modal-wide member-onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="mob-title">
+      <div class="modal-header">
+        <h2 id="mob-title">Welcome to Grimport</h2>
+        <button class="modal-close" id="btn-mob-skip" title="Skip for now"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+
+      <div class="member-onboarding-steps" id="mob-steps" role="progressbar" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1">
+        <span class="member-onboarding-step-dot is-active" data-mob-step="1"></span>
+        <span class="member-onboarding-step-dot" data-mob-step="2"></span>
+        <span class="member-onboarding-step-dot" data-mob-step="3"></span>
+      </div>
+
+      <!-- Step 1: Your address -->
+      <div class="member-onboarding-panel" data-mob-panel="1">
+        <h3 class="settings-subsection-title" style="margin:0">Your address</h3>
+        <p class="member-onboarding-lede" id="mob-address-lede">Every site you create gets its own address automatically — no DNS to configure.</p>
+        <div class="field-help warn hidden" id="mob-no-base-domain">The panel owner hasn't set a base domain yet. Ask them to add one in Settings, or create your first site now and request a custom domain afterwards.</div>
+        <ul class="member-onboarding-list">
+          <li>You can create up to <strong id="mob-quota">3</strong> site(s).</li>
+          <li>Site types enabled for you: <strong id="mob-runtimes">Static</strong>.</li>
+        </ul>
+      </div>
+
+      <!-- Step 2: Your first site -->
+      <div class="member-onboarding-panel hidden" data-mob-panel="2">
+        <h3 class="settings-subsection-title" style="margin:0">Your first site</h3>
+        <p class="member-onboarding-lede">Give it a name and pick a starting point — you can change everything later.</p>
+        <div class="field">
+          <label class="field-label" for="mob-site-name">Name</label>
+          <input class="g-input" id="mob-site-name" type="text" placeholder="wedding-page" autocomplete="off" />
+          <div class="field-help muted" id="mob-domain-hint"></div>
+        </div>
+        <div class="field">
+          <span class="field-label">Start from</span>
+          <div class="template-picker" id="mob-template-picker" role="group" aria-label="Starter template"></div>
+        </div>
+        <div class="field-help err hidden" id="mob-create-error"></div>
+        <div class="mob-create-status hidden" id="mob-create-status"></div>
+        <div class="field-help ok hidden" id="mob-create-result"></div>
+        <div>
+          <button type="button" class="btn btn-primary" id="btn-mob-create">Create</button>
+        </div>
+      </div>
+
+      <!-- Step 3: When something breaks -->
+      <div class="member-onboarding-panel hidden" data-mob-panel="3">
+        <h3 class="settings-subsection-title" style="margin:0">When something breaks</h3>
+        <div class="mob-break-row">
+          <span class="mob-break-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+          <div><strong>The status label on the card</strong><p>Shows Running, Stopped, or an error — glyph and colour, always with a word.</p></div>
+        </div>
+        <div class="mob-break-row">
+          <span class="mob-break-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"/><line x1="15" y1="12" x2="3" y2="12"/><line x1="21" y1="18" x2="3" y2="18"/></svg></span>
+          <div><strong>Logs</strong><p>Open a site's overflow menu → Logs to see what the container printed.</p></div>
+        </div>
+        <div class="mob-break-row">
+          <span class="mob-break-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+          <div><strong>The bell</strong><p>Notifies you when a site goes down or comes back up.</p></div>
+        </div>
+      </div>
+
+      <div class="modal-actions member-onboarding-actions">
+        <button type="button" class="btn" id="btn-mob-skip-2">Skip for now</button>
+        <div style="flex:1"></div>
+        <button type="button" class="btn" id="btn-mob-back">Back</button>
+        <button type="button" class="btn btn-primary" id="btn-mob-next">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── In-panel Help ────────────────────────────── -->
+  <div id="modal-help" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-help-title">
+      <div class="modal-header">
+        <h2 id="modal-help-title">Help</h2>
+        <button class="modal-close" data-close="modal-help"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <nav class="help-modal-list" id="help-modal-list" aria-label="Wiki pages"></nav>
+        <div class="help-modal-footer">
+          <span id="help-modal-version">Grimport</span>
+          <a href="https://github.com/boeldner/grimport/issues" target="_blank" rel="noopener">Report a problem</a>
+        </div>
       </div>
     </div>
   </div>

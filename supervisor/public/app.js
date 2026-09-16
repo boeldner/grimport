@@ -66,9 +66,30 @@ const ICON = {
   grid:         IC('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'),
   pie:          IC('<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>'),
   list:         IC('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'),
+  question:     IC('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 1 1 5.83 1c0 2-3 2.5-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  book:         IC('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
+  bell:         IC('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>'),
 };
 // status dot: an empty span the CSS paints as a 7px circle in currentColor
 const GLYPH = '<span class="status-glyph" aria-hidden="true"></span>';
+
+// ── Contextual help links (Phase 3 "learning") ─────────────────────
+// helpLink(path) renders a small "question" icon linking into the wiki on
+// GitHub. Static markup declares WHERE a link belongs with an empty
+// `<span class="help-slot" data-help="Page.md#anchor">`; initHelpLinks()
+// (called once below, DOM is already parsed since this script tag sits at
+// the end of <body>) swaps every slot for the real link. Kept OUTSIDE any
+// .g-toggle label — see .g-toggle-wrap in style.css — so a click never also
+// toggles the switch it sits beside.
+function helpLink(path) {
+  return `<a class="help-link" target="_blank" rel="noopener" href="https://github.com/boeldner/grimport/blob/main/docs/wiki/${path}" title="Learn more" aria-label="Learn more">${ICON.question}</a>`;
+}
+function initHelpLinks() {
+  document.querySelectorAll('.help-slot[data-help]').forEach(slot => {
+    slot.outerHTML = helpLink(slot.dataset.help);
+  });
+}
+initHelpLinks();
 
 // ── State ─────────────────────────────────────────────────
 let sites = [];
@@ -76,6 +97,10 @@ let activeSiteId = null;
 let selectedDeployFile = null;
 let config = { siteBaseDomain: '', sslReady: false, acmeEmail: '' };
 let searchQuery = '';
+let templatesCache = null;       // GET /templates, fetched once and reused
+let newSiteTemplateId = '';      // template chosen in the New site modal ('' = none)
+let applyTemplateSiteId = null;  // site targeted by the "Apply template…" modal
+let applyTemplateSelectedId = null;
 let uptimeData = {}; // siteId → { currentStatus, uptime24h }
 let connectDomain = ''; // domain being connected from notification
 let currentUser = { role: 'admin', platform_role: 'owner', capabilities: {}, username: '' }; // populated on init
@@ -823,6 +848,7 @@ function renderSites() {
       if (action === 'uptime-detail')   openUptimeDetail(site, btn);
       if (action === 'recreate')        recreateSiteContainer(site);
       if (action === 'suspend')         suspendSiteFlow(site);
+      if (action === 'apply-template')  openApplyTemplateModal(site);
       if (action === 'unsuspend')       unsuspendSiteFlow(site);
       if (action === 'overflow') {
         const menu = document.getElementById(`overflow-${id}`);
@@ -965,6 +991,7 @@ function siteCard(site) {
             <button data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>
             <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
             <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
+            ${runtime === 'static' && site.my_role !== 'viewer' ? `<button data-action="apply-template" data-id="${site.id}" role="menuitem">${ICON.grid} Apply template…</button>` : ''}
             ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
             ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
             ${isPanelAdmin() ? (suspended
@@ -1177,11 +1204,83 @@ function renderNewSiteQuota() {
   hint.classList.remove('hidden');
 }
 
+// ── Starter templates (blank / one-page / portfolio) ───────────────
+// Shared by the New site modal, the member first-run wizard, and the
+// "Apply template…" site-card action — one fetch, one render/select routine.
+async function loadTemplates() {
+  if (templatesCache) return templatesCache;
+  try { templatesCache = await api('GET', '/templates'); }
+  catch { templatesCache = []; }
+  return templatesCache;
+}
+
+/**
+ * Renders template cards into `container`. `selectedId` marks the active
+ * card ('' matches the synthetic "None" card when `withNone` is set).
+ * `onSelect(id)` fires with the clicked card's id (never re-fetches).
+ */
+function renderTemplateCards(container, templates, selectedId, onSelect, { withNone = false } = {}) {
+  const cards = withNone
+    ? [{ id: '', name: 'None', description: 'Keep the default placeholder page', preview_bg: null }, ...templates]
+    : templates;
+  container.innerHTML = cards.map(t => `
+    <button type="button" class="template-card${t.id === selectedId ? ' is-selected' : ''}" data-template-id="${esc(t.id)}" aria-pressed="${t.id === selectedId}">
+      <span class="template-card-swatch${t.preview_bg ? '' : ' is-none'}" ${t.preview_bg ? `style="background:${esc(t.preview_bg)}"` : ''}></span>
+      <span class="template-card-name">${esc(t.name)}</span>
+      <span class="template-card-desc">${esc(t.description)}</span>
+    </button>`).join('');
+  container.querySelectorAll('.template-card').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.template-card').forEach(b => { b.classList.remove('is-selected'); b.setAttribute('aria-pressed', 'false'); });
+      btn.classList.add('is-selected');
+      btn.setAttribute('aria-pressed', 'true');
+      onSelect(btn.dataset.templateId);
+    });
+  });
+}
+
+// ── Apply template… (site card overflow menu) ───────────────────────
+async function openApplyTemplateModal(site) {
+  applyTemplateSiteId = site.id;
+  applyTemplateSelectedId = null;
+  document.getElementById('apply-template-site-name').textContent = site.name;
+  const confirmBtn = document.getElementById('btn-apply-template-confirm');
+  confirmBtn.disabled = true;
+  const picker = document.getElementById('apply-template-picker');
+  picker.innerHTML = '<div class="skeleton" style="height:70px"></div>';
+  openModal('modal-apply-template');
+  const templates = await loadTemplates();
+  renderTemplateCards(picker, templates, null, id => {
+    applyTemplateSelectedId = id;
+    confirmBtn.disabled = false;
+  });
+}
+
+document.getElementById('btn-apply-template-confirm').addEventListener('click', async () => {
+  if (!applyTemplateSiteId || !applyTemplateSelectedId) return;
+  const btn = document.getElementById('btn-apply-template-confirm');
+  btn.disabled = true;
+  try {
+    await api('POST', `/templates/${applyTemplateSelectedId}/apply/${applyTemplateSiteId}`);
+    closeModal('modal-apply-template');
+    toast('Template applied', 'success');
+    await loadSites();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById('btn-new-site').addEventListener('click', async () => {
   document.getElementById('form-new-site').reset();
   setNewSiteRuntime('static');
   applyRuntimeCaps('new-site-runtime-seg');
   renderNewSiteQuota();
+  newSiteTemplateId = '';
+  loadTemplates().then(templates => {
+    renderTemplateCards(document.getElementById('new-site-template-picker'), templates, '', id => { newSiteTemplateId = id; }, { withNone: true });
+  });
 
   const admin = isPanelAdmin();
   const domainInput = document.querySelector('#form-new-site input[name="domain"]');
@@ -1235,6 +1334,10 @@ document.getElementById('form-new-site').addEventListener('submit', async e => {
   };
   try {
     const site = await api('POST', '/sites', payload);
+    if (!isApp && newSiteTemplateId) {
+      try { await api('POST', `/templates/${newSiteTemplateId}/apply/${site.id}`); }
+      catch (err) { toast(`Site created, but the template failed to apply: ${err.message}`, 'error'); }
+    }
     closeModal('modal-new-site');
     toast(site.domain_request ? `Site "${payload.name}" created — domain request sent for approval` : `Site "${payload.name}" created`, 'success');
     await loadSites();
@@ -1533,9 +1636,10 @@ async function applyDomainFieldUI(site) {
   } else if (!admin) {
     const approvalNeeded = currentUser.capabilities?.custom_domains !== 'free';
     const base = config.siteBaseDomain || 'the base domain';
-    memberHelp.textContent = approvalNeeded
+    const msg = approvalNeeded
       ? `Custom domains need approval; subdomains of ${base} apply immediately.`
       : `Subdomains of ${base} and custom domains both apply immediately.`;
+    memberHelp.innerHTML = `${esc(msg)} ${helpLink('Users-and-Roles.md')}`;
     memberHelp.classList.remove('hidden');
   }
   if (isOwner) {
@@ -2969,6 +3073,146 @@ document.getElementById('btn-onboarding-reminder-fix')?.addEventListener('click'
   document.getElementById('ptab-security')?.click();
 });
 
+// ── In-panel Help ─────────────────────────────────────────
+const HELP_PAGES = [
+  { label: 'Getting started', path: 'Getting-Started.md' },
+  { label: 'Deploying sites', path: 'Deploying-Sites.md' },
+  { label: 'Users and roles', path: 'Users-and-Roles.md' },
+  { label: 'Security model', path: 'Security-Model.md' },
+  { label: 'Mobile and PWA', path: 'Mobile-and-PWA.md' },
+  { label: 'API reference', path: 'API-Reference.md' },
+];
+
+function openHelpModal() {
+  const list = document.getElementById('help-modal-list');
+  if (list) {
+    list.innerHTML = HELP_PAGES.map(p =>
+      `<a href="https://github.com/boeldner/grimport/blob/main/docs/wiki/${p.path}" target="_blank" rel="noopener">${ICON.book}<span>${esc(p.label)}</span></a>`
+    ).join('');
+  }
+  const versionEl = document.getElementById('help-modal-version');
+  if (versionEl) versionEl.textContent = config.version ? `Grimport v${config.version}` : 'Grimport';
+  window.closePhoneMenu?.();
+  openModal('modal-help');
+}
+document.getElementById('nav-help-btn')?.addEventListener('click', e => { e.preventDefault(); openHelpModal(); });
+
+// ── Member first-run wizard (Phase 3) ──────────────────────
+// Shown once to an invited member who owns zero sites, right after login —
+// mirrors the admin onboarding wizard's step/skip mechanics above, but under
+// its own class names/ids (member-onboarding-* / mob-*) and its own
+// dismissal flag (localStorage, not a server setting — every member decides
+// for themselves, there's no single "done" for the whole panel).
+let mobStep = 1;
+let mobTemplateId = 'blank';
+
+function showMobStep(n) {
+  mobStep = n;
+  document.querySelectorAll('.member-onboarding-panel').forEach(p => {
+    p.classList.toggle('hidden', Number(p.dataset.mobPanel) !== n);
+  });
+  document.querySelectorAll('.member-onboarding-step-dot').forEach(d => {
+    const step = Number(d.dataset.mobStep);
+    d.classList.toggle('is-active', step === n);
+    d.classList.toggle('is-done', step < n);
+  });
+  const steps = document.getElementById('mob-steps');
+  if (steps) steps.setAttribute('aria-valuenow', String(n));
+  const backBtn = document.getElementById('btn-mob-back');
+  if (backBtn) backBtn.classList.toggle('hidden', n === 1);
+  const nextBtn = document.getElementById('btn-mob-next');
+  if (nextBtn) nextBtn.textContent = n === 3 ? 'Done' : 'Next';
+}
+
+// `preloadedMe` lets init() (below) reuse the /users/me call it already made
+// to decide whether to open this at all; called with no args it fetches its
+// own (e.g. from the screenshot tool, which opens this directly).
+async function openMemberOnboarding(preloadedMe) {
+  mobTemplateId = 'blank';
+  document.getElementById('mob-site-name').value = '';
+  document.getElementById('mob-create-error').classList.add('hidden');
+  document.getElementById('mob-create-status').classList.add('hidden');
+  document.getElementById('mob-create-result').classList.add('hidden');
+  const createBtn = document.getElementById('btn-mob-create');
+  createBtn.disabled = false;
+  createBtn.textContent = 'Create';
+
+  const meFull = preloadedMe || await api('GET', '/users/me').catch(() => ({}));
+  const base = meFull.subdomain_base || '';
+  document.getElementById('mob-address-lede').innerHTML = base
+    ? `Every site you create gets its own address automatically — <code>yoursite.${esc(base)}</code>. No DNS to configure.`
+    : 'Every site you create gets its own address automatically — once the owner sets up a base domain.';
+  document.getElementById('mob-no-base-domain').classList.toggle('hidden', !!base);
+  document.getElementById('mob-domain-hint').textContent = base
+    ? `Will be created as <name>.${base}`
+    : '';
+  const max = currentUser.capabilities?.max_sites;
+  document.getElementById('mob-quota').textContent = Number.isFinite(max) ? max : '∞';
+  const runtimes = currentUser.capabilities?.runtimes || ['static'];
+  document.getElementById('mob-runtimes').textContent = runtimes.map(r => r === 'static' ? 'Static' : r.charAt(0).toUpperCase() + r.slice(1)).join(', ');
+
+  const templates = await loadTemplates();
+  renderTemplateCards(document.getElementById('mob-template-picker'), templates, 'blank', id => { mobTemplateId = id; });
+
+  showMobStep(1);
+  openModal('member-onboarding');
+}
+
+function finishMemberOnboarding() {
+  try { localStorage.setItem('grimport-member-onboarded', '1'); } catch {}
+  closeModal('member-onboarding');
+  loadSites();
+}
+
+function mobNext() {
+  if (mobStep >= 3) return finishMemberOnboarding();
+  showMobStep(mobStep + 1);
+}
+function mobBack() {
+  if (mobStep > 1) showMobStep(mobStep - 1);
+}
+
+document.getElementById('btn-mob-next')?.addEventListener('click', mobNext);
+document.getElementById('btn-mob-back')?.addEventListener('click', mobBack);
+document.getElementById('btn-mob-skip')?.addEventListener('click', finishMemberOnboarding);
+document.getElementById('btn-mob-skip-2')?.addEventListener('click', finishMemberOnboarding);
+
+document.getElementById('btn-mob-create')?.addEventListener('click', async () => {
+  const name = document.getElementById('mob-site-name').value.trim();
+  const errorEl = document.getElementById('mob-create-error');
+  const statusEl = document.getElementById('mob-create-status');
+  const resultEl = document.getElementById('mob-create-result');
+  errorEl.classList.add('hidden');
+  resultEl.classList.add('hidden');
+  if (!name) {
+    errorEl.textContent = 'Give your site a name first.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  const btn = document.getElementById('btn-mob-create');
+  btn.disabled = true;
+  statusEl.classList.remove('hidden');
+  statusEl.textContent = 'Creating…';
+  try {
+    const site = await api('POST', '/sites', { name });
+    if (mobTemplateId) {
+      statusEl.textContent = 'Applying template…';
+      try { await api('POST', `/templates/${mobTemplateId}/apply/${site.id}`); } catch { /* site still comes up with the default page */ }
+    }
+    statusEl.textContent = 'Online';
+    resultEl.innerHTML = `<a href="http://${esc(site.domain)}" target="_blank" rel="noopener" class="mob-result-link">${esc(site.domain)}</a>`;
+    resultEl.classList.remove('hidden');
+    btn.textContent = 'Created';
+    await loadSites();
+  } catch (err) {
+    statusEl.classList.add('hidden');
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
+    btn.disabled = false;
+  }
+});
+
 // ── Init ──────────────────────────────────────────────────
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.json()).catch(() => ({ authenticated: false }));
@@ -2986,6 +3230,17 @@ async function init() {
   if (isPanelAdmin()) checkForUpdate();
   if (isPanelAdmin()) loadDomainRequests();
   if (me.needsOnboarding) openOnboarding();
+  // Member first-run wizard: only members, only once, only while they own
+  // nothing yet (never admins/owners — they get the wizard above — and
+  // never guests, who cannot create sites at all).
+  if (currentUser.platform_role === 'member') {
+    try {
+      if (!localStorage.getItem('grimport-member-onboarded')) {
+        const meFull = await api('GET', '/users/me');
+        if ((meFull.owned_sites || []).length === 0) openMemberOnboarding(meFull);
+      }
+    } catch { /* if this fails we just skip the wizard, never block login */ }
+  }
   setInterval(loadSites, 15_000);
   setInterval(loadNotifications, 30_000);
   if (isPanelAdmin()) setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h
@@ -3418,6 +3673,7 @@ function setNewSiteRuntime(runtime) {
   });
   document.getElementById('new-site-static-opts').classList.toggle('hidden', isApp || isPhp);
   document.getElementById('new-site-app-opts').classList.toggle('hidden', !isApp);
+  document.getElementById('new-site-template-section')?.classList.toggle('hidden', isApp || isPhp);
 }
 
 document.getElementById('new-site-runtime-seg').addEventListener('click', e => {
@@ -4665,6 +4921,7 @@ async function pollUpdateStatus() {
     defs.push({ label: 'Deploy to a site…', desc: 'Type a site name below, then ↵', run: () => { gotoView('sites'); input.value = ''; renderResults(); input.focus(); } });
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
     defs.push({ label: isLight ? 'Switch to dark theme' : 'Switch to light theme', desc: 'Toggle appearance', run: () => document.getElementById('btn-theme')?.click() });
+    defs.push({ label: 'Help', desc: 'Wiki, version, report a problem', run: () => openHelpModal() });
     return defs;
   }
 
