@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-16
+
+### Fixed
+- Uptime checks reported every site as down since 0.11: the probe still read the container's address on the management network, which site containers left when they moved to per-site networks. Checks now go through Traefik with the site's Host header (following the https redirect for SSL sites), so uptime reflects what a visitor gets; suspended sites are skipped and pre-0.11 containers keep the direct probe as a fallback.
+
 ## [0.14.0] - 2026-09-16
 
 Phase 4 of the roadmap to 1.0: content safety. Every upload is scanned before it goes live; what the scanner is unsure about waits for the owner, what it is sure about never lands. See [Security Model](docs/wiki/Security-Model.md#content-safety).

@@ -2,7 +2,7 @@
 
 ## Uptime checks
 
-Grimport checks every site every **60 seconds** by making an HTTP request to the container's internal IP on the `webhost-net` Docker network (not via Traefik). This means uptime reflects the container health, not edge routing.
+Grimport checks every site every **60 seconds** with an HTTP request through Traefik (`Host` header set to the site's domain, following the https redirect for SSL sites). Static and PHP sites answer on `/__health` (200 even in maintenance mode); Node and Python apps are probed on `/`, where any answer from the app counts. A site is down when Traefik has no route for it, reports a bad gateway, or nothing answers within 5 seconds. Uptime therefore reflects what a visitor experiences: container health plus edge routing. Suspended sites are skipped. Containers that still sit on the management network (created before 0.11) are probed directly as a fallback.
 
 Check results are stored in SQLite for **30 days** and then pruned automatically.
 

@@ -24,7 +24,7 @@ Copy `.env.example` to `.env` and edit before starting.
 | `SITE_MEMORY_APP_MB` | `512` | Memory cap for PHP / Node / Python containers |
 | `SITE_CPUS` | `0.5` | CPU cap per site container |
 | `SITE_PIDS` | `256` | Process cap per site container |
-| `TRAEFIK_CONTAINER` | `webhost-traefik` | Container the supervisor attaches to each site network |
+| `TRAEFIK_CONTAINER` | `webhost-traefik` | Container the supervisor attaches to each site network and probes sites through for uptime checks |
 | `EGRESS_GUARD_INTERVAL` | `60` | Seconds between re-applying the egress rules |
 | `EGRESS_NEW_CONN_PER_SEC` | `50` | New outbound connections per second an app site may open |
 | `DEPLOY_MAX_ENTRIES` | `20000` | Maximum files in a deploy zip |
