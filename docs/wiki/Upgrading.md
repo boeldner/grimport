@@ -17,6 +17,12 @@ docker compose pull
 docker compose up -d
 ```
 
+## Upgrading to 0.12 (multi-user)
+
+Roles are migrated automatically on first start: the first admin becomes the **owner**, other admins stay admins, editors and viewers become **guests** who keep exactly the per-site rights they had (as site roles). Every existing site and API token now belongs to the owner. Nothing else changes for existing users.
+
+Before inviting anyone: enable two-factor authentication for the owner (Settings → Security), set a base domain (Settings → General) so members get automatic subdomains, and review the Members policies card. See [Users and Roles](Users-and-Roles).
+
 ## Upgrading to 0.11 (tenant isolation)
 
 0.11 gives every site its own network and a hardened container. After the panel has updated itself:

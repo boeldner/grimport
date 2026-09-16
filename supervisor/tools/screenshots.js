@@ -108,7 +108,7 @@ const DEFAULT_OUT = path.join(__dirname, '..', '..', 'docs', 'screenshots');
 const CURATED_DEFAULT = [
   'sites', 'sites-list', 'sites-overflow', 'notifications', 'modal-deploy', 'modal-settings-general',
   'modal-settings-access', 'modal-analytics', 'overview', 'activity', 'deployments', 'settings-general',
-  'settings-tokens', 'settings-users', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
+  'settings-tokens', 'settings-users', 'settings-security', 'domains', 'modal-invite', 'sites-phone', 'sites-phone-custom-bar', 'login',
   'member-sites', 'member-new-site', 'member-settings',
 ];
 

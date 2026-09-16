@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-16
+
+Phase 2 of the roadmap to 1.0: multi-user core and panel hardening. Invite friends, give them their own sites within quotas, help them when things break, and keep the panel safe on the public internet. See [Users and Roles](docs/wiki/Users-and-Roles.md) and the [Security Model](docs/wiki/Security-Model.md).
+
+### Added
+- Platform roles owner / admin / member / guest and site roles owner / editor / viewer; sites have an owner and collaborators
+- Capability presets (Beginner: static only, 3 sites; Maker: all runtimes, 10 sites) with per-user overrides: runtimes, site count, upload and disk quota, custom-domain policy, API tokens, webhooks, advanced UI
+- Link-only invitations (single use, 48 h) with an accept page; users can be disabled (sessions, tokens and sites suspended) or deleted with their sites transferred or removed
+- Members get an automatic `<slug>.<base domain>`; custom domains become requests the owner approves under Domains
+- Support mode: admins acting on somebody else's site see a banner, the action is logged with the owner as target, and the owner is notified
+- Per-user notifications and per-user API tokens (a token never exceeds its owner's rights); site suspension; ownership transfer
+- Beginner mode hides advanced site settings behind a toggle; profile card with display name
+- Login lockout (5 failures, exponential backoff, alert to the owner), TOTP two-factor authentication with recovery codes (`require_totp_admins` policy), session list with revocation and "remember this device", CSRF header check, Content-Security-Policy with per-request nonces
+- Policies card: custom domain policy, default preset, invitation validity
+
+### Changed
+- Existing admins become owner (first) and admin; existing editors and viewers become guests keeping their per-site rights as site roles; existing sites and tokens belong to the owner
+- Settings is reachable for every user (own tokens, profile, password, 2FA); admin tabs stay admin-only
+- Notification bell shows only what concerns you
+
+### Upgrade notes
+- Log in once after the update and check Settings > Users: roles were migrated automatically
+- Enable two-factor authentication for the owner account (Settings > Security) before inviting anyone
+- Scripts and CI that call the API keep working; tokens are now owned by the user who created them
+
 ## [0.11.0] - 2026-09-15
 
 Phase 1 of the roadmap to 1.0: tenant isolation. Ships before the first invitation goes out. See the new [Security Model](docs/wiki/Security-Model.md) page.

@@ -63,6 +63,7 @@ It's built for:
 - Outbound webhooks (deploy, rollback, site down/up) to Discord, Slack, or any URL
 
 **Multi-user & access control**
+- Invitations, platform roles (owner / admin / member / guest), capability presets and quotas, collaborators per site, support mode — see [Users and Roles](docs/wiki/Users-and-Roles.md)
 - Roles: admin, editor, viewer
 - Per-site access grants for editors/viewers
 - Scoped, expiring API tokens — restrict a token to a role and a set of sites, with an optional expiry
@@ -81,6 +82,15 @@ It's built for:
 - Tenant isolation: one network per site, hardened containers, egress guard, deploy limits and rate limits (see the [Security Model](docs/wiki/Security-Model.md))
 
 ---
+
+## What's new in 0.12.0
+
+Phase 2 of the [roadmap to 1.0](docs/roadmap/multi-user-platform.md): multi-user core and panel hardening. Details in [Users and Roles](docs/wiki/Users-and-Roles.md) and the [Security Model](docs/wiki/Security-Model.md).
+
+- Invite friends with a link; they get their own sites within a quota (Beginner or Maker preset), automatic subdomains, and custom domains by approval
+- Collaborators per site (editor / viewer), ownership transfer, support mode with a visible banner and owner notification
+- Per-user notifications and API tokens; suspend sites or users with one click
+- Login lockout, two-factor authentication with recovery codes, session management, CSRF protection, Content-Security-Policy
 
 ## What's new in 0.11.0
 

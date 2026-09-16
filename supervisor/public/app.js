@@ -2559,7 +2559,15 @@ async function loadServerInfo() {
 }
 
 // ── API Tokens ────────────────────────────────────────────
+function limitTokenRoleOptions() {
+  const sel = document.querySelector('#form-create-token select[name="token_role"]');
+  if (!sel || isPanelAdmin()) return;
+  const allowed = currentUser.role === 'editor' ? ['editor', 'viewer'] : ['viewer'];
+  [...sel.options].forEach(o => { if (!allowed.includes(o.value)) o.remove(); });
+  sel.value = allowed[0];
+}
 async function loadTokens() {
+  limitTokenRoleOptions();
   const list = document.getElementById('tokens-list');
   list.innerHTML = `<table class="data-table"><tbody>${skeletonRows(3, 4)}</tbody></table>`;
   try {
@@ -2975,12 +2983,12 @@ async function init() {
   }
   await loadSites();
   await loadNotifications();
-  checkForUpdate();
+  if (isPanelAdmin()) checkForUpdate();
   if (isPanelAdmin()) loadDomainRequests();
   if (me.needsOnboarding) openOnboarding();
   setInterval(loadSites, 15_000);
   setInterval(loadNotifications, 30_000);
-  setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h
+  if (isPanelAdmin()) setInterval(checkForUpdate, 6 * 60 * 60 * 1000); // re-check every 6h
 }
 init();
 
