@@ -1,0 +1,227 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Grimport design tokens
+
+   Standard: Apple Human Interface Guidelines (macOS) for the visual
+   language and semantic roles, W3C Design Tokens (primitive → semantic →
+   component) for structure, WCAG 2.2 AA for contrast and target size.
+
+   Rules (enforced by test/design-lint.test.js):
+   - Colour literals live in this file only. Everything else uses the
+     semantic tokens below.
+   - Font sizes, spacing, radii and control heights come from the scales
+     below. No in-between values.
+   - --text-3 is for placeholders, disabled text and decorative glyphs
+     only. Readable text uses --text or --text-2 (≥ 4.5:1 on every surface).
+   ══════════════════════════════════════════════════════════════════════ */
+
+@layer tokens, base, layout, components, views, utilities;
+
+@layer tokens {
+  :root {
+    color-scheme: light;
+
+    /* ── Surfaces ─────────────────────────────────────────────── */
+    --bg:            #f2f2f4;   /* app background behind content */
+    --bg-sidebar:    #ececef;   /* sidebar, phone chrome */
+    --surface:       #ffffff;   /* cards, tables, modals */
+    --surface-2:     #f5f5f7;   /* raised/inset: code, tiles, table heads */
+    --surface-popover: #ffffff; /* menus, dropdowns, palette, toasts (opaque) */
+    --field-bg:      #ffffff;   /* text fields, selects */
+    --fill:          rgba(0, 0, 0, 0.05);   /* hover */
+    --fill-2:        rgba(0, 0, 0, 0.08);   /* pressed, selected neutral */
+    --scrim:         rgba(0, 0, 0, 0.40);
+
+    /* ── Text (label hierarchy, HIG) ─────────────────────────── */
+    --text:          #1d1d1f;   /* label */
+    --text-2:        #5f5f66;   /* secondaryLabel — ≥ 5.3:1 everywhere */
+    --text-3:        #84848b;   /* placeholder/disabled only — ≥ 3:1 */
+    --text-on-solid: #ffffff;
+
+    /* ── Lines ────────────────────────────────────────────────── */
+    --separator:      rgba(0, 0, 0, 0.08);
+    --border:         rgba(0, 0, 0, 0.12);
+    --border-control: rgba(0, 0, 0, 0.18);
+
+    /* ── Accent + status (text colour, solid fill, soft tint) ─── */
+    --accent:         #0058bf;   /* ≥ 4.8:1 on its soft tint over any surface */
+    --accent-solid:   #0066d6;
+    --accent-soft:    rgba(0, 102, 214, 0.10);
+    --success:        #106a35;
+    --success-solid:  #13733a;
+    --success-soft:   rgba(19, 115, 58, 0.10);
+    --warning:        #814d00;
+    --warning-solid:  #8f5500;
+    --warning-soft:   rgba(143, 85, 0, 0.11);
+    --danger:         #b0261f;
+    --danger-solid:   #bf2c26;
+    --danger-soft:    rgba(191, 44, 38, 0.10);
+    --violet:         #6a41c0;
+    --violet-soft:    rgba(106, 65, 192, 0.10);
+
+    /* chart series (status codes, uptime strip) — same hues as status */
+    --chart-1: #0066d6;
+    --chart-ok: #1f9d55;
+    --chart-warn: #d18a1a;
+    --chart-err: #d9453d;
+
+    --focus-ring: 0 0 0 3px rgba(0, 102, 214, 0.30);
+
+    /* ── Elevation (floating layers only; surfaces use lightness) ── */
+    --shadow-popover: 0 8px 28px rgba(20, 20, 30, 0.14), 0 1px 4px rgba(20, 20, 30, 0.08);
+    --shadow-modal:   0 22px 60px rgba(20, 20, 30, 0.22), 0 2px 10px rgba(20, 20, 30, 0.10);
+    --shadow-control: 0 1px 1px rgba(0, 0, 0, 0.06);
+
+    /* ── Typography ───────────────────────────────────────────── */
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --fs-xs:  11px;  --lh-xs:  16px;   /* eyebrow labels (uppercase), kbd */
+    --fs-code-inline: 0.92em;          /* monospace optically matched to text */
+    --fs-sm:  12px;  --lh-sm:  16px;   /* captions, help text, badges, table heads */
+    --fs-md:  13px;  --lh-md:  20px;   /* body, controls, table cells (HIG body) */
+    --fs-lg:  15px;  --lh-lg:  20px;   /* card & section titles */
+    --fs-xl:  17px;  --lh-xl:  24px;   /* modal titles */
+    --fs-2xl: 22px;  --lh-2xl: 28px;   /* view titles, stat values */
+
+    --fw-regular:  400;
+    --fw-medium:   500;
+    --fw-semibold: 600;
+
+    --tracking-tight:   -0.01em;
+    --tracking-eyebrow:  0.06em;
+
+    /* ── Spacing (4px grid) ───────────────────────────────────── */
+    --space-0:  0;
+    --space-half: 2px;   /* segmented-control inset, hairline gaps */
+    --space-1:  4px;
+    --space-1-5: 6px;    /* badge/label inner padding */
+    --space-2:  8px;
+    --space-3:  12px;
+    --space-4:  16px;
+    --space-5:  20px;
+    --space-6:  24px;
+    --space-8:  32px;
+    --space-10: 40px;
+    --space-12: 48px;
+
+    /* ── Radius ───────────────────────────────────────────────── */
+    --radius-2xs:  2px;   /* chart bars, legend swatches */
+    --radius-xs:   4px;   /* kbd, inline code */
+    --radius-sm:   6px;   /* controls, badges */
+    --radius-md:   8px;   /* menus, tiles, list groups */
+    --radius-lg:   10px;  /* cards */
+    --radius-xl:   14px;  /* modals */
+    --radius-full: 999px; /* pills, avatars, switches */
+
+    /* ── Sizes ────────────────────────────────────────────────── */
+    --control-xs:    24px;   /* dense rows inside menus/popovers only */
+    --control-sm:    28px;
+    --control-md:    32px;
+    --control-lg:    40px;
+    --control-touch: 44px;   /* HIG minimum on coarse pointers */
+
+    --icon-xs: 12px;
+    --icon-sm: 14px;
+    --icon-md: 16px;
+    --icon-lg: 20px;
+    --icon-xl: 32px;
+
+    --badge-h:    20px;
+    --avatar-sm:  20px;
+    --avatar-md:  28px;
+    --progress-h: 6px;
+    --switch-w:   36px;
+    --switch-h:   20px;
+    --check-size: 16px;
+    --dot-size:   8px;
+
+    --sidebar-w:     220px;
+    --content-max:   1280px;
+    --form-max:      760px;
+    --stat-tile-min:     160px;   /* stat tiles wrap below this width */
+    --callout-text-min:  200px;   /* callout actions wrap below this text width */
+    --modal-sm:      420px;
+    --modal-md:      520px;
+    --modal-lg:      680px;
+    --bottom-nav-h:  56px;
+    --topbar-h:      48px;
+
+    /* ── Motion ───────────────────────────────────────────────── */
+    --duration-fast: 120ms;
+    --duration-base: 200ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --mask: #000;   /* opaque stop for mask-image gradients (alpha only) */
+
+    /* ── Layers ───────────────────────────────────────────────── */
+    --z-sticky:   10;
+    --z-dropdown: 50;
+    --z-nav:      60;
+    --z-scrim:    70;
+    --z-drawer:   80;
+    --z-modal:    100;
+    --z-toast:    200;
+    --z-banner:   300;
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg:            #19191c;
+    --bg-sidebar:    #202024;
+    --surface:       #252529;
+    --surface-2:     #2e2e34;
+    --surface-popover: #2f2f35;
+    --field-bg:      #1e1e22;
+    --fill:          rgba(255, 255, 255, 0.06);
+    --fill-2:        rgba(255, 255, 255, 0.10);
+    --scrim:         rgba(0, 0, 0, 0.55);
+
+    --text:          #f2f2f5;
+    --text-2:        #aeaeb7;   /* ≥ 6.1:1 */
+    --text-3:        #8b8b94;   /* ≥ 4.0:1 */
+    --text-on-solid: #ffffff;
+
+    --separator:      rgba(255, 255, 255, 0.09);
+    --border:         rgba(255, 255, 255, 0.13);
+    --border-control: rgba(255, 255, 255, 0.18);
+
+    --accent:         #6aa6f5;
+    --accent-solid:   #2d6fd6;
+    --accent-soft:    rgba(106, 166, 245, 0.16);
+    --success:        #56c983;
+    --success-solid:  #1d7a42;
+    --success-soft:   rgba(86, 201, 131, 0.15);
+    --warning:        #e6a94a;
+    --warning-solid:  #8a5a12;
+    --warning-soft:   rgba(230, 169, 74, 0.15);
+    --danger:         #f5847a;
+    --danger-solid:   #c93a30;
+    --danger-soft:    rgba(245, 132, 122, 0.15);
+    --violet:         #bba5f4;
+    --violet-soft:    rgba(187, 165, 244, 0.15);
+
+    --chart-1: #5b9bf2;
+    --chart-ok: #4cc47a;
+    --chart-warn: #e6a94a;
+    --chart-err: #f2776c;
+
+    --focus-ring: 0 0 0 3px rgba(106, 166, 245, 0.40);
+
+    --shadow-popover: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.30);
+    --shadow-modal:   0 22px 60px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.35);
+    --shadow-control: none;
+  }
+
+  /* Touch devices and phone widths: every control grows to the HIG
+     minimum. Components read --control-* so nothing else changes. */
+  @media (pointer: coarse), (max-width: 640px) {
+    :root {
+      --control-xs: 44px;
+      --control-sm: 44px;
+      --control-md: 44px;
+      --control-lg: 48px;
+    }
+  }
+}

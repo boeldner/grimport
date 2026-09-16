@@ -36,6 +36,7 @@ private/
 
 # Demo database + sites used to generate screenshots
 supervisor/.demo/
+supervisor/.ui-audit/
 
 # Full (uncurated) screenshot set — only the curated set is committed
 docs/screenshots/all/

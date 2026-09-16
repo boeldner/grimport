@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- One design system for the whole panel, built on Apple's Human Interface Guidelines (macOS), W3C design tokens and WCAG 2.2 AA: `style.css` is replaced by five layered stylesheets (`css/tokens.css`, `base.css`, `layout.css`, `components.css`, `views.css`); every view, modal and standalone page (login, invite, OAuth consent, offline) uses the same buttons, fields, segmented controls, tabs, cards, callouts, badges, tables, menus and modals
+- Every text passes WCAG AA contrast in both themes; every control is 44px tall on touch screens
+- Phone: primary action next to the page title, wide metric tables pin their first column, tab strips fade where more tabs are hidden, modals are bottom sheets with sticky header and actions, tables turn into labelled blocks
+- Primary buttons sit last in every action row; destructive confirmations end with an ellipsis
+- Code snippets wrap instead of overflowing their card; text areas grow with their content
+- Overview tiles read "Reachable" / "Unreachable" and the table shows the HTTP check result
+
+### Fixed
+- Stray scrollbar and disappearing tab strip in site settings
+- Collaborator rows with mismatched control heights and a second "Save" button
+- Stacked cards without spacing on Domains; tables cut off on phones
+- The offline page's retry button (blocked by the content security policy)
+
+### Added
+- `npm run ui-audit`: browser audit of every view at desktop, wide, phone and light-theme sizes (overflow, scroll containers, clipped text, control heights, contrast, touch targets, overlaps, button order)
+- `test/design-lint.test.js`: tokens-only colours, type, spacing, radii and layers; no inline styles; no duplicate component rules; no emoji
+
 ## [0.16.0] - 2026-09-16
 
 Phase 6 of the roadmap to 1.0: the panel as a phone app. See [Mobile and PWA](docs/wiki/Mobile-and-PWA.md).

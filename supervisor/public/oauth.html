@@ -5,65 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Grimport — Connect an app</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' fill='%238f83c4' d='M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z'/%3E%3Cpath d='M24.5 34.5l6 2M38.5 34.5l-6 2' stroke='%23c9b7ff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/views.css" />
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1d1d20" media="(prefers-color-scheme: dark)">
-  <style>
-    html, body { height: 100%; background: var(--bg); }
-    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .login-wrap { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-4); }
-    .login-brand { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center; }
-    .login-brand svg { color: var(--vio); }
-    .login-brand-name { font-size: 20px; font-weight: 700; letter-spacing: -0.025em; color: var(--tx); }
-    .login-brand-sub { font-size: 13px; color: var(--tx2); }
-    .login-card { background: var(--panel); border: 1px solid var(--line2); border-radius: var(--r-card); padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); box-shadow: var(--shdw); }
-    .login-card form { display: flex; flex-direction: column; gap: var(--sp-4); }
-    .login-card .btn-primary { width: 100%; padding: 9px; font-size: 14px; margin-top: var(--sp-1); }
-    .login-error { color: var(--err); font-size: 13px; line-height: 1.4; padding: 8px 11px; background: var(--errSoft); border: 1px solid rgba(208,52,44,0.3); border-radius: var(--r-control); display: none; }
-    .login-error.visible { display: block; }
-    .consent-meta { font-size: 13px; color: var(--tx2); line-height: 1.5; }
-    .consent-meta strong { color: var(--tx); }
-    .consent-scope { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--tx2); }
-    .consent-scope li { display: flex; gap: 8px; align-items: flex-start; }
-    .consent-scope svg { flex-shrink: 0; margin-top: 2px; color: var(--ok); }
-    .consent-actions { display: flex; gap: 8px; }
-    .consent-actions .btn { flex: 1; padding: 9px; font-size: 14px; }
-    .consent-user { font-size: 12px; color: var(--tx3); border-top: 1px solid var(--line); padding-top: 12px; }
-    .house-rules { font-size: 12px; color: var(--tx3); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 12px; }
-    .login-footer { text-align: center; font-size: 11px; color: var(--tx3); }
-  </style>
 </head>
-<body>
-  <div class="login-wrap">
-    <div class="login-brand">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="36" height="36" fill="none" aria-hidden="true">
+<body class="auth-page">
+  <div class="auth-wrap">
+    <div class="auth-brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" aria-hidden="true">
         <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M30 8c9 3 16 11 17 23l1 21c-6-6-11-4-16 6-5-10-10-12-16-6l1-21C18 19 23 11 30 8zm1.5 13c-6 2-9.5 7.5-9.5 14.5 0 7 4 11.5 9.5 13.5 5.5-2 9.5-6.5 9.5-13.5 0-7-3.5-12.5-9.5-14.5z"/>
         <path d="M24.5 34.5l6 2M38.5 34.5l-6 2" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
       </svg>
       <div>
-        <div class="login-brand-name">Grimport</div>
-        <div class="login-brand-sub">Connect an app</div>
+        <div class="auth-brand-name">Grimport</div>
+        <div class="auth-brand-sub">Connect an app</div>
       </div>
     </div>
 
-    <div class="login-card">
-      <p class="consent-meta" id="consent-meta">Checking the request…</p>
-      <div id="consent-body" hidden>
-        <ul class="consent-scope" style="margin-bottom:16px">
+    <div class="auth-card">
+      <p class="auth-meta" id="consent-meta">Checking the request…</p>
+      <div id="consent-body" class="stack" hidden>
+        <ul class="auth-scope">
           <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>See and manage the sites you have access to</span></li>
           <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Deploy, roll back, read logs and change site settings</span></li>
           <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Act with your role and quota, never more; every upload passes the content scanner</span></li>
         </ul>
-        <div class="login-error" id="consent-error"></div>
-        <div class="consent-actions">
+        <div class="callout callout-danger callout-sm auth-error" id="consent-error"></div>
+        <div class="auth-actions">
           <button type="button" class="btn" id="btn-deny">Cancel</button>
           <button type="button" class="btn btn-primary" id="btn-allow">Allow</button>
         </div>
-        <p class="consent-user" id="consent-user" style="margin-top:16px"></p>
+        <p class="auth-divider" id="consent-user"></p>
       </div>
     </div>
-    <div class="login-footer">You can revoke this access any time under Settings, API tokens.</div>
+    <div class="auth-footer">You can revoke this access any time under Settings, API tokens.</div>
   </div>
 
   <script>

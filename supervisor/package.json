@@ -8,8 +8,9 @@
     "dev": "node --watch src/index.js",
     "test": "node --test 'test/**/*.test.js'",
     "demo-seed": "DATA_PATH=$PWD/.demo/sites node tools/demo-seed.js",
-    "demo-serve": "DATA_PATH=$PWD/.demo/sites HOST_DATA_PATH=$PWD/.demo/sites NODE_ENV=development SUPERVISOR_SECRET=changeme SUPERVISOR_DOMAIN=localhost node src/index.js",
-    "screenshots": "node tools/screenshots.js"
+    "demo-serve": "DATA_PATH=$PWD/.demo/sites HOST_DATA_PATH=$PWD/.demo/sites NODE_ENV=development API_RATE_LIMIT=0 SUPERVISOR_SECRET=changeme SUPERVISOR_DOMAIN=localhost node src/index.js",
+    "screenshots": "node tools/screenshots.js",
+    "ui-audit": "node tools/ui-audit.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

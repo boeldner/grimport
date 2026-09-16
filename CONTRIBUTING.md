@@ -43,6 +43,48 @@ grimport/
 - **Keep the API stable** — existing tokens and integrations should not break
 - **Security-sensitive changes** (auth, file handling) need extra care
 
+## Frontend
+
+The panel UI follows one design system: Apple's Human Interface Guidelines
+(macOS) for the visual language, W3C design tokens for structure, WCAG 2.2
+AA for contrast and target size. Five stylesheets, loaded in this order,
+each in its own cascade layer:
+
+| File | Holds |
+|---|---|
+| `public/css/tokens.css` | every colour, type size, spacing step, radius, control height, shadow and z-layer, for light and dark |
+| `public/css/base.css` | reset, typography, focus ring, scrollbars, motion |
+| `public/css/layout.css` | app shell, sidebar, phone chrome, `.stack` / `.cluster` primitives |
+| `public/css/components.css` | buttons, fields, segmented controls, tabs, cards, callouts, badges, status, tables, modals, menus, toasts, chips |
+| `public/css/views.css` | the few view-specific pieces built from those components |
+
+Rules:
+
+- Build new UI from existing components. A new component goes into
+  `components.css` once, with a comment showing its markup.
+- Colours only as tokens. Literals live in `tokens.css` and nowhere else.
+- Font sizes, font weights, spacing, radii and z-index come from the token
+  scales. No in-between values.
+- Controls read `--control-*`, so they grow to 44px on touch screens by
+  themselves. Do not hard-code control heights.
+- `--text-3` is for placeholders and disabled text only.
+- No inline styles, except custom properties set from data
+  (`style="--bar-h: 40%"`). Scripts toggle classes; they only set
+  position and size directly.
+- Primary action last (right-most) in any button row; destructive actions
+  end with an ellipsis when they ask for confirmation.
+- Icons are inline SVG. No emoji.
+
+Two checks keep it that way:
+
+- `npm test` runs `test/design-lint.test.js` (static rules above).
+- `npm run ui-audit` (demo server running) opens every view, tab, modal
+  and page at desktop, wide, phone and light-theme sizes and fails on
+  overflow, stray scroll containers, clipped text, mismatched control
+  heights, contrast below AA, touch targets under 44px on phones,
+  overlapping controls and page errors. Run it before any UI change is
+  merged; the budget is zero.
+
 ## Local dev setup
 
 ```bash

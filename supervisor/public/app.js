@@ -79,7 +79,7 @@ const GLYPH = '<span class="status-glyph" aria-hidden="true"></span>';
 // `<span class="help-slot" data-help="Page.md#anchor">`; initHelpLinks()
 // (called once below, DOM is already parsed since this script tag sits at
 // the end of <body>) swaps every slot for the real link. Kept OUTSIDE any
-// .g-toggle label — see .g-toggle-wrap in style.css — so a click never also
+// .g-toggle label — see .g-toggle-wrap in css/components.css — so a click never also
 // toggles the switch it sits beside.
 function helpLink(path) {
   return `<a class="help-link" target="_blank" rel="noopener" href="https://github.com/boeldner/grimport/blob/main/docs/wiki/${path}" title="Learn more" aria-label="Learn more">${ICON.question}</a>`;
@@ -246,16 +246,16 @@ if (typeof window !== 'undefined') {
 // view can show/reset the same look before a fetch runs (including on a
 // retry after a view-error, which needs to rebuild the skeleton itself
 // since the error card overwrote the container's innerHTML).
-function skeletonBlock(rows = 3, rowHeight = 28) {
-  return Array.from({ length: rows }, (_, i) =>
-    `<div class="skeleton" style="height:${i === 0 ? rowHeight + 4 : rowHeight}px;margin-bottom:${i === rows - 1 ? 0 : 6}px;border-radius:var(--r-control)"></div>`
-  ).join('');
+function skeletonBlock(rows = 3) {
+  return `<div class="skeleton-stack">${Array.from({ length: rows }, (_, i) =>
+    `<div class="skeleton skeleton-line${i === 0 ? ' is-head' : ''}"></div>`
+  ).join('')}</div>`;
 }
 
 // Skeleton <tr> rows for table-based views (n rows × cols placeholder cells).
 function skeletonRows(n, cols) {
   return Array.from({ length: n }, () =>
-    `<tr>${Array.from({ length: cols }, () => `<td><span class="skeleton" style="display:inline-block;width:80%;height:14px;border-radius:4px"></span></td>`).join('')}</tr>`
+    `<tr>${Array.from({ length: cols }, () => `<td><span class="skeleton skeleton-text"></span></td>`).join('')}</tr>`
   ).join('');
 }
 
@@ -272,11 +272,13 @@ function viewError(container, message, retryFn) {
   const heading = (parts.shift() || 'Something went wrong') + '.';
   const body = parts.join('. ');
   el.innerHTML = `
-    <div class="view-error">
-      <span class="view-error-icon">${ICON.warning}</span>
-      <strong class="view-error-title">${esc(heading)}</strong>
-      ${body ? `<p class="view-error-body">${esc(body)}</p>` : ''}
-      <button type="button" class="btn btn-secondary btn-sm view-error-retry">Try again</button>
+    <div class="callout callout-danger view-error">
+      <span class="callout-icon">${ICON.warning}</span>
+      <div class="callout-body">
+        <p class="callout-title">${esc(heading)}</p>
+        ${body ? `<p class="callout-text">${esc(body)}</p>` : ''}
+      </div>
+      <div class="callout-actions"><button type="button" class="btn btn-sm view-error-retry">Try again</button></div>
     </div>`;
   const btn = el.querySelector('.view-error-retry');
   if (btn && retryFn) btn.addEventListener('click', () => retryFn());
@@ -385,8 +387,7 @@ function copyToClipboard(text, btnEl) {
   try {
     const ta = document.createElement('textarea');
     ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
+    ta.className = 'offscreen';
     document.body.appendChild(ta);
     ta.select();
     const ok = document.execCommand('copy');
@@ -418,8 +419,15 @@ function trapFocus(container, triggerEl) {
   if (!container) return;
   releaseFocusTrap();
   const previouslyFocused = triggerEl || document.activeElement;
-  const focusables = _focusableEls(container);
-  (focusables[0] || container).focus({ preventScroll: true });
+  // Initial focus (HIG): an explicit [autofocus], else the first text field,
+  // else the dialog itself — never the close button, so no stray ring.
+  const firstField = container.querySelector('[autofocus]') ||
+    _focusableEls(container).find(el => el.matches('input:not([type="checkbox"]):not([type="radio"]), textarea, select'));
+  if (firstField) firstField.focus({ preventScroll: true });
+  else {
+    if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
+    container.focus({ preventScroll: true });
+  }
 
   function onKeydown(e) {
     if (e.key !== 'Tab') return;
@@ -454,6 +462,7 @@ function openModal(id) {
   backdrop.classList.remove('hidden');
   const dialog = backdrop.querySelector('.modal');
   trapFocus(dialog, trigger);
+  requestAnimationFrame(revealActiveTabs);
 }
 function closeModal(id) {
   const backdrop = document.getElementById(id);
@@ -470,16 +479,16 @@ function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false, 
   return new Promise(resolve => {
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
-    const btnClass = danger ? 'btn-danger' : (warn ? 'btn-warn' : 'btn-primary');
+    const btnClass = danger ? 'btn-danger-solid' : (warn ? 'btn-warn' : 'btn-primary');
     backdrop.innerHTML = `
-      <div class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <div class="modal modal-sm confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
         <div class="modal-header"><h2 id="confirm-dialog-title">${esc(title)}</h2></div>
         <div class="confirm-body">
           <p>${esc(body)}</p>
           ${requireText ? `
-          <div class="type-to-confirm">
-            <label for="confirm-type-input">Type the site name to confirm</label>
-            <input type="text" id="confirm-type-input" autocomplete="off" spellcheck="false" />
+          <div class="field type-to-confirm">
+            <label class="field-label" for="confirm-type-input">Type <strong>${esc(requireText)}</strong> to confirm</label>
+            <input type="text" class="g-input" id="confirm-type-input" autocomplete="off" spellcheck="false" />
           </div>` : ''}
         </div>
         <div class="modal-actions">
@@ -535,15 +544,15 @@ function promptDialog({ title, body, placeholder = '', confirmLabel = 'Confirm',
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML = `
-      <div class="modal confirm-dialog" role="dialog" aria-modal="true">
+      <div class="modal modal-sm confirm-dialog" role="dialog" aria-modal="true">
         <div class="modal-header"><h2>${esc(title)}</h2></div>
         <div class="confirm-body">
           <p>${esc(body)}</p>
-          <input type="text" class="g-input" id="prompt-dialog-input" placeholder="${esc(placeholder)}" autocomplete="off" />
+          <input type="text" class="g-input" id="prompt-dialog-input" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder || title)}" autocomplete="off" />
         </div>
         <div class="modal-actions">
           <button type="button" class="btn" data-role="confirm-cancel">Cancel</button>
-          <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-role="confirm-ok">${esc(confirmLabel)}</button>
+          <button type="button" class="btn ${danger ? 'btn-danger-solid' : 'btn-primary'}" data-role="confirm-ok">${esc(confirmLabel)}</button>
         </div>
       </div>`;
     document.body.appendChild(backdrop);
@@ -569,12 +578,12 @@ function pickUserDialog({ title, body, confirmLabel = 'Confirm', excludeIds = []
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML = `
-      <div class="modal confirm-dialog" role="dialog" aria-modal="true">
+      <div class="modal modal-sm confirm-dialog" role="dialog" aria-modal="true">
         <div class="modal-header"><h2>${esc(title)}</h2></div>
         <div class="confirm-body">
           <p>${esc(body)}</p>
-          <div class="collab-lookup-wrap" style="position:relative">
-            <input type="text" class="g-input" id="pick-user-input" placeholder="Search username…" autocomplete="off" />
+          <div class="collab-lookup-wrap">
+            <input type="text" class="g-input" id="pick-user-input" placeholder="Search username…" aria-label="Username" autocomplete="off" />
             <div class="collab-lookup-results hidden" id="pick-user-results"></div>
           </div>
         </div>
@@ -626,7 +635,7 @@ function pickUserDialog({ title, body, confirmLabel = 'Confirm', excludeIds = []
 function renderSupportBanner(site) {
   if (!site?.support) return '';
   const ownerName = esc(site.owner?.display_name || site.owner?.username || 'the owner');
-  return `<div class="support-banner">${ICON.shield}<span>Support mode — this site belongs to ${ownerName}. Your actions are logged and ${ownerName} is notified.</span></div>`;
+  return `<div class="callout callout-warning callout-sm support-banner"><span class="callout-icon">${ICON.shield}</span><div class="callout-body"><p class="callout-text">Support mode: this site belongs to ${ownerName}. Your actions are logged and ${ownerName} is notified.</p></div></div>`;
 }
 function setSupportBanner(modalId, site) {
   const modal = document.querySelector(`#${modalId} .modal`);
@@ -775,7 +784,9 @@ async function refreshDownDuration(siteId) {
 
 function closeAllSiteOverflows(exceptId) {
   document.querySelectorAll('.site-overflow-menu').forEach(m => {
-    if (m.id !== `overflow-${exceptId}`) m.classList.add('hidden');
+    if (m.id === `overflow-${exceptId}`) return;
+    m.classList.add('hidden');
+    m.parentElement?.querySelector('[data-action="overflow"]')?.setAttribute('aria-expanded', 'false');
   });
 }
 document.addEventListener('click', () => closeAllSiteOverflows());
@@ -798,7 +809,7 @@ function renderSites() {
     const downCount = sites.filter(s => statusInfo(s.container).error).length;
     count.textContent = `${sites.length} site${sites.length !== 1 ? 's' : ''}` +
       (sites.length ? ` · ${runningCount} running` : '') +
-      (downCount ? ` · ${downCount} down` : '');
+      (downCount ? ` · ${downCount} need${downCount === 1 ? 's' : ''} attention` : '');
   }
 
   if (sites.length === 0) {
@@ -807,7 +818,7 @@ function renderSites() {
         <div class="empty-state-icon">${ICON.globe}</div>
         <h3>No sites yet</h3>
         <p>Upload a zip and Grimport serves it over HTTPS on your domain.</p>
-        ${canCreateSites() ? `<button class="btn btn-primary" style="margin-top:16px" data-empty-action="new-site">${ICON.plus} Create your first site</button>` : ''}
+        ${canCreateSites() ? `<button type="button" class="btn btn-primary" data-empty-action="new-site">${ICON.plus} Create your first site</button>` : ''}
       </div>`;
     return;
   }
@@ -816,8 +827,9 @@ function renderSites() {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.globe}</div>
-        <h3>No other sites match "${esc(searchQuery)}"</h3>
-        <p>Search covers names and domains · <button type="button" class="link-btn" data-empty-action="clear-search">Clear search</button></p>
+        <h3>No sites match "${esc(searchQuery)}"</h3>
+        <p>Search covers names and domains.</p>
+        <button type="button" class="btn" data-empty-action="clear-search">Clear search</button>
       </div>`;
     return;
   }
@@ -826,10 +838,10 @@ function renderSites() {
   grid.classList.toggle('sites-grid', view === 'cards');
   if (view === 'list') {
     grid.innerHTML = `
-      <div class="table-scroll sites-table-scroll">
-        <table class="data-table sites-table">
+      <div class="table-wrap sites-table-scroll">
+        <table class="data-table data-table-stack sites-table">
           <thead>
-            <tr><th>Status</th><th>Site</th><th>Runtime</th><th>Uptime</th><th></th></tr>
+            <tr><th>Site</th><th>Status</th><th>Details</th><th>Uptime 24h</th><th><span class="hidden">Actions</span></th></tr>
           </thead>
           <tbody>${filtered.map(s => siteRow(s)).join('')}</tbody>
         </table>
@@ -865,7 +877,12 @@ function renderSites() {
         const menu = document.getElementById(`overflow-${id}`);
         const wasHidden = menu?.classList.contains('hidden');
         closeAllSiteOverflows();
-        if (menu && wasHidden) menu.classList.remove('hidden');
+        if (menu && wasHidden) {
+          menu.classList.remove('opens-up', 'hidden');
+          const r = menu.getBoundingClientRect();
+          if (r.bottom > window.innerHeight - 8 && r.height < btn.getBoundingClientRect().top) menu.classList.add('opens-up');
+          btn.setAttribute('aria-expanded', 'true');
+        }
       }
     });
   });
@@ -903,8 +920,8 @@ async function unsuspendSiteFlow(site) {
 }
 
 // Container lifecycle → { cls, label, error }. `cls` maps 1:1 onto the
-// design-system .status-<cls> classes (see style.css "Status indicators"
-// "Status vocabulary"); glyph + label + colour, never colour alone.
+// design-system .status-<cls> classes (css/components.css, "Status");
+// glyph + label + colour, never colour alone.
 function statusInfo(container) {
   if (!container) return { cls: 'unknown', label: 'Unknown', error: false };
   switch (container.status) {
@@ -937,175 +954,168 @@ function errorHintText(container) {
   return 'Check logs for details';
 }
 
+// Tags shared by the site card and the list row.
+function siteTags(site) {
+  const runtime = site.runtime || 'static';
+  const suspended = site.status === 'suspended';
+  return [
+    site.support          ? `<span class="badge badge-warn">${ICON.shield}Support</span>` : '',
+    suspended             ? `<span class="badge badge-err">Suspended</span>` : '',
+    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
+    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
+    site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
+    site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic auth</span>` : '',
+    site.pending_review   ? `<span class="badge badge-warn" title="An upload is waiting for review">${ICON.eye}Review pending</span>` : '',
+  ].filter(Boolean).join('');
+}
+
+// Overflow menu items shared by card and row. Everything that is not one of
+// the visible buttons lives here, exactly once.
+function siteMenuItems(site) {
+  const runtime = site.runtime || 'static';
+  const suspended = site.status === 'suspended';
+  return [
+    `<button type="button" data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>`,
+    `<button type="button" data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} Deploy history</button>`,
+    `<button type="button" data-action="dns" data-id="${site.id}" role="menuitem">${ICON.globe} DNS setup</button>`,
+    `<button type="button" data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>`,
+    '<div class="menu-separator" role="separator"></div>',
+    runtime === 'static' && site.my_role !== 'viewer' ? `<button type="button" data-action="apply-template" data-id="${site.id}" role="menuitem">${ICON.grid} Apply template…</button>` : '',
+    !site.preview_container_id ? `<button type="button" data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview…</button>` : '',
+    currentUser.role !== 'viewer' ? `<button type="button" data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : '',
+    site.pending_review && isPanelAdmin() ? `<button type="button" data-action="review-deploy" data-id="${site.id}" role="menuitem">${ICON.eye} Review upload…</button>` : '',
+    site.pending_review && site.my_role !== 'viewer' ? `<button type="button" data-action="withdraw-review" data-id="${site.id}" role="menuitem">${ICON.x} Withdraw pending upload</button>` : '',
+    isPanelAdmin() ? (suspended
+      ? `<button type="button" data-action="unsuspend" data-id="${site.id}" role="menuitem">${ICON.check} Unsuspend</button>`
+      : `<button type="button" class="is-danger" data-action="suspend" data-id="${site.id}" role="menuitem">${ICON.warning} Suspend site…</button>`) : '',
+  ].filter(Boolean).join('');
+}
+
+function siteOverflow(site, sizeClass = 'btn-sm') {
+  return `<div class="site-overflow">
+    <button type="button" class="btn ${sizeClass} btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="menu" aria-expanded="false" title="More actions" aria-label="More actions for ${esc(site.name)}">${ICON.more}</button>
+    <div class="site-overflow-menu hidden" id="overflow-${site.id}" role="menu">${siteMenuItems(site)}</div>
+  </div>`;
+}
+
 function siteCard(site) {
   const container = site.container;
   const { cls, label, error } = statusInfo(container);
   const isRunning = !!container?.running;
-  const runtime = site.runtime || 'static';
   const suspended = site.status === 'suspended';
   const lockedForViewer = suspended && !isPanelAdmin();
+  const tags = siteTags(site);
 
-  const tags = [
-    site.support          ? `<span class="badge badge-warn">${ICON.shield}Support</span>` : '',
-    suspended             ? `<span class="badge badge-err">Suspended</span>` : '',
-    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
-    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
-    site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
-    site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
-    site.pending_review   ? `<span class="badge badge-warn" title="An upload is waiting for review">${ICON.eye}Review pending</span>` : '',
-  ].filter(Boolean).join('');
-
-  const previewBadge = site.preview_container_id ? `
-    <div class="preview-badge">
-      <span class="preview-badge-label">Preview</span>
-      <a href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener"><span class="site-domain-text">${esc(site.preview_domain)}</span>${ICON.externalLink}</a>
-      <span class="preview-badge-meta">deployed</span>
-      <div class="preview-badge-actions">
-        <button class="btn btn-xs btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
-        <button class="btn btn-xs btn-secondary" data-action="preview-discard" data-id="${site.id}">Discard</button>
+  const preview = site.preview_container_id ? `
+    <div class="callout callout-violet callout-sm">
+      <span class="callout-icon">${ICON.layers}</span>
+      <div class="callout-body">
+        <span class="callout-title">Preview</span>
+        <a class="preview-link" href="http://${esc(site.preview_domain)}" target="_blank" rel="noopener"><span class="truncate">${esc(site.preview_domain)}</span>${ICON.externalLink}</a>
+      </div>
+      <div class="callout-actions">
+        <button type="button" class="btn btn-sm" data-action="preview-discard" data-id="${site.id}">Discard</button>
+        <button type="button" class="btn btn-sm btn-primary" data-action="preview-swap" data-id="${site.id}">Go live</button>
       </div>
     </div>` : '';
 
-  const errorHint = suspended ? `
-    <div class="site-error-hint">
-      ${ICON.warning}
-      <span>Suspended — contact the panel owner</span>
+  const problem = suspended ? `
+    <div class="callout callout-danger callout-sm">
+      <span class="callout-icon">${ICON.warning}</span>
+      <div class="callout-body"><p class="callout-text">Suspended. Contact the panel owner.</p></div>
     </div>` : error ? `
-    <div class="site-error-hint">
-      ${ICON.warning}
-      <span>${esc(errorHintText(container))}<span id="down-duration-${site.id}"></span></span>
+    <div class="callout callout-danger callout-sm">
+      <span class="callout-icon">${ICON.warning}</span>
+      <div class="callout-body"><p class="callout-text">${esc(errorHintText(container))}<span id="down-duration-${site.id}"></span></p></div>
     </div>` : '';
 
   return `
-    <div class="site-card${error ? ' site-card--error' : ''}${suspended ? ' site-card--suspended' : ''}">
-      <div class="site-card-header">
-        <span class="status status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span>
-        <span class="site-name" title="${esc(site.name)}">${esc(site.name)}</span>
-      </div>
-      <div class="site-domain-row">
-        <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="${esc(site.domain)}"><span class="site-domain-text">${esc(site.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a>
-        <button class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS status" aria-label="DNS status">
-          <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}" aria-hidden="true"></span>
-        </button>
-      </div>
-      ${tags ? `<div class="site-tags">${tags}</div>` : ''}
-      ${previewBadge}
-      ${errorHint}
-      ${uptimeStrip(site.id)}
-      <div class="site-actions">
-        <button class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>Deploy</button>
-        <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
-        <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
-        <button class="btn btn-sm btn-secondary" data-action="analytics" data-id="${site.id}">Analytics</button>
-        <div class="site-overflow">
-          <button class="btn btn-sm btn-secondary btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions" aria-label="More actions">${ICON.more}</button>
-          <div class="site-overflow-menu hidden" id="overflow-${site.id}" role="menu">
-            <button data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>
-            <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
-            <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
-            ${runtime === 'static' && site.my_role !== 'viewer' ? `<button data-action="apply-template" data-id="${site.id}" role="menuitem">${ICON.grid} Apply template…</button>` : ''}
-            ${site.pending_review && isPanelAdmin() ? `<button data-action="review-deploy" data-id="${site.id}" role="menuitem">${ICON.eye} Review upload…</button>` : ''}
-            ${site.pending_review && site.my_role !== 'viewer' ? `<button data-action="withdraw-review" data-id="${site.id}" role="menuitem">${ICON.x} Withdraw pending upload</button>` : ''}
-            ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
-            ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
-            ${isPanelAdmin() ? (suspended
-              ? `<button data-action="unsuspend" data-id="${site.id}" role="menuitem">${ICON.check} Unsuspend</button>`
-              : `<button data-action="suspend" data-id="${site.id}" role="menuitem">${ICON.warning} Suspend site…</button>`) : ''}
+    <article class="site-card${error ? ' site-card--error' : ''}${suspended ? ' site-card--suspended' : ''}" aria-label="${esc(site.name)}">
+      <header class="site-card-head">
+        <div class="site-card-titles">
+          <h3 class="site-name" title="${esc(site.name)}">${esc(site.name)}</h3>
+          <div class="site-domain-row">
+            <a class="site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener" title="Open ${esc(site.domain)}"><span class="site-domain-text">${esc(site.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a>
+            <button type="button" class="dns-status-btn" data-action="dns" data-id="${site.id}" title="DNS: checking" aria-label="DNS: checking">
+              <span class="dns-indicator dns-indicator-unknown" id="dns-dot-${site.id}" aria-hidden="true"></span>
+            </button>
           </div>
         </div>
-      </div>
-    </div>`;
+        <span class="status status-pill status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span>
+      </header>
+      ${tags ? `<div class="site-tags">${tags}</div>` : ''}
+      ${preview}
+      ${problem}
+      <footer class="site-card-foot">
+        ${uptimeStrip(site.id)}
+        <div class="site-actions">
+          <button type="button" class="btn btn-sm btn-primary site-deploy-btn" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${ICON.upload} Deploy</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm" data-action="logs" data-id="${site.id}">Logs</button>
+          <button type="button" class="btn btn-sm" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
+          ${siteOverflow(site)}
+        </div>
+      </footer>
+    </article>`;
 }
 
-// Dense table alternative to siteCard() for the Sites list view (task B).
-// Same data-action/data-id attributes as siteCard() so the single click
-// binding in renderSites() keeps working unchanged.
+function uptimeParts(siteId) {
+  const u = uptimeData[siteId];
+  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
+  const pct = hasPct ? parseFloat(u.uptime24h) : null;
+  const pctCls = pct === null ? 'is-none' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
+  const pctText = pct === null ? 'No data yet' : `${pct}%`;
+  const status = u?.currentStatus;
+  const liveCls = status === 'up' ? 'status-up' : status === 'down' ? 'status-down' : 'status-muted';
+  const liveLabel = status === 'up' ? 'Up' : status === 'down' ? 'Down' : 'Not checked';
+  return { pct, pctCls, pctText, liveCls, liveLabel };
+}
+
+// Dense table alternative to siteCard() for the Sites list view. Same
+// data-action/data-id attributes so the click binding in renderSites() works.
 function siteRow(site) {
   const container = site.container;
   const { cls, label, error } = statusInfo(container);
   const isRunning = !!container?.running;
-  const runtime = site.runtime || 'static';
   const suspended = site.status === 'suspended';
   const lockedForViewer = suspended && !isPanelAdmin();
-
-  const badges = [
-    site.support          ? `<span class="badge badge-warn">${ICON.shield}Support</span>` : '',
-    suspended             ? `<span class="badge badge-err">Suspended</span>` : '',
-    runtime !== 'static'  ? `<span class="badge badge-runtime">${esc(runtime.toUpperCase())}</span>` : '',
-    site.spa_mode         ? `<span class="badge badge-spa">SPA</span>` : '',
-    site.maintenance_mode ? `<span class="badge badge-maint">${ICON.tool}Maintenance</span>` : '',
-    site.basic_auth       ? `<span class="badge badge-auth">${ICON.lock}Basic Auth</span>` : '',
-    site.pending_review   ? `<span class="badge badge-warn" title="An upload is waiting for review">${ICON.eye}Review pending</span>` : '',
-  ].filter(Boolean).join('');
-
-  const u = uptimeData[site.id];
-  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
-  const pct = hasPct ? parseFloat(u.uptime24h) : null;
-  const pctCls = pct === null ? '' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
-  const pctText = pct === null ? '— %' : `${pct}%`;
-  const liveStatus = u?.currentStatus;
-  const liveCls = liveStatus === 'up' ? 'status-up' : liveStatus === 'down' ? 'status-down' : 'status-muted';
-  const liveLabel = liveStatus === 'up' ? 'Up' : liveStatus === 'down' ? 'Down' : '?';
+  const tags = siteTags(site);
+  const up = uptimeParts(site.id);
 
   return `
     <tr>
-      <td><span class="status status-${cls}" data-status-for="${site.id}">${GLYPH}<span class="status-label">${esc(label)}</span></span></td>
-      <td>
-        <div class="ov-site-cell">
-          <span class="ov-site-name-row">
-            <span class="ov-site-name">${esc(site.name)}</span>
-            ${site.preview_container_id ? `<span class="badge badge-vio">Preview</span>` : ''}
-            ${error ? `<span class="badge badge-err" title="${esc(errorHintText(container))}">Error</span>` : ''}
-          </span>
-          <span class="ov-site-domain">${esc(site.domain)}</span>
+      <td class="cell-primary">
+        <div class="cell-stack">
+          <span class="cell-title">${esc(site.name)}${site.preview_container_id ? ' <span class="badge badge-vio">Preview</span>' : ''}</span>
+          <a class="cell-sub mono site-domain" href="http://${esc(site.domain)}" target="_blank" rel="noopener">${esc(site.domain)}</a>
         </div>
       </td>
-      <td>${badges}</td>
-      <td>
+      <td data-label="Status"><span class="status status-${cls}" data-status-for="${site.id}" ${error ? `title="${esc(errorHintText(container))}"` : ''}>${GLYPH}<span class="status-label">${esc(label)}</span></span></td>
+      <td data-label="Details">${tags || '<span class="cell-muted">Static</span>'}</td>
+      <td data-label="Uptime 24h">
         <span class="sites-table-uptime">
-          <span class="${pctCls}">${pctText}</span>
-          <span class="status ${liveCls}">${GLYPH}${liveLabel}</span>
+          <span class="uptime-pct ${up.pctCls}">${up.pctText}</span>
+          <span class="status ${up.liveCls}">${GLYPH}${up.liveLabel}</span>
         </span>
       </td>
       <td>
         <div class="cell-actions">
-          <button class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>Deploy</button>
-          <button class="btn btn-sm btn-secondary" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
-          <button class="btn btn-sm btn-secondary" data-action="logs" data-id="${site.id}">Logs</button>
-          <div class="site-overflow">
-            <button class="btn btn-sm btn-secondary btn-icon-only" data-action="overflow" data-id="${site.id}" aria-haspopup="true" aria-expanded="false" title="More actions" aria-label="More actions">${ICON.more}</button>
-            <div class="site-overflow-menu hidden" id="overflow-${site.id}" role="menu">
-              <button data-action="analytics" data-id="${site.id}" role="menuitem">${ICON.barChart} Analytics</button>
-              <button data-action="history" data-id="${site.id}" role="menuitem">${ICON.history} History</button>
-              <button data-action="settings" data-id="${site.id}" role="menuitem">${ICON.settings} Settings</button>
-              ${!site.preview_container_id ? `<button data-action="preview-create" data-id="${site.id}" role="menuitem">${ICON.layers} Create preview</button>` : ''}
-              ${currentUser.role !== 'viewer' ? `<button data-action="recreate" data-id="${site.id}" role="menuitem">${ICON.box} Update container</button>` : ''}
-              ${isPanelAdmin() ? (suspended
-                ? `<button data-action="unsuspend" data-id="${site.id}" role="menuitem">${ICON.check} Unsuspend</button>`
-                : `<button data-action="suspend" data-id="${site.id}" role="menuitem">${ICON.warning} Suspend site…</button>`) : ''}
-            </div>
-          </div>
+          <button type="button" class="btn btn-sm btn-primary" data-action="deploy" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>Deploy</button>
+          <button type="button" class="btn btn-sm" data-action="logs" data-id="${site.id}">Logs</button>
+          <button type="button" class="btn btn-sm" data-action="${isRunning ? 'stop' : 'start'}" data-id="${site.id}" ${lockedForViewer ? 'disabled title="Site is suspended"' : ''}>${isRunning ? 'Stop' : 'Start'}</button>
+          ${siteOverflow(site)}
         </div>
       </td>
     </tr>`;
 }
 
 function uptimeStrip(siteId) {
-  const u = uptimeData[siteId];
-  const hasPct = u && u.uptime24h !== null && u.uptime24h !== undefined;
-  const pct = hasPct ? parseFloat(u.uptime24h) : null;
-  const pctCls = pct === null ? '' : pct >= 99 ? 'pct-ok' : pct >= 95 ? 'pct-warn' : 'pct-err';
-  const pctText = pct === null ? '— %' : `${pct}%`;
-  const status = u?.currentStatus;
-  const dotCls = status === 'up' ? 'uptime-dot-up' : status === 'down' ? 'uptime-dot-down' : 'uptime-dot-unknown';
-  const liveCls = status === 'up' ? 'status-up' : status === 'down' ? 'status-down' : 'status-muted';
-  const liveLabel = status === 'up' ? 'Up' : status === 'down' ? 'Down' : '?';
-  return `<button type="button" class="uptime-row-btn" data-action="uptime-detail" data-id="${siteId}" title="View uptime history">
+  const up = uptimeParts(siteId);
+  return `<button type="button" class="uptime-row-btn" data-action="uptime-detail" data-id="${siteId}" title="Uptime history">
     <span class="uptime-row">
-      <span class="uptime-pct ${pctCls}">${pctText}</span>
+      <span class="uptime-pct ${up.pctCls}">${up.pctText}</span>
       <span class="uptime-label">uptime 24h</span>
-      <span class="uptime-dot ${dotCls}"></span>
-      <span class="uptime-live-label ${liveCls}">${liveLabel}</span>
+      <span class="status ${up.liveCls}">${GLYPH}${up.liveLabel}</span>
     </span>
   </button>`;
 }
@@ -1240,7 +1250,7 @@ function renderTemplateCards(container, templates, selectedId, onSelect, { withN
     : templates;
   container.innerHTML = cards.map(t => `
     <button type="button" class="template-card${t.id === selectedId ? ' is-selected' : ''}" data-template-id="${esc(t.id)}" aria-pressed="${t.id === selectedId}">
-      <span class="template-card-swatch${t.preview_bg ? '' : ' is-none'}" ${t.preview_bg ? `style="background:${esc(t.preview_bg)}"` : ''}></span>
+      <span class="template-card-swatch${t.preview_bg ? '' : ' is-none'}" ${t.preview_bg ? `style="--swatch:${esc(t.preview_bg)}"` : ''}></span>
       <span class="template-card-name">${esc(t.name)}</span>
       <span class="template-card-desc">${esc(t.description)}</span>
     </button>`).join('');
@@ -1262,7 +1272,7 @@ async function openApplyTemplateModal(site) {
   const confirmBtn = document.getElementById('btn-apply-template-confirm');
   confirmBtn.disabled = true;
   const picker = document.getElementById('apply-template-picker');
-  picker.innerHTML = '<div class="skeleton" style="height:70px"></div>';
+  picker.innerHTML = '<div class="skeleton skeleton-block"></div>';
   openModal('modal-apply-template');
   const templates = await loadTemplates();
   renderTemplateCards(picker, templates, null, id => {
@@ -1527,14 +1537,14 @@ function renderDeployOutcome({ outcome, findings }) {
   const box = document.getElementById('deploy-outcome');
   if (!box) return;
   const pending = outcome === 'pending';
-  box.className = `notice-card ${pending ? 'notice-warn' : 'notice-err'}`;
+  box.className = `callout ${pending ? 'callout-warning' : 'callout-danger'}`;
   box.innerHTML = `
-    <span class="notice-icon">${pending ? ICON.eye : ICON.warning}</span>
-    <div>
-      <div class="notice-title">${pending ? 'Waiting for review' : 'Deploy blocked'}</div>
-      <div class="notice-body">${pending
-        ? 'The scanner flagged something in this upload. The panel owner will look at it; the live site stays unchanged until it is approved. You can withdraw it from the card menu.'
-        : 'This upload contains something the panel does not host. Remove the files listed below and deploy again.'}</div>
+    <span class="callout-icon">${pending ? ICON.eye : ICON.warning}</span>
+    <div class="callout-body">
+      <p class="callout-title">${pending ? 'Waiting for review' : 'Deploy blocked'}</p>
+      <p class="callout-text">${pending
+        ? 'The scanner flagged something in this upload. The panel owner will look at it. The live site stays unchanged until it is approved. You can withdraw it from the card menu.'
+        : 'This upload contains something the panel does not host. Remove the files listed below and deploy again.'}</p>
       ${findingsHtml(findings)}
     </div>`;
   box.classList.remove('hidden');
@@ -1575,6 +1585,8 @@ document.querySelectorAll('#modal-settings .tab').forEach(tab => {
 // ── Collaborators (site members) — Access tab ────────────────────────────
 let collabDraft = [];
 let collabPendingUser = null;
+let collabSiteId = null;      // site the draft belongs to
+let collabOriginal = '[]';    // JSON snapshot to detect unsaved changes
 
 async function loadCollaborators() {
   const wrap = document.getElementById('collab-list');
@@ -1590,28 +1602,36 @@ async function loadCollaborators() {
       ? `Owner: ${data.owner.display_name || data.owner.username}`
       : 'No owner set';
     collabDraft = data.members.map(m => ({ user_id: m.user_id, username: m.username, display_name: m.display_name, site_role: m.site_role }));
+    collabSiteId = activeSiteId;
+    collabOriginal = JSON.stringify(collabDraft.map(m => [m.user_id, m.site_role]));
     renderCollabList(isOwner);
   } catch (err) {
-    wrap.innerHTML = `<p class="settings-desc" style="color:var(--err)">${esc(err.message)}</p>`;
+    wrap.innerHTML = `<p class="field-help err">${esc(err.message)}</p>`;
   }
 }
 
 function renderCollabList(isOwner) {
   const wrap = document.getElementById('collab-list');
   if (!collabDraft.length) {
-    wrap.innerHTML = '<p class="settings-desc muted">No collaborators yet.</p>';
+    wrap.innerHTML = '<p class="list-empty">No collaborators yet.</p>';
     return;
   }
   wrap.innerHTML = collabDraft.map((m, i) => `
-    <div class="collab-row">
-      <span class="collab-name">${esc(m.display_name || m.username)}</span>
+    <div class="list-row collab-row">
+      <span class="avatar avatar-sm" aria-hidden="true">${esc(initialsFor(m))}</span>
+      <div class="list-row-main">
+        <span class="list-row-title">${esc(m.display_name || m.username)}</span>
+        ${m.display_name ? `<span class="list-row-meta">@${esc(m.username)}</span>` : ''}
+      </div>
+      <div class="list-row-actions">
       ${isOwner ? `
-        <select class="g-select" style="width:auto" data-collab-role="${i}">
+        <select class="g-select is-auto" data-collab-role="${i}" aria-label="Role for ${esc(m.display_name || m.username)}">
           <option value="viewer" ${m.site_role === 'viewer' ? 'selected' : ''}>Viewer</option>
           <option value="editor" ${m.site_role === 'editor' ? 'selected' : ''}>Editor</option>
         </select>
-        <button type="button" class="btn btn-sm btn-icon-only btn-danger" data-collab-remove="${i}" title="Remove">${ICON.x}</button>
+        <button type="button" class="btn btn-icon-only btn-danger" data-collab-remove="${i}" title="Remove" aria-label="Remove ${esc(m.display_name || m.username)}">${ICON.x}</button>
       ` : `<span class="badge badge-role-${esc(m.site_role)}">${esc(m.site_role)}</span>`}
+      </div>
     </div>`).join('');
   if (!isOwner) return;
   wrap.querySelectorAll('[data-collab-role]').forEach(sel => {
@@ -1652,13 +1672,6 @@ document.getElementById('btn-collab-add').addEventListener('click', () => {
   renderCollabList(true);
 });
 
-document.getElementById('btn-collab-save').addEventListener('click', async () => {
-  try {
-    await api('PUT', `/sites/${activeSiteId}/members`, { members: collabDraft.map(m => ({ user_id: m.user_id, site_role: m.site_role })) });
-    toast('Collaborators saved', 'success');
-  } catch (err) { toast(err.message, 'error'); }
-});
-
 document.getElementById('btn-transfer-ownership').addEventListener('click', async () => {
   const site = sites.find(s => s.id === activeSiteId);
   if (!site) return;
@@ -1692,8 +1705,7 @@ function applyBeginnerModeSettings() {
   document.querySelectorAll('#modal-settings .tab[data-stab="behaviour"], #modal-settings .tab[data-stab="app"]').forEach(t => {
     t.classList.toggle('hidden', beginner && !revealed);
   });
-  const link = document.getElementById('btn-show-advanced-settings');
-  if (link) link.classList.toggle('hidden', !beginner || revealed);
+  document.getElementById('advanced-settings-row')?.classList.toggle('hidden', !beginner || revealed);
 }
 document.getElementById('btn-show-advanced-settings').addEventListener('click', () => {
   try { localStorage.setItem('grimport-advanced', '1'); } catch {}
@@ -1738,7 +1750,11 @@ async function applyDomainFieldUI(site) {
 
 function openSettings(site) {
   activeSiteId = site.id;
+  collabSiteId = null;
+  collabDraft = [];
+  document.getElementById('collab-list').innerHTML = '';
   document.getElementById('settings-site-name').textContent = site.name;
+  document.querySelector('#modal-settings .modal').scrollTop = 0;
 
   // Reset to General tab
   document.querySelectorAll('#modal-settings .tab').forEach((t, i) => {
@@ -1759,10 +1775,10 @@ function openSettings(site) {
   form.elements['ssl_enabled'].checked = !!site.ssl_enabled;
   const sslHint = document.getElementById('ssl-toggle-hint');
   if (config.sslReady) {
-    sslHint.textContent = '(Let\'s Encrypt via Traefik)';
+    sslHint.textContent = 'Let\'s Encrypt via Traefik';
     form.elements['ssl_enabled'].disabled = false;
   } else {
-    sslHint.textContent = '(set ACME_EMAIL in .env first)';
+    sslHint.textContent = 'needs a Let\'s Encrypt email in Settings, Server & DNS';
     form.elements['ssl_enabled'].disabled = true;
     form.elements['ssl_enabled'].checked = false;
   }
@@ -1772,7 +1788,8 @@ function openSettings(site) {
   const auth = site.basic_auth;
   form.elements['auth_username'].value = auth ? auth.username : '';
   form.elements['auth_password'].value = '';
-  form.elements['auth_password'].placeholder = auth ? 'leave blank to keep current' : 'password';
+  document.getElementById('settings-auth-password-help').classList.toggle('hidden', !auth);
+  document.getElementById('settings-auth-remove-row').classList.toggle('hidden', !auth);
 
   renderHeadersList(site.custom_headers || []);
   renderRedirectsList(site.redirects || []);
@@ -1791,10 +1808,10 @@ function openSettings(site) {
 function renderHeadersList(headers) {
   const list = document.getElementById('headers-list');
   list.innerHTML = headers.map((h, i) => `
-    <div class="header-row">
-      <input class="g-input" type="text" placeholder="Header name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
-      <input class="g-input" type="text" placeholder="Value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
-      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-header="${i}" title="Remove">${ICON.x}</button>
+    <div class="kv-row header-row">
+      <input class="g-input is-mono" type="text" placeholder="X-Header-Name" aria-label="Header name" value="${esc(h.name)}" data-header-name data-idx="${i}" />
+      <input class="g-input" type="text" placeholder="Value" aria-label="Header value" value="${esc(h.value)}" data-header-value data-idx="${i}" />
+      <button type="button" class="btn btn-icon-only btn-danger" data-remove-header="${i}" title="Remove header" aria-label="Remove header">${ICON.x}</button>
     </div>
   `).join('');
   list.querySelectorAll('[data-remove-header]').forEach(btn => {
@@ -1819,15 +1836,15 @@ document.getElementById('btn-add-header').addEventListener('click', () => {
 function renderRedirectsList(redirects) {
   const list = document.getElementById('redirects-list');
   list.innerHTML = redirects.map((r, i) => `
-    <div class="redirect-row">
-      <input class="g-input" type="text" placeholder="/old-path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
-      <input class="g-input" type="text" placeholder="/new-path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
-      <label class="g-checkbox redirect-permanent">
+    <div class="kv-row has-flag redirect-row">
+      <input class="g-input is-mono" type="text" placeholder="/old-path" aria-label="From path" value="${esc(r.from)}" data-redirect-from data-idx="${i}" />
+      <input class="g-input is-mono" type="text" placeholder="/new-path" aria-label="To path" value="${esc(r.to)}" data-redirect-to data-idx="${i}" />
+      <label class="g-checkbox redirect-permanent" title="Permanent redirect (301)">
         <input type="checkbox" data-redirect-permanent data-idx="${i}" ${r.permanent ? 'checked' : ''} />
         <span class="g-checkbox-box"></span>
-        301
+        Permanent
       </label>
-      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-redirect="${i}" title="Remove">${ICON.x}</button>
+      <button type="button" class="btn btn-icon-only btn-danger" data-remove-redirect="${i}" title="Remove redirect" aria-label="Remove redirect">${ICON.x}</button>
     </div>
   `).join('');
   list.querySelectorAll('[data-remove-redirect]').forEach(btn => {
@@ -1901,6 +1918,12 @@ document.getElementById('form-settings').addEventListener('submit', async e => {
 
   try {
     await api('PUT', `/sites/${activeSiteId}`, payload);
+    const site = sites.find(x => x.id === activeSiteId);
+    const collabNow = JSON.stringify(collabDraft.map(m => [m.user_id, m.site_role]));
+    if (site?.my_role === 'owner' && collabSiteId === activeSiteId && collabNow !== collabOriginal) {
+      await api('PUT', `/sites/${activeSiteId}/members`, { members: collabDraft.map(m => ({ user_id: m.user_id, site_role: m.site_role })) });
+      collabOriginal = collabNow;
+    }
     const scanTa = document.getElementById('settings-scan-allowlist');
     if (!document.getElementById('scan-allowlist-wrap').classList.contains('hidden') && scanTa.value !== scanTa.dataset.original) {
       await api('PUT', `/sites/${activeSiteId}/scan-allowlist`, { hosts: scanTa.value.split(/[\s,]+/).filter(Boolean) });
@@ -1981,7 +2004,7 @@ async function siteAction(id, action) {
   const card = document.querySelector(`[data-action="${action === 'stop' ? 'stop' : 'start'}"][data-id="${id}"]`)?.closest('.site-card');
   const statusEl = card?.querySelector(`[data-status-for="${id}"]`);
   const labelEl = statusEl?.querySelector('.status-label');
-  if (statusEl) statusEl.className = 'status status-starting';
+  if (statusEl) statusEl.className = `status status-starting${statusEl.classList.contains('status-pill') ? ' status-pill' : ''}`;
   if (labelEl) labelEl.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
 
   try {
@@ -2069,7 +2092,7 @@ function renderAnalytics(data) {
   document.getElementById('stat-bytes-sub').textContent = fmtBytes(avgBytes) + ' avg / request';
   document.getElementById('stat-errors').textContent = errorRate + '%';
   document.getElementById('stat-errors-detail').innerHTML =
-    `<span style="color:var(--warn)">${clientPct}% client</span> · <span style="color:var(--err)">${serverPct}% server</span>`;
+    `<span class="text-warning">${clientPct}% client</span> · <span class="text-danger">${serverPct}% server</span>`;
 
   const total = totals.ok + totals.redirects + totals.client_err + totals.server_err || 1;
   document.getElementById('bar-ok').style.width        = (totals.ok        / total * 100) + '%';
@@ -2111,7 +2134,7 @@ function renderSparkline(hourly, period) {
     <div class="sparkline">
       ${slots.map((s, i) => `
         <div class="spark-bar-wrap" data-slot="${i}" title="${s.requests} requests at ${s.label}">
-          <div class="spark-bar ${s.hasError ? 'spark-bar-error' : ''}" style="height:${Math.max(s.requests / maxVal * 100, s.requests > 0 ? 4 : 0)}%"></div>
+          <div class="spark-bar ${s.hasError ? 'spark-bar-error' : ''}" style="--bar-h:${Math.max(s.requests / maxVal * 100, s.requests > 0 ? 4 : 0)}%"></div>
         </div>`).join('')}
     </div>
     <div class="sparkline-labels">
@@ -2199,7 +2222,8 @@ const DNS_BANNER_ICON = {
 };
 
 function setBanner(state, text) {
-  document.getElementById('dns-status-banner').className = `dns-banner dns-banner-${state}`;
+  const tone = { ok: 'callout-success', wrong: 'callout-danger', pending: 'callout-warning', checking: '' }[state] || '';
+  document.getElementById('dns-status-banner').className = `callout ${tone}`.trim();
   document.getElementById('dns-status-text').textContent = text;
   const icon = document.getElementById('dns-banner-icon');
   if (icon) icon.innerHTML = DNS_BANNER_ICON[state] || '';
@@ -2239,7 +2263,7 @@ document.getElementById('btn-recheck-dns').addEventListener('click', () => {
 async function openHistory(site) {
   activeSiteId = site.id;
   document.getElementById('history-site-name').textContent = site.name;
-  document.getElementById('history-list').innerHTML = '<p style="color:var(--tx3);padding:16px">Loading…</p>';
+  document.getElementById('history-list').innerHTML = '<p class="list-empty">Loading…</p>';
   setSupportBanner('modal-history', site);
   openModal('modal-history');
   await refreshHistory(site.id, site.name);
@@ -2250,19 +2274,19 @@ async function refreshHistory(siteId, siteName) {
     const history = await api('GET', `/deploy/${siteId}/history`);
     const list = document.getElementById('history-list');
     if (!history.length) {
-      list.innerHTML = '<p style="color:var(--tx3);padding:16px 0">No deployments yet.</p>';
+      list.innerHTML = '<p class="list-empty">No deployments yet.</p>';
       return;
     }
     list.innerHTML = history.map((d, i) => `
-      <div class="history-row">
+      <div class="list-row history-row">
         <span class="history-num">#${history.length - i}</span>
-        <span class="history-info">
-          <span class="history-file">${esc(d.filename)}</span>
-          <span class="history-meta">${timeAgo(d.deployed_at)} · ${fmtBytes(d.size)}</span>
-        </span>
-        ${i === 0
-          ? '<span class="badge badge-ok">CURRENT</span>'
-          : `<button class="btn btn-sm" data-rollback="${d.id}">Roll back…</button>`}
+        <div class="list-row-main">
+          <span class="list-row-title"><span class="truncate">${esc(d.filename)}</span></span>
+          <span class="list-row-meta">${esc(timeAgo(d.deployed_at))} · ${fmtBytes(d.size)}</span>
+        </div>
+        <div class="list-row-actions">${i === 0
+          ? '<span class="badge badge-ok">Live</span>'
+          : `<button type="button" class="btn btn-sm" data-rollback="${d.id}">Roll back…</button>`}</div>
       </div>`).join('');
     list.querySelectorAll('[data-rollback]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2288,7 +2312,7 @@ async function refreshHistory(siteId, siteName) {
       });
     });
   } catch (err) {
-    document.getElementById('history-list').innerHTML = `<p style="color:var(--err);padding:16px 0">${esc(err.message)}</p>`;
+    document.getElementById('history-list').innerHTML = `<p class="list-empty text-danger">${esc(err.message)}</p>`;
   }
 }
 
@@ -2353,14 +2377,16 @@ async function loadActivity() {
   const filtersEl = document.getElementById('activity-filters');
   if (filtersEl && sites.length) {
     filtersEl.innerHTML = `
-      <div class="chip-group">
-        <button class="chip ${activitySiteFilter === null ? 'is-active' : ''}" data-filter="">All sites</button>
-        ${sites.map(s => `<button class="chip ${activitySiteFilter === s.id ? 'is-active' : ''}" data-filter="${esc(s.id)}">${esc(s.name)}</button>`).join('')}
+      <div class="chip-group" role="group" aria-label="Filter by site">
+        <span class="chip-group-label">Site</span>
+        <button type="button" class="chip ${activitySiteFilter === null ? 'is-active' : ''}" data-filter="" aria-pressed="${activitySiteFilter === null}">All</button>
+        ${sites.map(s => `<button type="button" class="chip ${activitySiteFilter === s.id ? 'is-active' : ''}" data-filter="${esc(s.id)}" aria-pressed="${activitySiteFilter === s.id}">${esc(s.name)}</button>`).join('')}
       </div>
-      <div class="chip-group">
-        <button class="chip activity-level-chip ${activityLevelFilter === null ? 'is-active' : ''}" data-level="">All levels</button>
-        <button class="chip chip-err activity-level-chip ${activityLevelFilter === 'error' ? 'is-active' : ''}" data-level="error">Errors</button>
-        <button class="chip chip-warn activity-level-chip ${activityLevelFilter === 'warn' ? 'is-active' : ''}" data-level="warn">Warnings</button>
+      <div class="chip-group" role="group" aria-label="Filter by level">
+        <span class="chip-group-label">Level</span>
+        <button type="button" class="chip activity-level-chip ${activityLevelFilter === null ? 'is-active' : ''}" data-level="" aria-pressed="${activityLevelFilter === null}">All</button>
+        <button type="button" class="chip chip-err activity-level-chip ${activityLevelFilter === 'error' ? 'is-active' : ''}" data-level="error" aria-pressed="${activityLevelFilter === 'error'}">Errors</button>
+        <button type="button" class="chip chip-warn activity-level-chip ${activityLevelFilter === 'warn' ? 'is-active' : ''}" data-level="warn" aria-pressed="${activityLevelFilter === 'warn'}">Warnings</button>
       </div>
     `;
     filtersEl.querySelectorAll('.chip:not(.activity-level-chip)').forEach(btn => {
@@ -2376,7 +2402,7 @@ async function loadActivity() {
   if (activityLevelFilter) url += `&level=${activityLevelFilter}`;
 
   const feedEl = document.getElementById('activity-feed');
-  if (feedEl) feedEl.innerHTML = skeletonBlock(4, 56);
+  if (feedEl) feedEl.innerHTML = `<div class="card-body">${skeletonBlock(4)}</div>`;
 
   try {
     const events = await api('GET', url);
@@ -2392,7 +2418,7 @@ async function loadActivity() {
       }
     }
     if (!events.length) {
-      feed.innerHTML = '<div class="activity-empty">No activity yet.</div>';
+      feed.innerHTML = '<div class="empty-state"><h3>No activity yet</h3><p>Deploys, restarts and outages show up here.</p></div>';
       return;
     }
     feed.innerHTML = events.map(e => {
@@ -2400,31 +2426,26 @@ async function loadActivity() {
       const isUp    = e.event === 'up';
       const isError = e.level === 'error';
       const isWarn  = e.level === 'warn';
-      const levelBadge = isError
-        ? '<span class="badge badge-err">ERROR</span>'
-        : isWarn
-          ? '<span class="badge badge-warn">WARN</span>'
-          : '';
-      const actorBadge = (e.actor && e.actor !== 'system')
-        ? `<span class="badge badge-accent">${esc(e.actor)}</span>`
-        : '';
+      const actor = (e.actor && e.actor !== 'system') ? e.actor : '';
       const label = EVENT_LABELS[e.event] || (e.fn ? esc(e.fn) : esc(e.event));
-      const duration = e.duration_ms != null ? `<span class="activity-duration">took ${fmtDuration(e.duration_ms)}</span>` : '';
-      const emphasis = isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : '';
+      const meta = [
+        actor ? `by <span class="activity-actor">${esc(actor)}</span>` : '',
+        e.detail ? esc(e.detail) : '',
+        e.duration_ms != null ? `took ${fmtDuration(e.duration_ms)}` : '',
+      ].filter(Boolean).join(' · ');
+      const emphasis = isDown ? 'activity-item-down' : isUp ? 'activity-item-up' : isError ? 'activity-item-error' : isWarn ? 'activity-item-warn' : '';
+      const levelText = isError ? 'Error' : isWarn ? 'Warning' : 'Info';
       return `
         <div class="activity-item ${emphasis}">
-          <span class="activity-icon">${EVENT_ICONS[e.event] || (isError ? ICON.x : isWarn ? ICON.warning : ICON.dot)}</span>
+          <span class="activity-icon" title="${levelText}" aria-label="${levelText}">${EVENT_ICONS[e.event] || (isError ? ICON.x : isWarn ? ICON.warning : ICON.dot)}</span>
           <div class="activity-body">
             <div class="activity-line">
-              ${levelBadge}
               <span class="activity-label">${label}</span>
-              ${actorBadge ? `<span class="activity-by">by</span>${actorBadge}` : ''}
               <span class="activity-site">${esc(e.site_name === 'grimport' ? 'Grimport' : e.site_name || 'Panel')}</span>
             </div>
-            ${e.detail ? `<div class="activity-detail">${esc(e.detail)}</div>` : ''}
-            ${duration}
+            ${meta ? `<div class="activity-detail">${meta}</div>` : ''}
           </div>
-          <span class="activity-time">${timeAgo(e.created_at)}</span>
+          <span class="activity-time">${esc(timeAgo(e.created_at))}</span>
         </div>`;
     }).join('');
   } catch (err) {
@@ -2438,12 +2459,28 @@ function fmtDuration(ms) {
   return `${s % 1 === 0 ? s.toFixed(0) : s.toFixed(1)} s`;
 }
 
+// One relative-time format for the whole panel: "just now", "5m ago",
+// "in 2d". Past and future both work (invitation expiry, token expiry).
 function timeAgo(ts) {
   const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  const abs = Math.abs(diff);
+  if (abs < 60) return 'just now';
+  const unit = abs < 3600 ? `${Math.floor(abs / 60)}m` : abs < 86400 ? `${Math.floor(abs / 3600)}h` : `${Math.floor(abs / 86400)}d`;
+  return diff >= 0 ? `${unit} ago` : `in ${unit}`;
+}
+// One absolute format: "16 Sep 2026, 18:10" in the viewer's locale order.
+function formatDate(ts, { time = false } = {}) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleString(undefined, time
+    ? { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }
+    : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+// Initials from the name people see (display name first, username second).
+function initialsFor(user) {
+  const name = String(user?.display_name || user?.username || '?').trim();
+  const words = name.split(/[\s._-]+/).filter(Boolean);
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2);
+  return letters.toUpperCase();
 }
 
 // ── View switching ────────────────────────────────────────
@@ -2462,6 +2499,9 @@ function navigateTo(view) {
   if (view === 'deployments') loadDeployments();
   if (view === 'logs') loadLogsView();
   if (view === 'domains') loadDomains();
+  const main = document.querySelector('.main');
+  if (main) main.scrollTop = 0;
+  requestAnimationFrame(revealActiveTabs);
 }
 function bindNavItem(item) {
   item.addEventListener('click', e => { e.preventDefault(); navigateTo(item.dataset.view); });
@@ -2524,14 +2564,15 @@ function renderTabbarList() {
     const pos = tabbarDraft.indexOf(v.id);
     const on = pos !== -1;
     return `
-      <div class="tabbar-row${on ? '' : ' is-off'}">
+      <div class="list-row tabbar-row${on ? '' : ' is-off'}">
         <label class="g-checkbox" title="${on ? 'Remove from bar' : full ? 'Bar is full' : 'Show in bar'}">
-          <input type="checkbox" data-tab-toggle="${v.id}" ${on ? 'checked' : ''} ${!on && full ? 'disabled' : ''} />
+          <input type="checkbox" data-tab-toggle="${v.id}" ${on ? 'checked' : ''} ${!on && full ? 'disabled' : ''} aria-label="Show ${esc(v.label)} in the tab bar" />
           <span class="g-checkbox-box"></span>
         </label>
         <span class="tabbar-row-pos">${on ? pos + 1 : ''}</span>
-        <span class="tabbar-row-label"><span class="tabbar-row-icon">${v.icon}</span>${esc(v.label)}</span>
-        <span class="tabbar-row-actions">
+        <span class="list-row-lead">${v.icon}</span>
+        <div class="list-row-main"><span class="list-row-title">${esc(v.label)}</span></div>
+        <span class="list-row-actions">
           <button type="button" class="btn btn-sm btn-icon-only" data-tab-move="${v.id}" data-dir="-1" title="Move up" aria-label="Move ${esc(v.label)} up" ${!on || pos === 0 ? 'disabled' : ''}>${ICON.arrowUp}</button>
           <button type="button" class="btn btn-sm btn-icon-only" data-tab-move="${v.id}" data-dir="1" title="Move down" aria-label="Move ${esc(v.label)} down" ${!on || pos === tabbarDraft.length - 1 ? 'disabled' : ''}>${ICON.arrowDown}</button>
         </span>
@@ -2662,13 +2703,15 @@ async function loadBackups() {
       form.elements['backup_keep'].value = data.backup_keep ?? 7;
     }
     if (!data.backups.length) {
-      listEl.innerHTML = '<p class="settings-desc muted">No backups yet.</p>';
+      listEl.innerHTML = '<p class="list-empty">No backups yet.</p>';
       return;
     }
     listEl.innerHTML = data.backups.map(b => `
-      <div class="backup-row">
-        <span class="backup-name" title="${esc(b.name)}">${esc(b.name)}</span>
-        <span class="backup-meta muted">${fmtBytes(b.size)} · ${new Date(b.created * 1000).toLocaleString()}</span>
+      <div class="list-row backup-row">
+        <div class="list-row-main">
+          <span class="list-row-title"><span class="truncate mono" title="${esc(b.name)}">${esc(b.name)}</span></span>
+          <span class="list-row-meta">${fmtBytes(b.size)} · ${esc(formatDate(b.created, { time: true }))}</span>
+        </div>
       </div>
     `).join('');
   } catch (err) { toast(err.message, 'error'); }
@@ -2727,6 +2770,9 @@ async function loadServerInfo() {
     document.getElementById('srv-dns-panel-name').textContent = domain;
     document.getElementById('srv-dns-panel-ip').textContent = ip;
 
+    document.querySelectorAll('[data-fill="panel-domain"]').forEach(el => { el.textContent = domain; });
+    if (baseDomain) document.querySelectorAll('[data-fill="base-domain"]').forEach(el => { el.textContent = baseDomain; });
+
     const wildcardBlock = document.getElementById('srv-dns-wildcard-block');
     if (baseDomain) {
       document.getElementById('srv-dns-wildcard-name').textContent = `*.${baseDomain}`;
@@ -2740,20 +2786,20 @@ async function loadServerInfo() {
     const banner = document.getElementById('ssl-status-banner');
     const isHttps = window.location.protocol === 'https:';
     if (cfg.sslReady && isHttps) {
-      banner.className = 'ssl-status-banner ssl-status-ok';
+      banner.className = 'callout callout-success';
       document.getElementById('ssl-status-icon').innerHTML = ICON.check;
       document.getElementById('ssl-status-title').textContent = 'SSL active';
       document.getElementById('ssl-status-detail').textContent = `Certificates managed by Let's Encrypt. Registered email: ${cfg.acmeEmail}`;
     } else if (cfg.sslReady && !isHttps) {
-      banner.className = 'ssl-status-banner ssl-status-partial';
+      banner.className = 'callout callout-warning';
       document.getElementById('ssl-status-icon').innerHTML = ICON.shield;
-      document.getElementById('ssl-status-title').textContent = 'ACME_EMAIL configured — panel HTTPS not yet enabled';
+      document.getElementById('ssl-status-title').textContent = 'Certificates ready, panel still on HTTP';
       document.getElementById('ssl-status-detail').textContent = 'Per-site SSL is available. To enable HTTPS on the panel itself, uncomment the HTTPS labels in docker-compose.yml and restart.';
     } else {
-      banner.className = 'ssl-status-banner ssl-status-unconfigured';
-      document.getElementById('ssl-status-icon').innerHTML = ICON.x;
-      document.getElementById('ssl-status-title').textContent = 'SSL not configured';
-      document.getElementById('ssl-status-detail').textContent = 'Set ACME_EMAIL in Settings → Server & DNS and restart the stack to enable Let\'s Encrypt certificates.';
+      banner.className = 'callout';
+      document.getElementById('ssl-status-icon').innerHTML = ICON.lock;
+      document.getElementById('ssl-status-title').textContent = 'Let\'s Encrypt is not set up';
+      document.getElementById('ssl-status-detail').textContent = 'Enter an email below to request certificates. Behind Cloudflare you can skip this.';
     }
   } catch (err) {
     toast('Failed to load server info: ' + err.message, 'error');
@@ -2862,12 +2908,12 @@ async function renderPushDevices() {
       }
       const groups = d.events === null ? 'all events' : (d.events.length ? d.events.join(', ') : 'no events');
       return `
-      <div class="push-device">
-        <div class="push-device-meta">
-          <span>${esc(d.label || 'Device')}${isThis ? ' <span class="badge badge-accent">This device</span>' : ''}</span>
-          <span class="push-device-sub">${esc(groups)} · added ${timeAgo(d.created_at)}${d.last_used ? ` · last push ${timeAgo(d.last_used)}` : ''}</span>
+      <div class="list-row">
+        <div class="list-row-main">
+          <span class="list-row-title">${esc(d.label || 'Device')}${isThis ? ' <span class="badge badge-accent">This device</span>' : ''}</span>
+          <span class="list-row-meta">${esc(groups)} · added ${esc(timeAgo(d.created_at))}${d.last_used ? ` · last push ${esc(timeAgo(d.last_used))}` : ''}</span>
         </div>
-        <button type="button" class="btn btn-sm btn-danger" data-push-remove="${esc(d.id)}">Remove</button>
+        <div class="list-row-actions"><button type="button" class="btn btn-sm btn-danger" data-push-remove="${esc(d.id)}">Remove</button></div>
       </div>`;
     }).join('');
     wrap.querySelectorAll('[data-push-remove]').forEach(btn => btn.addEventListener('click', async () => {
@@ -2960,14 +3006,17 @@ async function refreshCurrentView() {
   bar.innerHTML = ICON.refreshCw;
   main.prepend(bar);
   let startY = 0, dist = 0, pulling = false;
+  // On phones the document scrolls (main grows); on tablets main scrolls.
+  // Only a pull that starts at the very top of either may refresh.
+  const scrolledDown = () => main.scrollTop > 0 || (document.scrollingElement?.scrollTop || 0) > 0;
   main.addEventListener('touchstart', e => {
-    if (main.scrollTop > 0 || document.querySelector('.modal-backdrop:not(.hidden)')) { pulling = false; return; }
+    if (scrolledDown() || document.querySelector('.modal-backdrop:not(.hidden)') || document.body.classList.contains('phone-menu-open')) { pulling = false; return; }
     startY = e.touches[0].clientY; dist = 0; pulling = true;
   }, { passive: true });
   main.addEventListener('touchmove', e => {
     if (!pulling) return;
     dist = e.touches[0].clientY - startY;
-    if (dist <= 0 || main.scrollTop > 0) { bar.style.height = '0px'; return; }
+    if (dist <= 0 || scrolledDown()) { bar.style.height = '0px'; return; }
     bar.style.height = `${Math.min(dist, THRESHOLD + 24) * 0.55}px`;
     bar.classList.toggle('ptr-ready', dist >= THRESHOLD);
   }, { passive: true });
@@ -2985,12 +3034,42 @@ async function refreshCurrentView() {
   main.addEventListener('touchcancel', end, { passive: true });
 })();
 
+// Tab strips scroll sideways on narrow screens: keep the selected tab in view.
+document.addEventListener('click', e => {
+  const tab = e.target.closest('.tabs .tab');
+  if (tab) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+});
+function revealActiveTabs() {
+  document.querySelectorAll('.tabs').forEach(strip => {
+    const active = strip.querySelector('.tab.is-active, .tab[aria-selected="true"]');
+    if (active && strip.scrollWidth > strip.clientWidth) {
+      strip.scrollLeft = active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2;
+    }
+    updateTabEdges(strip);
+    if (!strip.dataset.edgeWatch) {
+      strip.dataset.edgeWatch = '1';
+      strip.addEventListener('scroll', () => updateTabEdges(strip), { passive: true });
+    }
+  });
+}
+// Marks which edge of a scrollable tab strip hides more tabs (CSS fades it).
+function updateTabEdges(strip) {
+  const max = strip.scrollWidth - strip.clientWidth;
+  const start = strip.scrollLeft > 1, end = max > 1 && strip.scrollLeft < max - 1;
+  if (start && end) strip.dataset.more = 'both';
+  else if (end) strip.dataset.more = 'end';
+  else if (start) strip.dataset.more = 'start';
+  else delete strip.dataset.more;
+}
+window.addEventListener('resize', revealActiveTabs);
+
 function initMcpConnect() {
   const ep = document.getElementById('mcp-endpoint');
   const snippet = document.getElementById('mcp-snippet');
   if (!ep || !snippet) return;
   const url = `${location.origin}/mcp`;
   ep.textContent = url;
+  document.querySelectorAll('[data-fill="panel-url"]').forEach(el => { el.textContent = location.origin; });
   const cmd = `claude mcp add --transport http grimport ${url} --header "Authorization: Bearer <your token>"`;
   snippet.textContent = cmd;
   document.getElementById('btn-copy-mcp').addEventListener('click', async () => {
@@ -3017,20 +3096,20 @@ function renderTokenScope(siteScope) {
     const s = sites.find(x => x.id === sid);
     return s ? `<span class="badge badge-neutral">${esc(s.name)}</span>` : '';
   }).filter(Boolean).join('');
-  return `<div class="chip-wrap">${chips || '<span style="color:var(--tx3)">None</span>'}</div>`;
+  return `<div class="chip-wrap">${chips || '<span class="cell-muted">None</span>'}</div>`;
 }
 
 function renderTokenScopeSites() {
   const wrap = document.getElementById('token-scope-sites');
   if (!sites.length) {
-    wrap.innerHTML = '<p class="settings-desc">No sites created yet.</p>';
+    wrap.innerHTML = '<p class="list-empty">No sites created yet.</p>';
     return;
   }
   wrap.innerHTML = sites.map(s => `
-    <label class="g-checkbox" style="margin-bottom:8px">
+    <label class="g-checkbox">
       <input type="checkbox" name="token_site" value="${s.id}" />
       <span class="g-checkbox-box"></span>
-      ${esc(s.name)} <span class="field-help muted" style="display:inline">${esc(s.domain)}</span>
+      ${esc(s.name)} <span class="field-optional">${esc(s.domain)}</span>
     </label>
   `).join('');
 }
@@ -3043,33 +3122,37 @@ document.getElementById('token-scope-all').addEventListener('change', e => {
 
 function renderTokens(tokens) {
   const list = document.getElementById('tokens-list');
+  const disclosure = document.getElementById('token-create-disclosure');
   if (!tokens.length) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.shield}</div>
-        <h3>No tokens yet.</h3>
-        <p>Create one below to authenticate CI/CD deploys.</p>
+        <h3>No tokens yet</h3>
+        <p>Create one to deploy from scripts, CI or Claude.</p>
       </div>`;
+    if (disclosure) disclosure.open = true;
     return;
   }
   list.innerHTML = `
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead><tr><th>Name</th><th>Role</th><th>Scope</th><th>Expires</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    <table class="data-table data-table-stack">
+      <thead><tr><th>Name</th><th>Role</th><th>Sites</th><th>Expires</th><th>Last used</th><th><span class="hidden">Actions</span></th></tr></thead>
       <tbody>
         ${tokens.map(t => `
           <tr>
-            <td>${esc(t.name)}${t.oauth_client_id ? ` <span class="badge badge-vio" title="Issued by signing in from an app (OAuth); refreshes itself">Connected app</span>` : ''}</td>
-            <td><span class="badge badge-neutral">${esc(t.role || 'admin')}</span></td>
-            <td>${renderTokenScope(t.site_scope)}</td>
-            <td class="cell-mono">${t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : 'never'}</td>
-            <td class="cell-mono">${new Date(t.created_at * 1000).toLocaleDateString()}</td>
-            <td class="cell-mono">${t.last_used ? new Date(t.last_used * 1000).toLocaleDateString() : 'never'}</td>
-            <td><div class="cell-actions"><button class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></div></td>
+            <td class="cell-primary">
+              <div class="cell-stack">
+                <span class="cell-title cell-nowrap">${esc(t.name)}${t.oauth_client_id ? ` <span class="badge badge-vio" title="Issued by signing in from an app (OAuth); refreshes itself">Connected app</span>` : ''}</span>
+                <span class="cell-sub">Created ${esc(formatDate(t.created_at))}</span>
+              </div>
+            </td>
+            <td data-label="Role"><span class="badge badge-neutral">${esc(t.role || 'admin')}</span></td>
+            <td data-label="Sites">${renderTokenScope(t.site_scope)}</td>
+            <td data-label="Expires" class="cell-nowrap">${t.expires_at ? esc(timeAgo(t.expires_at)) : '<span class="cell-muted">Never</span>'}</td>
+            <td data-label="Last used" class="cell-nowrap">${t.last_used ? esc(timeAgo(t.last_used)) : '<span class="cell-muted">Never</span>'}</td>
+            <td><div class="cell-actions"><button type="button" class="btn btn-sm btn-danger" data-revoke="${t.id}">Revoke…</button></div></td>
           </tr>`).join('')}
       </tbody>
-    </table>
-    </div>`;
+    </table>`;
   list.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ok = await confirmDialog({
@@ -3169,9 +3252,11 @@ function renderImageStatus(st) {
     ? `<span class="badge badge-warn">${outdated.length} outdated</span><span><strong>${outdated.length}</strong> of ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run an older image or still sit on the shared network.</span>`
     : `<span class="badge badge-ok">Up to date</span><span>All ${tracked.length} container${tracked.length !== 1 ? 's' : ''} run the newest locally available image. Pull to check the registry.</span>`;
   list.innerHTML = st.sites.map(x => `
-    <div class="img-update-row">
-      <span class="img-update-name" title="${esc(x.name)}">${esc(x.name)}</span>
-      <span class="img-update-image">${esc(x.image)}${x.container_image_id ? ` · ${esc(x.container_image_id)}` : ''}</span>
+    <div class="list-row img-update-row">
+      <div class="list-row-main">
+        <span class="list-row-title">${esc(x.name)}</span>
+        <span class="list-row-meta is-mono">${esc(x.image)}${x.container_image_id ? ` · ${esc(x.container_image_id)}` : ''}</span>
+      </div>
       ${x.missing
         ? '<span class="status status-no-container">' + GLYPH + 'No container</span>'
         : x.outdated
@@ -3208,7 +3293,7 @@ function showImageProgress(text, spinning) {
   if (!el) return;
   if (!text) { el.classList.add('hidden'); el.innerHTML = ''; return; }
   el.classList.remove('hidden');
-  el.innerHTML = `${spinning ? '<span class="panel-restart-spinner" aria-hidden="true"></span>' : ''}<span>${esc(text)}</span>`;
+  el.innerHTML = `${spinning ? '<span class="spinner" aria-hidden="true"></span>' : ''}<span>${esc(text)}</span>`;
 }
 
 function pollImageJob() {
@@ -3634,9 +3719,10 @@ function renderNotifList(notifs) {
     <div class="notif-item notif-update notif-unread" id="notif-update-item">
       <span class="notif-icon">${ICON.arrowUp}</span>
       <div class="notif-body">
-        <span class="notif-title">Update available — v${esc(cachedUpdateData.latest)}</span>
-        <span class="notif-detail">Click to install the latest version</span>
+        <span class="notif-title">Grimport ${esc(cachedUpdateData.latest)} is available</span>
+        <span class="notif-detail">Open to install the update.</span>
       </div>
+      <span></span>
     </div>` : '';
 
   const NOTIF_ICONS = {
@@ -3651,13 +3737,13 @@ function renderNotifList(notifs) {
 
     let detailHtml = n.detail ? esc(n.detail) : '';
     if (n.type === 'unknown_domain' && data.domain) {
-      detailHtml += `${detailHtml ? ' — ' : ''}<button type="button" class="notif-link" data-domain="${esc(data.domain)}">connect it</button>`;
+      detailHtml += `${detailHtml ? ' · ' : ''}<button type="button" class="notif-link" data-domain="${esc(data.domain)}">Connect it</button>`;
     }
 
     const actionsHtml = (n.type === 'site_down' && data.siteId) ? `
         <span class="notif-actions">
-          <button class="btn btn-xs btn-danger" data-open-logs="${esc(data.siteId)}">Open logs</button>
-          <button class="btn btn-xs btn-secondary" data-restart-site="${esc(data.siteId)}">Restart</button>
+          <button type="button" class="btn btn-xs" data-open-logs="${esc(data.siteId)}">Open logs</button>
+          <button type="button" class="btn btn-xs" data-restart-site="${esc(data.siteId)}">Restart</button>
         </span>` : '';
 
     return `
@@ -3668,8 +3754,10 @@ function renderNotifList(notifs) {
           ${detailHtml ? `<span class="notif-detail">${detailHtml}</span>` : ''}
           ${actionsHtml}
         </div>
-        <span class="notif-time">${timeAgo(n.created_at)}</span>
-        <button class="notif-dismiss" data-dismiss="${n.id}" title="Dismiss">${ICON.x}</button>
+        <div class="notif-meta">
+          <span class="notif-time">${esc(timeAgo(n.created_at))}</span>
+          <button type="button" class="icon-btn icon-btn-xs notif-dismiss" data-dismiss="${n.id}" title="Dismiss" aria-label="Dismiss">${ICON.x}</button>
+        </div>
       </div>`;
   }).join('');
 
@@ -3749,19 +3837,27 @@ function openConnectDomain(domain) {
   document.getElementById('connect-domain-name').textContent = domain;
   const siteList = document.getElementById('connect-site-list');
   if (!sites.length) {
-    siteList.innerHTML = '<p style="color:var(--tx3)">No sites yet — create one below.</p>';
+    siteList.innerHTML = '<p class="list-empty">No sites yet. Create one above.</p>';
   } else {
     siteList.innerHTML = sites.map(s => `
-      <div class="connect-site-row">
-        <span class="connect-site-name">${esc(s.name)}</span>
-        <span class="connect-site-domain">${esc(s.domain)}</span>
-        <button class="btn btn-sm btn-accent-outline" data-assign-site="${s.id}">Assign…</button>
+      <div class="list-row">
+        <div class="list-row-main">
+          <span class="list-row-title">${esc(s.name)}</span>
+          <span class="list-row-meta is-mono">${esc(s.domain)}</span>
+        </div>
+        <div class="list-row-actions"><button type="button" class="btn btn-sm" data-assign-site="${s.id}">Assign…</button></div>
       </div>`).join('');
     siteList.querySelectorAll('[data-assign-site]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const site = sites.find(s => s.id === btn.dataset.assignSite);
         if (!site) return;
-        if (!confirm(`Change domain of "${site.name}" from "${site.domain}" to "${connectDomain}"?`)) return;
+        const ok = await confirmDialog({
+          title: `Move ${connectDomain} to "${site.name}"?`,
+          body: `The site stops answering on ${site.domain} and serves ${connectDomain} instead. The container restarts briefly.`,
+          confirmLabel: 'Change domain',
+          warn: true,
+        });
+        if (!ok) return;
         try {
           await api('PUT', `/sites/${site.id}`, { name: site.name, domain: connectDomain });
           closeModal('modal-connect-domain');
@@ -3865,41 +3961,39 @@ function renderWebhookList(webhooks) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.zap}</div>
-        <h3>No webhooks yet.</h3>
+        <h3>No webhooks yet</h3>
         <p>Notify chat tools or CI when deploys and outages happen.</p>
       </div>`;
     return;
   }
   list.innerHTML = `
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Enabled</th><th></th></tr></thead>
+    <table class="data-table data-table-stack">
+      <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Enabled</th><th><span class="hidden">Actions</span></th></tr></thead>
       <tbody>
         ${webhooks.map(w => {
           let events = [];
           try { events = JSON.parse(w.events || '[]'); } catch {}
           return `
           <tr>
-            <td>${esc(w.name)}</td>
-            <td class="cell-mono cell-url" title="${esc(w.url)}">${esc(w.url)}</td>
-            <td>${events.map(ev => `<span class="badge badge-neutral">${esc(ev)}</span>`).join(' ')}</td>
-            <td>
+            <td class="cell-primary"><span class="cell-title">${esc(w.name)}</span></td>
+            <td data-label="URL" class="cell-mono cell-url" title="${esc(w.url)}">${esc(w.url)}</td>
+            <td data-label="Events">${events.length ? `<div class="chip-wrap">${events.map(ev => `<span class="badge badge-neutral badge-mono">${esc(ev)}</span>`).join('')}</div>` : '<span class="cell-muted">All events</span>'}</td>
+            <td data-label="Enabled">
               <label class="g-toggle" title="${w.enabled ? 'Enabled' : 'Disabled'}">
-                <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} />
+                <input type="checkbox" class="webhook-toggle" data-id="${w.id}" ${w.enabled ? 'checked' : ''} aria-label="Enabled" />
                 <span class="g-toggle-track"></span>
               </label>
             </td>
             <td>
               <div class="cell-actions">
-                <button class="btn btn-sm" data-test-webhook="${w.id}">Test</button>
-                <button class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete" aria-label="Delete webhook">${ICON.trash}</button>
+                <button type="button" class="btn btn-sm" data-test-webhook="${w.id}">Send test</button>
+                <button type="button" class="btn btn-sm btn-icon-only btn-danger" data-delete-webhook="${w.id}" title="Delete webhook" aria-label="Delete webhook">${ICON.trash}</button>
               </div>
             </td>
           </tr>`;
         }).join('')}
       </tbody>
-    </table>
-    </div>`;
+    </table>`;
 
   list.querySelectorAll('.webhook-toggle').forEach(input => {
     input.addEventListener('change', async () => {
@@ -3970,7 +4064,7 @@ function applyRoleUI() {
   const avatarEl = document.getElementById('sidebar-avatar');
   if (usernameEl) { usernameEl.textContent = display_name || username; usernameEl.title = username; }
   if (roleBadge) { const pr = currentUser.platform_role || role; roleBadge.textContent = pr; roleBadge.dataset.role = pr; }
-  if (avatarEl) avatarEl.textContent = (username || '?').slice(0, 2).toUpperCase();
+  if (avatarEl) avatarEl.textContent = initialsFor({ username, display_name });
 
   // Hide admin-only elements for non-admins (platform role owner/admin)
   if (!isPanelAdmin()) {
@@ -4027,6 +4121,15 @@ function setSettingsRuntime(runtime) {
     b.setAttribute('aria-pressed', String(active));
   });
   document.getElementById('app-config-fields').classList.toggle('hidden', !isApp);
+  document.getElementById('env-vars-section')?.classList.toggle('hidden', !isApp);
+  const descMap = {
+    static: 'Static files served by nginx. Upload a .zip to deploy.',
+    php: 'PHP files served by Apache. Upload a .zip with your PHP app.',
+    node: 'Node.js app. Upload your source .zip; the build command runs on each deploy.',
+    python: 'Python app. Upload your source .zip; the build command runs on each deploy.',
+  };
+  const appDesc = document.getElementById('app-config-desc');
+  if (appDesc) appDesc.textContent = descMap[runtime] || '';
 }
 
 document.getElementById('settings-runtime-seg').addEventListener('click', e => {
@@ -4040,14 +4143,14 @@ function renderEnvVarList(envVars) {
   const list = document.getElementById('env-vars-list');
   const entries = Object.entries(envVars);
   if (!entries.length) {
-    list.innerHTML = '<p class="settings-desc" style="margin-bottom:8px">No variables yet.</p>';
+    list.innerHTML = '<p class="list-empty">No variables yet.</p>';
     return;
   }
   list.innerHTML = entries.map(([k, v], i) => `
-    <div class="env-var-row">
-      <input class="g-input" type="text" placeholder="KEY" value="${esc(k)}" data-env-key data-idx="${i}" />
-      <input class="g-input" type="text" placeholder="Value" value="${esc(v)}" data-env-val data-idx="${i}" />
-      <button class="btn btn-sm btn-icon-only btn-danger" data-remove-env="${i}" title="Remove">${ICON.x}</button>
+    <div class="kv-row env-var-row">
+      <input class="g-input is-mono" type="text" placeholder="KEY" aria-label="Variable name" value="${esc(k)}" data-env-key data-idx="${i}" />
+      <input class="g-input is-mono" type="text" placeholder="value" aria-label="Variable value" value="${esc(v)}" data-env-val data-idx="${i}" />
+      <button type="button" class="btn btn-icon-only btn-danger" data-remove-env="${i}" title="Remove variable" aria-label="Remove variable">${ICON.x}</button>
     </div>`).join('');
   list.querySelectorAll('[data-remove-env]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -4087,14 +4190,6 @@ function populateAppConfigTab(site) {
   if (form.elements['build_cmd']) form.elements['build_cmd'].value = site.build_cmd || '';
   if (form.elements['start_cmd']) form.elements['start_cmd'].value = site.start_cmd || '';
   if (form.elements['app_port']) form.elements['app_port'].value = site.app_port || 3000;
-  const descMap = {
-    static: 'Static files served by nginx. Upload a .zip to deploy.',
-    php: 'PHP files served by Apache. Upload a .zip with your PHP app.',
-    node: 'Node.js app. Upload your source .zip — the build command runs on each deploy.',
-    python: 'Python app. Upload your source .zip — the build command runs on each deploy.',
-  };
-  const appDesc = document.getElementById('app-config-desc');
-  if (appDesc) appDesc.textContent = descMap[runtime] || '';
   let envVars = {};
   try { envVars = JSON.parse(site.env_vars || '{}'); } catch {}
   renderEnvVarList(envVars);
@@ -4133,19 +4228,18 @@ function renderUserList(users) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">${ICON.user}</div>
-        <h3>No users yet.</h3>
-        <p>Invite one to grant access.</p>
+        <h3>No users yet</h3>
+        <p>Invite someone to grant access.</p>
       </div>`;
     return;
   }
   list.innerHTML = `
-    <div class="table-scroll">
-    <table class="data-table">
-      <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Sites</th><th>Last login</th><th></th></tr></thead>
+    <table class="data-table data-table-stack">
+      <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Sites</th><th>Last login</th><th><span class="hidden">Actions</span></th></tr></thead>
       <tbody>
         ${users.map(u => {
           const isSelf = u.id === currentUser.id;
-          const initials = (u.username || '?').slice(0, 2).toUpperCase();
+          const initials = initialsFor(u);
           const ownedSites = u.owned_sites || [];
           const memberSites = u.member_sites || [];
           const isAll = u.sites === 'all';
@@ -4153,30 +4247,31 @@ function renderUserList(users) {
           const siteNames = [...ownedSites, ...memberSites].map(s => s.name).join(', ');
           return `
           <tr>
-            <td>
-              <div class="table-user">
-                <span class="table-avatar">${esc(initials)}</span>
-                <span>${esc(u.display_name || u.username)}${u.display_name ? ` <span class="field-help muted" style="display:inline">@${esc(u.username)}</span>` : ''}</span>
-                ${isSelf ? '<span class="badge badge-neutral">YOU</span>' : ''}
+            <td class="cell-primary">
+              <div class="cell-user">
+                <span class="avatar avatar-sm" aria-hidden="true">${esc(initials)}</span>
+                <div class="cell-stack">
+                  <span class="cell-title">${esc(u.display_name || u.username)}${isSelf ? ' <span class="badge badge-neutral">You</span>' : ''}</span>
+                  ${u.display_name ? `<span class="cell-sub">@${esc(u.username)}</span>` : ''}
+                </div>
               </div>
             </td>
-            <td><span class="badge badge-role-${esc(u.platform_role)}">${esc(u.platform_role)}</span></td>
-            <td>${u.status === 'disabled' ? '<span class="badge badge-err">Disabled</span>' : '<span class="badge badge-ok">Active</span>'}</td>
-            <td>${isAll ? '<span class="badge badge-accent">All sites</span>' : (siteCount ? `<span title="${esc(siteNames)}">${siteCount}</span>` : '<span style="color:var(--tx3)">None</span>')}</td>
-            <td>${u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td>
+            <td data-label="Role"><span class="badge badge-role-${esc(u.platform_role)}">${esc(u.platform_role.charAt(0).toUpperCase() + u.platform_role.slice(1))}</span></td>
+            <td data-label="Status">${u.status === 'disabled' ? '<span class="badge badge-err">Disabled</span>' : '<span class="cell-muted">Active</span>'}</td>
+            <td data-label="Sites" class="num">${isAll ? '<span class="cell-muted">All</span>' : (siteCount ? `<span title="${esc(siteNames)}">${siteCount}</span>` : '<span class="cell-muted">None</span>')}</td>
+            <td data-label="Last login" class="cell-nowrap">${u.last_login_at ? esc(timeAgo(u.last_login_at)) : '<span class="cell-muted">Never</span>'}</td>
             <td>
               ${(!isSelf && u.platform_role !== 'owner') ? `
                 <div class="cell-actions">
-                  <button class="btn btn-sm" data-edit-user="${u.id}">Edit</button>
-                  <button class="btn btn-sm" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === 'disabled' ? 'Enable' : 'Disable'}</button>
-                  <button class="btn btn-sm btn-danger" data-delete-user="${u.id}">Delete…</button>
+                  <button type="button" class="btn btn-sm" data-edit-user="${u.id}">Edit</button>
+                  <button type="button" class="btn btn-sm" data-toggle-user="${u.id}" data-status="${u.status}">${u.status === 'disabled' ? 'Enable' : 'Disable'}</button>
+                  <button type="button" class="btn btn-sm btn-icon-only btn-danger" data-delete-user="${u.id}" title="Delete user" aria-label="Delete ${esc(u.display_name || u.username)}">${ICON.trash}</button>
                 </div>` : ''}
             </td>
           </tr>`;
         }).join('')}
       </tbody>
-    </table>
-    </div>`;
+    </table>`;
 
   list.querySelectorAll('[data-delete-user]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -4321,7 +4416,7 @@ async function openEditUser(userId) {
   const ownerOnly = currentUser.platform_role === 'owner';
   document.querySelectorAll('#edit-user-role-list [data-role-opt="admin"]').forEach(el => el.classList.toggle('hidden', !ownerOnly));
   const adminLocked = user.platform_role === 'admin' && !ownerOnly;
-  document.getElementById('edit-user-admin-hint').style.display = adminLocked ? 'block' : 'none';
+  document.getElementById('edit-user-admin-hint').classList.toggle('hidden', !adminLocked);
   document.querySelectorAll('#edit-user-role-list input[name="role"]').forEach(input => { input.disabled = adminLocked; });
   document.getElementById('form-edit-user').dataset.adminLocked = adminLocked ? '1' : '0';
 
@@ -4391,7 +4486,7 @@ async function loadInvitations() {
     const invites = await api('GET', '/users/invitations');
     renderInvitations(invites);
   } catch (err) {
-    wrap.innerHTML = `<p class="settings-desc" style="color:var(--err)">${esc(err.message)}</p>`;
+    wrap.innerHTML = `<p class="field-help err">${esc(err.message)}</p>`;
   }
 }
 
@@ -4399,16 +4494,16 @@ function renderInvitations(invites) {
   const wrap = document.getElementById('invitations-list');
   const open = invites.filter(i => !i.used_by);
   if (!open.length) {
-    wrap.innerHTML = '<p class="settings-desc muted">No open invitations.</p>';
+    wrap.innerHTML = '<p class="list-empty">No open invitations.</p>';
     return;
   }
   wrap.innerHTML = open.map(i => `
-    <div class="invite-row">
-      <div class="invite-row-main">
-        <span class="invite-row-label">${esc(i.label)} <span class="badge badge-role-${esc(i.platform_role)}">${esc(i.platform_role)}</span></span>
-        <span class="invite-row-meta">${i.expired ? 'Expired' : `Expires ${timeAgo(i.expires_at)}`}</span>
+    <div class="list-row invite-row">
+      <div class="list-row-main">
+        <span class="list-row-title">${esc(i.label)} <span class="badge badge-role-${esc(i.platform_role)}">${esc(i.platform_role.charAt(0).toUpperCase() + i.platform_role.slice(1))}</span></span>
+        <span class="list-row-meta">${i.expired ? 'Expired' : `Link expires ${esc(timeAgo(i.expires_at))}`}</span>
       </div>
-      <button class="btn btn-sm btn-danger" data-revoke-invite="${i.id}">Revoke</button>
+      <div class="list-row-actions"><button type="button" class="btn btn-sm btn-danger" data-revoke-invite="${i.id}">Revoke</button></div>
     </div>`).join('');
   wrap.querySelectorAll('[data-revoke-invite]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -4692,20 +4787,22 @@ function renderDeployments() {
   const seenSites = new Set();
 
   document.getElementById('deployments-tbody').innerHTML = rows.length === 0
-    ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No deployments yet</td></tr>`
+    ? `<tr class="is-empty"><td colspan="5">No deployments yet</td></tr>`
     : rows.map(d => {
       const isCurrent = !seenSites.has(d.site_id);
       seenSites.add(d.site_id);
       return `
     <tr>
-      <td>
-        <span style="font-weight:600;color:var(--tx)">${esc(d.site_name)}</span>
-        <span style="display:block;font-size:11px;color:var(--tx3)">${esc(d.site_domain)}</span>
+      <td class="cell-primary">
+        <div class="cell-stack">
+          <span class="cell-title">${esc(d.site_name)}</span>
+          <span class="cell-sub mono">${esc(d.site_domain)}</span>
+        </div>
       </td>
-      <td class="cell-mono">${esc(d.filename)}</td>
-      <td class="num">${fmtBytes(d.size)}</td>
-      <td>${timeAgo(d.deployed_at)} ${isCurrent ? '<span class="badge badge-ok">CURRENT</span>' : ''}</td>
-      <td class="admin-only${isAdmin ? '' : ' hidden'}">${isAdmin && !isCurrent ? `<button class="btn btn-sm btn-secondary" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button>` : ''}</td>
+      <td data-label="File" class="cell-mono">${esc(d.filename)}</td>
+      <td data-label="Size" class="num">${fmtBytes(d.size)}</td>
+      <td data-label="Deployed" class="cell-nowrap">${esc(timeAgo(d.deployed_at))} ${isCurrent ? '<span class="badge badge-ok">Live</span>' : ''}</td>
+      <td class="admin-only${isAdmin ? '' : ' hidden'}">${isAdmin && !isCurrent ? `<div class="cell-actions"><button type="button" class="btn btn-sm" data-rollback-site="${esc(d.site_id)}" data-rollback-id="${esc(d.id)}">Roll back…</button></div>` : ''}</td>
     </tr>`;
     }).join('');
 
@@ -4815,14 +4912,14 @@ async function loadDomains() {
     };
 
     document.getElementById('domains-tbody').innerHTML = data.length === 0
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--tx3);padding:24px">No sites yet</td></tr>`
+      ? `<tr class="is-empty"><td colspan="5">No sites yet</td></tr>`
       : data.map(s => `
       <tr>
-        <td><a class="site-domain" href="http://${esc(s.domain)}" target="_blank" rel="noopener" style="color:var(--tx)"><span class="site-domain-text">${esc(s.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a></td>
-        <td style="color:var(--tx2)">${esc(s.name)}</td>
-        <td><span class="badge badge-runtime">${esc((s.runtime || 'static').toUpperCase())}</span></td>
-        <td>${s.ssl_enabled ? `<span class="status status-ssl-active">${GLYPH}On</span>` : `<span class="status status-muted">${GLYPH}Off</span>`}</td>
-        <td>${containerStatus(s.container)}</td>
+        <td class="cell-primary"><a class="site-domain" href="http://${esc(s.domain)}" target="_blank" rel="noopener"><span class="site-domain-text">${esc(s.domain)}</span><span class="site-domain-arrow">${ICON.externalLink}</span></a></td>
+        <td data-label="Site">${esc(s.name)}</td>
+        <td data-label="Runtime">${(s.runtime || 'static') === 'static' ? '<span class="cell-muted">Static</span>' : `<span class="badge badge-runtime">${esc(s.runtime.toUpperCase())}</span>`}</td>
+        <td data-label="HTTPS">${s.ssl_enabled ? `<span class="status status-ssl-active">${GLYPH}On</span>` : `<span class="status status-muted">${GLYPH}Off</span>`}</td>
+        <td data-label="Container">${containerStatus(s.container)}</td>
       </tr>`).join('');
 
     document.getElementById('domains-loading').classList.add('hidden');
@@ -4849,29 +4946,26 @@ async function loadDomainRequests() {
   try {
     const reqs = await api('GET', '/domains/requests?status=pending');
     updateDomainsBadge('requests', reqs.length);
-    if (!reqs.length) { wrap.innerHTML = '<p class="settings-desc muted">No pending requests.</p>'; return; }
+    if (!reqs.length) { wrap.innerHTML = '<p class="list-empty">No pending requests.</p>'; return; }
     wrap.innerHTML = `
-      <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr><th>Site</th><th>Current domain</th><th>Requested</th><th>By</th><th>When</th><th></th></tr></thead>
+      <table class="data-table data-table-stack">
+        <thead><tr><th>Site</th><th>Current domain</th><th>Requested domain</th><th>Requested by</th><th><span class="hidden">Actions</span></th></tr></thead>
         <tbody>
           ${reqs.map(r => `
             <tr>
-              <td>${esc(r.site_name)}</td>
-              <td class="cell-mono">${esc(r.current_domain)}</td>
-              <td class="cell-mono">${esc(r.domain)}</td>
-              <td>${esc(r.requested_by_name || '—')}</td>
-              <td>${timeAgo(r.created_at)}</td>
+              <td class="cell-primary"><span class="cell-title">${esc(r.site_name)}</span></td>
+              <td data-label="Current" class="cell-mono">${esc(r.current_domain)}</td>
+              <td data-label="Requested" class="cell-mono">${esc(r.domain)}</td>
+              <td data-label="By" class="cell-nowrap">${esc(r.requested_by_name || '—')} <span class="cell-muted">· ${esc(timeAgo(r.created_at))}</span></td>
               <td>
                 <div class="cell-actions">
-                  <button class="btn btn-sm btn-primary" data-approve-request="${r.id}">Approve</button>
-                  <button class="btn btn-sm btn-danger" data-reject-request="${r.id}">Reject…</button>
+                  <button type="button" class="btn btn-sm btn-danger" data-reject-request="${r.id}">Reject…</button>
+                  <button type="button" class="btn btn-sm btn-primary" data-approve-request="${r.id}">Approve</button>
                 </div>
               </td>
             </tr>`).join('')}
         </tbody>
-      </table>
-      </div>`;
+      </table>`;
     wrap.querySelectorAll('[data-approve-request]').forEach(btn => {
       btn.addEventListener('click', async () => {
         try { await api('POST', `/domains/requests/${btn.dataset.approveRequest}/approve`); toast('Domain approved', 'success'); loadDomains(); }
@@ -4909,8 +5003,8 @@ async function loadDeployReviews() {
         ${findingsHtml(r.findings)}
         <div class="review-actions">
           <a class="btn btn-sm btn-secondary" href="/api/reviews/${esc(r.id)}/download">${ICON.download} Download zip</a>
-          <button class="btn btn-sm btn-primary" data-approve-review="${esc(r.id)}">Approve</button>
-          <button class="btn btn-sm btn-danger" data-reject-review="${esc(r.id)}">Reject…</button>
+          <button type="button" class="btn btn-sm btn-danger" data-reject-review="${esc(r.id)}">Reject…</button>
+          <button type="button" class="btn btn-sm btn-primary" data-approve-review="${esc(r.id)}">Approve</button>
         </div>
       </div>`).join('');
     wrap.querySelectorAll('[data-approve-review]').forEach(btn => {
@@ -4992,6 +5086,7 @@ function renderOverview() {
   document.getElementById('ov-sites-down').textContent = grand.sitesDown;
   const downNames = sites.filter(s => s.currentStatus === 'down').map(s => s.name);
   document.getElementById('ov-sites-down-sub').textContent = downNames.length ? downNames.join(', ') : 'none';
+  document.getElementById('ov-sites-down').closest('.stat-tile')?.classList.toggle('is-alert', grand.sitesDown > 0);
 
   // Sort
   const dir = overviewSortDir === 'asc' ? 1 : -1;
@@ -5015,19 +5110,19 @@ function renderOverview() {
   document.getElementById('overview-tbody').innerHTML = sorted.map(s => `
     <tr class="ov-row is-clickable" data-id="${esc(s.id)}">
       <td>
-        <div class="ov-site-cell">
-          <span class="ov-site-name">${esc(s.name)}</span>
-          <span class="ov-site-domain">${esc(s.domain)}</span>
+        <div class="cell-stack">
+          <span class="cell-title">${esc(s.name)}</span>
+          <span class="cell-sub mono">${esc(s.domain)}</span>
         </div>
       </td>
       <td class="num">${fmtNum(s.requests)}</td>
       <td class="num">${fmtBytes(s.bytes)}</td>
       <td class="num">${fmtNum(s.ok)}</td>
       <td class="num">${fmtNum(s.redirects)}</td>
-      <td class="num cell-emph ${s.client_err > 0 ? 'warn' : ''}">${fmtNum(s.client_err)}</td>
-      <td class="num cell-emph ${s.server_err > 0 ? 'err' : ''}">${fmtNum(s.server_err)}</td>
-      <td class="num ${pctClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '—'}</td>
-      <td class="num">${s.avgLatency !== null ? s.avgLatency + ' ms' : '—'}</td>
+      <td class="num${s.client_err > 0 ? ' cell-emph warn' : ''}">${fmtNum(s.client_err)}</td>
+      <td class="num${s.server_err > 0 ? ' cell-emph err' : ''}">${fmtNum(s.server_err)}</td>
+      <td class="num ${pctClass(s.uptime)}">${s.uptime !== null ? s.uptime + '%' : '<span class="cell-muted">—</span>'}</td>
+      <td class="num">${s.avgLatency !== null ? s.avgLatency + ' ms' : '<span class="cell-muted">—</span>'}</td>
       <td>${statusBadge(s.currentStatus)}</td>
     </tr>
   `).join('');
@@ -5110,7 +5205,7 @@ function renderSettingsUpdateInfo(data) {
   if (!elCurrent) return;
   elCurrent.textContent = `v${data.current}`;
   elLatest.textContent  = `v${data.latest}`;
-  elLatest.className    = `update-version-pill${data.updateAvailable ? ' update-version-pill--new' : ''}`;
+  elLatest.className    = `badge${data.updateAvailable ? ' badge-ok' : ''}`;
   if (data.updateAvailable) {
     elMsg.textContent = `v${data.latest} is available.`;
     if (currentUser.role === 'admin') btnUpdate.classList.remove('hidden');
@@ -5491,7 +5586,6 @@ async function pollUpdateStatus() {
       const reloadBtn = document.createElement('button');
       reloadBtn.type = 'button';
       reloadBtn.className = 'btn btn-xs';
-      reloadBtn.style.marginLeft = '8px';
       reloadBtn.textContent = 'Reload';
       reloadBtn.addEventListener('click', () => {
         try {
@@ -5544,7 +5638,6 @@ async function pollUpdateStatus() {
             const installBtn = document.createElement('button');
             installBtn.type = 'button';
             installBtn.className = 'btn btn-xs';
-            installBtn.style.marginLeft = '8px';
             installBtn.textContent = 'Install';
             installBtn.addEventListener('click', () => {
               try {
@@ -5685,15 +5778,15 @@ async function loadSessionsList() {
     return;
   }
   container.innerHTML = `
-    <table class="sessions-table">
-      <thead><tr><th>Device</th><th>IP</th><th>Last seen</th><th></th></tr></thead>
+    <table class="data-table data-table-stack">
+      <thead><tr><th>Device</th><th>IP address</th><th>Last seen</th><th><span class="hidden">Actions</span></th></tr></thead>
       <tbody>
         ${data.sessions.map(s => `
           <tr>
-            <td>${esc(shortenUa(s.ua))}${s.current ? ' <span class="badge badge-ok">This device</span>' : ''}</td>
-            <td>${esc(s.ip || '—')}</td>
-            <td>${esc(fmtSessionTime(s.last_seen))}</td>
-            <td>${s.current ? '' : `<button type="button" class="btn btn-sm btn-danger" data-revoke-session="${esc(s.sid)}">Revoke</button>`}</td>
+            <td class="cell-primary"><span class="cell-title">${esc(shortenUa(s.ua))}${s.current ? ' <span class="badge badge-ok">This device</span>' : ''}</span></td>
+            <td data-label="IP address" class="cell-mono">${esc(s.ip || '—')}</td>
+            <td data-label="Last seen" class="cell-nowrap" title="${esc(fmtSessionTime(s.last_seen))}">${s.last_seen ? esc(timeAgo(Math.floor(s.last_seen / 1000))) : '—'}</td>
+            <td>${s.current ? '' : `<div class="cell-actions"><button type="button" class="btn btn-sm btn-danger" data-revoke-session="${esc(s.sid)}">Revoke</button></div>`}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;

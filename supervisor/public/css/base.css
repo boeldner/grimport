@@ -1,0 +1,99 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Base — reset, document typography, focus, scrollbars, motion.
+   ══════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--fs-md);
+    line-height: var(--lh-md);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 { font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+  strong, b { font-weight: var(--fw-semibold); }
+  small { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:not([class]):hover { text-decoration: underline; }
+
+  img, svg { display: inline-block; vertical-align: middle; }
+  svg { flex-shrink: 0; }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; }
+  button:disabled { cursor: not-allowed; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent-solid); }
+  ::placeholder { color: var(--text-3); opacity: 1; }
+
+  code, kbd, pre, samp { font-family: var(--font-mono); }
+
+  code {
+    font-size: var(--fs-code-inline);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-xs);
+    background: var(--fill-2);
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    line-height: 1;
+  }
+
+  /* Keyboard focus: one ring, everywhere. Mouse clicks never show it. */
+  :focus { outline: none; }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::selection { background: var(--accent-soft); }
+
+  /* Scrollbars: thin, themed, never a layout-shifting classic bar. */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-full); border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  [hidden], .hidden { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  @keyframes spin    { to { transform: rotate(360deg); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pop-in  { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+  @keyframes slide-in  { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(16px); } }
+  @keyframes pulse   { 0%, 100% { opacity: 1; } 60% { opacity: 0.35; } }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+}

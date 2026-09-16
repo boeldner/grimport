@@ -1,12 +1,16 @@
 // Grimport app-shell service worker. Vanilla, no build step, no deps.
 // Registered from app.js. Bump CACHE to force old caches out on deploy.
-const CACHE = 'grimport-shell-v2';
+const CACHE = 'grimport-shell-v3';
 
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/login.html',
-  '/style.css',
+  '/css/tokens.css',
+  '/css/base.css',
+  '/css/layout.css',
+  '/css/components.css',
+  '/css/views.css',
   '/app.js',
   '/manifest.webmanifest',
   '/offline.html',
